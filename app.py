@@ -12,10 +12,6 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="expanded")
 
-# Generador actualizado para la última versión
-hash_generado = stauth.Hasher.hash_passwords(['Sop2026'])
-st.info(f"Copia este Hash y pégalo abajo: {hash_generado[0]}")
-
 # --- MODO KIOSK Y CSS CORPORATIVO ---
 st.markdown("""
     <style>
@@ -41,12 +37,12 @@ credenciales = {
         "amancebo": {
             "email": "amancebo@abagri.com",
             "name": "Ángel Mancebo",
-            "password": "Sop2026"  # <-- ESCRIBE AQUÍ TU CONTRASEÑA NORMAL (TEXTO PLANO)
+            "password": "Sop2026"
         }
     }
 }
 
-# Esta nueva línea mágica lee el diccionario y encripta tu contraseña automáticamente en la memoria
+# Encriptación automática (sin listas sueltas)
 stauth.Hasher.hash_passwords(credenciales)
 
 authenticator = stauth.Authenticate(
