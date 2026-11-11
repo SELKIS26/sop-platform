@@ -1,0 +1,13 @@
+[theme]
+# Fondo principal y secundario (limpios y ejecutivos)
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8F9FA"
+
+# Color del texto principal
+textColor = "#2C3E50"
+
+# Color primario para botones, sliders y destacados (Azul corporativo)
+primaryColor = "#1E3E5B"
+
+# Fuente corporativa
+font = "sans serif"
