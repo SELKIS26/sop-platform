@@ -12,6 +12,10 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="expanded")
 
+# Pega esto temporalmente para ver tu Hash real
+hash_generado = stauth.Hasher(['Sop2026']).generate()
+st.info(f"Copia este Hash y pégalo abajo: {hash_generado[0]}")
+
 # --- MODO KIOSK Y CSS CORPORATIVO ---
 st.markdown("""
     <style>
