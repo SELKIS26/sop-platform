@@ -41,10 +41,13 @@ credenciales = {
         "amancebo": {
             "email": "amancebo@abagri.com",
             "name": "Ángel Mancebo",
-            "password": "$2b$12$23Rmc6V6DsXAxnTCXRU6Iu4V0G2YAGEG/Bp0JeAPUyLnnn5Y3vrC."
+            "password": "Sop2026"  # <-- ESCRIBE AQUÍ TU CONTRASEÑA NORMAL (TEXTO PLANO)
         }
     }
 }
+
+# Esta nueva línea mágica lee el diccionario y encripta tu contraseña automáticamente en la memoria
+stauth.Hasher.hash_passwords(credenciales)
 
 authenticator = stauth.Authenticate(
     credentials=credenciales,
