@@ -6,8 +6,7 @@ import plotly.express as px
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import io
 import warnings
-
-"password": "$2a$12$23Rmc6V6DsXAxnTCXRU6Iu4V0G2YAGEG/Bp0JeAPUyLnnn5Y3vrC."
+import streamlit_authenticator as stauth
 
 warnings.filterwarnings("ignore")
 
@@ -31,8 +30,44 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 0. DICCIONARIO DE IDIOMAS
+# 0. CONTROL DE ACCESO (LOGIN)
 # ==========================================
+credenciales = {
+    "usernames": {
+        "amancebo": {
+            "email": "amancebo@abagri.com",
+            "name": "Ángel Mancebo",
+            "password": "$2a$12$23Rmc6V6DsXAxnTCXRU6Iu4V0G2YAGEG/Bp0JeAPUyLnnn5Y3vrC."
+        }
+    }
+}
+
+authenticator = stauth.Authenticate(
+    credentials=credenciales,
+    cookie_name="sop_abagri_token",
+    key="abcdef12345", 
+    cookie_expiry_days=30
+)
+
+authenticator.login("main")
+
+if st.session_state["authentication_status"] is False:
+    st.error("❌ Usuario o contraseña incorrectos")
+    st.stop()
+elif st.session_state["authentication_status"] is None:
+    st.warning("🔒 Por favor, introduce tus credenciales para acceder a la plataforma S&OP")
+    st.stop()
+elif st.session_state["authentication_status"]:
+    
+    with st.sidebar:
+        st.markdown(f"👤 **Bienvenido/a, {st.session_state['name']}**")
+        authenticator.logout("Cerrar Sesión", "main")
+        st.divider()
+
+# ==========================================
+# 0. DICCIONARIO DE IDIOMAS (MOTOR DE TRADUCCIÓN)
+# ==========================================
+
 LANGUAGES = ["Español", "English", "Polski", "Dansk"]
 TEXTS = {
     "Español": {
