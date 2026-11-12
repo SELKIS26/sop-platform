@@ -752,66 +752,74 @@ with tab_cap:
                                 st.plotly_chart(fig_cap, use_container_width=True)
 
 with tab_fin:
-if "tab5" not in modulos_permitidos:
-    st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
-else:
-    st.subheader("Financial Valuation & Working Capital (GBP)")
-    if not dict_price: st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
+    if "tab5" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
-            filtro_pl = None
-            if nivel_pl == "Por País": filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
-            elif nivel_pl == "Por Cliente": filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
-            elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
-        with col2:
-            vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
-            
-        if st.button("📈 Calculate Finance"):
-            with st.spinner("Processing P&L (Optimized)..."):
+        st.subheader("Financial Valuation & Working Capital (GBP)")
+        if not dict_price: 
+            st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
+                filtro_pl = None
+                if nivel_pl == "Por País": 
+                    filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
+                elif nivel_pl == "Por Cliente": 
+                    filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
+                elif nivel_pl == "Por SKU": 
+                    filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
+            with col2:
+                vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
                 
-                if nivel_pl == "Por País":
-                    df_fin_target = df[df['País'] == filtro_pl]
-                    group_cols = ['País', 'sku cod']
-                elif nivel_pl == "Por Cliente":
-                    df_fin_target = df[df['customer cod'] == filtro_pl]
-                    group_cols = ['customer cod', 'sku cod']
-                elif nivel_pl == "Por SKU":
-                    df_fin_target = df[df['sku cod'] == filtro_pl]
-                    group_cols = ['sku cod']
-                else:
-                    df_fin_target = df
-                    group_cols = ['sku cod']
-
-                lista_pl = []
-                for keys, df_grupo in df_fin_target.groupby(group_cols):
-                    sku = keys[-1] if isinstance(keys, tuple) else keys
-                    pais = keys[0] if nivel_pl == "Por País" else "Varios"
-                    cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
-
-                    if 'Rev_GBP' in df_grupo.columns:
-                        df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
-                        df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
-                        df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
-                        lista_pl.append(df_hist)
-
-                    serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                    df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
+            if st.button("📈 Calculate Finance"):
+                with st.spinner("Processing P&L (Optimized)..."):
                     
-                    aj_filtro = st.session_state['df_ajustes']
-                    if nivel_pl == "Por País": aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                    elif nivel_pl == "Por Cliente": aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                    else: aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
+                    if nivel_pl == "Por País":
+                        df_fin_target = df[df['País'] == filtro_pl]
+                        group_cols = ['País', 'sku cod']
+                    elif nivel_pl == "Por Cliente":
+                        df_fin_target = df[df['customer cod'] == filtro_pl]
+                        group_cols = ['customer cod', 'sku cod']
+                    elif nivel_pl == "Por SKU":
+                        df_fin_target = df[df['sku cod'] == filtro_pl]
+                        group_cols = ['sku cod']
+                    else:
+                        df_fin_target = df
+                        group_cols = ['sku cod']
 
-                    if not aj_filtro.empty:
-                        aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
-                        for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                            if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
-                    
-                    precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
-                    df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio, 'Margin_GBP': df_fcst['Consenso'].values * margen})
-                    lista_pl.append(df_res)
+                    lista_pl = []
+                    for keys, df_grupo in df_fin_target.groupby(group_cols):
+                        sku = keys[-1] if isinstance(keys, tuple) else keys
+                        pais = keys[0] if nivel_pl == "Por País" else "Varios"
+                        cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
+
+                        if 'Rev_GBP' in df_grupo.columns:
+                            df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
+                            df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
+                            df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
+                            lista_pl.append(df_hist)
+
+                        serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
+                        
+                        aj_filtro = st.session_state['df_ajustes']
+                        if nivel_pl == "Por País": 
+                            aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
+                        elif nivel_pl == "Por Cliente": 
+                            aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
+                        else: 
+                            aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
+
+                        if not aj_filtro.empty:
+                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
+                            for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
+                                if f.replace(day=1) in df_fcst.index: 
+                                    df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
+                        
+                        precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
+                        df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio, 'Margin_GBP': df_fcst['Consenso'].values * margen})
+                        lista_pl.append(df_res)
                         
                     df_plot_pl = pd.concat(lista_pl) if lista_pl else pd.DataFrame()
                     skus_validos = df_fin_target['sku cod'].unique()
