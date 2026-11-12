@@ -1020,4 +1020,62 @@ with tab_fin:
                 ])
                 fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero Consolidado en GBP", yaxis_title="GBP (£)")
                 st.plotly_chart(fig_wi, use_container_width=True)
-
+# --- EXPORTACIÓN A PDF DIRECTIVO ---
+            st.divider()
+            st.markdown("### 📥 Exportar Informe Directivo")
+            
+            # Importar la librería dentro del módulo para evitar bloqueos
+            from fpdf import FPDF
+            
+            # Crear el documento PDF en memoria
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", size=12)
+            
+            # Cabecera
+            pdf.set_font("Arial", 'B', 16)
+            pdf.set_text_color(30, 62, 91) # Azul corporativo AB Agri
+            pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
+            pdf.set_font("Arial", size=10)
+            pdf.set_text_color(100, 100, 100)
+            pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C')
+            pdf.ln(10)
+            
+            # 1. Parámetros del Shock
+            pdf.set_font("Arial", 'B', 12)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
+            pdf.set_font("Arial", size=11)
+            pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
+            pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
+            pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True)
+            pdf.ln(5)
+            
+            # 2. Impacto Financiero
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
+            pdf.set_font("Arial", size=11)
+            pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
+            pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {tot_rev_sim - tot_rev_base:,.0f})", ln=True)
+            pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
+            pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True)
+            pdf.ln(2)
+            
+            # Resaltar el impacto final
+            pdf.set_font("Arial", 'B', 12)
+            if tot_mar_sim >= tot_mar_base:
+                pdf.set_text_color(0, 128, 0) # Verde si ganamos margen
+            else:
+                pdf.set_text_color(200, 0, 0) # Rojo si perdemos margen
+            pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {tot_mar_sim - tot_mar_base:,.0f}", ln=True)
+            
+            # Compilar el PDF a bytes
+            pdf_bytes = pdf.output()
+            
+            st.download_button(
+                label="📄 Descargar Resumen PDF",
+                data=pdf_bytes,
+                file_name="SOP_WhatIf_Analysis.pdf",
+                mime="application/pdf",
+                type="primary"
+            )
