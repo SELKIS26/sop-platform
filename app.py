@@ -96,7 +96,7 @@ elif st.session_state["authentication_status"]:
     
     # --- SISTEMA DE PERMISOS (ROLES) ---
     PERMISOS = {
-        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9"], 
+        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"], 
         "borja": ["tab0", "tab2"] 
     }
     modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
@@ -129,7 +129,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Idioma / Language",
         "tab0": "📖 0. Guía", "tab1": "📊 1. Demanda", "tab2": "🏭 2. Producción", 
-        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones", "tab9": "🔀 9. What-If",
+        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard"
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa (Estándar APICS)",
@@ -145,7 +145,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Demand", "tab2": "🏭 2. Production", 
-        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
+        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard"
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform (APICS Standard)",
@@ -161,7 +161,7 @@ TEXTS = {
         "title": "Platforma S&OP i Planowania",
         "sidebar_lang": "🌐 Język / Language",
         "tab0": "📖 0. Przewodnik", "tab1": "📊 1. Popyt", "tab2": "🏭 2. Produkcja", 
-        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
+        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard"
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik (Standard APICS)",
@@ -177,7 +177,7 @@ TEXTS = {
         "title": "S&OP Eksekveringsplatform",
         "sidebar_lang": "🌐 Sprog / Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Efterspørgsel", "tab2": "🏭 2. Produktion", 
-        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
+        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard"
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide (APICS Standard)",
@@ -485,8 +485,8 @@ LAYOUT_STYLE = dict(
 # ==========================================
 # PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If")
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If"), t.get("tab10", "📊 10. Dashboard")
 ])
 
 # ==========================================
@@ -1062,24 +1062,78 @@ with tab_fin:
                 type="primary"
             )
 # ==========================================
-# KPIs GLOBALES EN SIDEBAR
+# MODULO 10: EXECUTIVE DASHBOARD (KPIs)
 # ==========================================
-# Lo colocamos al final para asegurar que df y df_abcxyz_global ya existen
-with st.sidebar:
-    st.markdown("### 📊 Global S&OP KPIs")
-    if 'df' in locals() and df is not None and not df.empty:
-        kpi_skus = df['sku cod'].nunique()
-        kpi_vol = df['volume'].sum()
-        
-        pct_ax = 0
-        if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
-            ax_skus = df_abcxyz_global[df_abcxyz_global['Clase'] == 'AX']['sku cod'].count()
-            pct_ax = (ax_skus / kpi_skus * 100) if kpi_skus > 0 else 0
-
-        st.metric("Total SKUs Activos", f"{kpi_skus}")
-        st.metric("Volumen Histórico", f"{kpi_vol:,.0f} Kg")
-        st.metric("% SKUs Clase AX", f"{pct_ax:.1f}%")
+with tab_kpis:
+    if "tab10" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al Dashboard de KPIs.")
     else:
-        st.info("Sube datos para ver los KPIs")
+        st.subheader("📊 Executive Dashboard & Global KPIs")
+        st.markdown("Visión corporativa consolidada: Histórico (Last 12 Months) vs Plan S&OP (Next 12 Months).")
         
-    st.divider()
+        if 'df' in locals() and df is not None and not df.empty and 'dict_price' in locals() and dict_price:
+            with st.spinner("Calculando consolidación financiera global L12M vs N12M..."):
+                
+                # 1. Total SKUs y Clientes por País
+                total_skus = df['sku cod'].nunique()
+                df_clientes = df.groupby('País')['customer cod'].nunique().reset_index()
+                df_clientes.columns = ['País', 'Clientes Activos']
+                total_clientes = df_clientes['Clientes Activos'].sum()
+                
+                st.markdown("#### 🌍 Estructura Comercial")
+                col_e1, col_e2, col_e3 = st.columns(3)
+                col_e1.metric("SKUs Activos (PT)", f"{total_skus}")
+                col_e2.metric("Total Clientes Globales", f"{total_clientes}")
+                
+                with col_e3:
+                    st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), use_container_width=True, hide_index=True)
+                
+                # 2. Cálculos Históricos (L12M)
+                max_date = df['Date'].max()
+                min_date_12m = max_date - pd.DateOffset(months=11)
+                df_12m = df[df['Date'] >= min_date_12m].copy()
+                
+                vol_12m_hist = df_12m['volume'].sum()
+                
+                dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
+                df_12m['Precio'] = df_12m['sku cod'].map(dict_price).fillna(0)
+                df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
+                df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
+                df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
+                
+                rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
+                mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
+                
+                # 3. Cálculos Forecast (N12M)
+                vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = 0, 0, 0
+                
+                for sku in df['sku cod'].unique():
+                    serie = df[df['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                    fcst = calcular_forecast(limpiar_anomalias(serie) if usar_limpieza_outliers else serie, 12)
+                    
+                    vol_sku = fcst.head(12).sum()
+                    precio = dict_price.get(sku, 0)
+                    margen = dict_margin.get(sku, 0)
+                    moneda = str(dict_currency.get(sku, 'EUR')).strip().upper()
+                    tasa = dict_fx.get(moneda, 1.0)
+                    
+                    vol_12m_fcst += vol_sku
+                    rev_12m_fcst += vol_sku * precio * tasa
+                    mar_12m_fcst += vol_sku * margen * tasa
+                    
+                # 4. Renderizado de la Comparativa
+                st.divider()
+                st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
+                
+                col_h1, col_h2, col_h3 = st.columns(3)
+                col_h1.metric("Volumen Histórico L12M", f"{vol_12m_hist:,.0f} Kg")
+                col_h2.metric("Revenue Histórico L12M", f"£ {rev_12m_hist:,.0f}")
+                col_h3.metric("Margen Histórico L12M", f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist/rev_12m_hist*100) if rev_12m_hist else 0:.1f}%)")
+                
+                col_f1, col_f2, col_f3 = st.columns(3)
+                col_f1.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{vol_12m_fcst - vol_12m_hist:,.0f} Kg vs L12M")
+                col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"£ {rev_12m_fcst - rev_12m_hist:,.0f} vs L12M")
+                col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"£ {mar_12m_fcst - mar_12m_hist:,.0f} vs L12M")
+                
+        else:
+            st.info("⚠️ Sube tu archivo de Ventas y de Finanzas para que el Dashboard pueda consolidar los datos.")
