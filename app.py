@@ -484,6 +484,25 @@ LAYOUT_STYLE = dict(
 )
 
 # ==========================================
+# OPTIMIZACIÓN DE RENDIMIENTO: TOPE HISTÓRICO (24 MESES)
+# ==========================================
+if 'df' in locals() and df is not None and not df.empty:
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    fecha_maxima = df['Date'].max()
+    fecha_corte = fecha_maxima - pd.DateOffset(months=24)
+    df = df[df['Date'] >= fecha_corte].copy()
+    
+    # También recortamos df_final si ya existe para que los filtros vayan rápido
+    if 'df_final' in locals() and df_final is not None and not df_final.empty:
+        df_final['Date'] = pd.to_datetime(df_final['Date'], errors='coerce')
+        df_final = df_final[df_final['Date'] >= fecha_corte].copy()
+
+# --- DEFINICIÓN DE PESTAÑAS ---
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If"), t.get("tab10", "📊 10. Dashboard")
+])
+
+# ==========================================
 # PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
