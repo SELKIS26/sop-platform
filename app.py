@@ -90,7 +90,7 @@ elif st.session_state["authentication_status"]:
         
 with st.sidebar.expander("📲 Compartir App (QR)"):
         st.caption("Escanea para entrar desde móvil:")
-        enlace_app = "https://pon-aqui-tu-enlace-real.streamlit.app"
+        enlace_app = "https://sop-mancew.streamlit.app/"
         img_qr = qrcode.make(enlace_app)
         buf = io.BytesIO()
         img_qr.save(buf, format="PNG")
