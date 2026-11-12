@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px  # <-- AÑADIR ESTA LÍNEA PARA EL GRÁFICO DE BURBUJAS
 import plotly.express as px
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import io
@@ -849,34 +850,75 @@ with tab_fin:
                 st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
             else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
 
-    # ==========================================
-    # MODULO 7: MATRIZ ABC / XYZ
-    # ==========================================
-    with tab_abc:
-        if "tab7" not in modulos_permitidos:
-            st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
-        else:
-            st.subheader("Segmentación Estratégica ABC / XYZ (Informativo)")
-            st.markdown("Clasificación basada en **Volumen Acumulado (ABC)** y **Volatilidad de la Demanda (XYZ)**.")
+   # ==========================================
+# MODULO 7: MATRIZ ABC / XYZ (ESTRATÉGICO)
+# ==========================================
+with tab_abc:
+    if "tab7" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
+    else:
+        st.subheader("🔠 Segmentación Estratégica ABC / XYZ")
+        
+        if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
+            df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
             
-            if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
-                df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
+            # --- NUEVO: GRÁFICO DE BURBUJAS (RIESGO VS RENTABILIDAD) ---
+            if 'dict_margin' in locals() and dict_margin:
+                st.markdown("### 🫧 Matriz de Riesgo vs Rentabilidad")
+                st.markdown("Identifica visualmente las 'Estrellas' (rentables y estables) frente a los 'Tóxicos' (bajo margen y altamente erráticos).")
                 
-                col_mat1, col_mat2 = st.columns([1, 2])
-                with col_mat1:
-                    st.markdown("#### Matriz de Distribución")
-                    resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
-                    resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
-                    st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
-                    st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
-                    st.caption("X: Estable | Y: Variable | Z: Errático")
-                    
-                with col_mat2:
-                    st.markdown("#### Detalle de SKUs")
-                    filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
-                    df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
-                    st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
+                df_abcxyz_show['Margen Unitario'] = df_abcxyz_show['sku cod'].map(dict_margin).fillna(0)
+                df_plot = df_abcxyz_show[df_abcxyz_show['volume'] > 0].copy()
+                
+                fig_bubble = px.scatter(
+                    df_plot,
+                    x='CV',
+                    y='Margen Unitario',
+                    size='volume',
+                    color='Clase',
+                    hover_name='sku desc',
+                    hover_data={'sku cod': True, 'CV': ':.2f', 'Margen Unitario': ':.2f', 'volume': ':,.0f', 'Clase': False},
+                    labels={"CV": "Riesgo / Volatilidad (CV)", "Margen Unitario": "Margen Bruto Unitario (£)", "volume": "Volumen (Kg)"},
+                    size_max=45,
+                    color_discrete_sequence=px.colors.qualitative.Bold
+                )
+                
+                # Líneas divisorias de volatilidad (0.5 y 1.0 separan X, Y, Z) y media de margen
+                fig_bubble.add_vline(x=0.5, line_width=1, line_dash="dash", line_color="gray", annotation_text="X | Y")
+                fig_bubble.add_vline(x=1.0, line_width=1, line_dash="dash", line_color="gray", annotation_text="Y | Z")
+                margen_medio = df_plot['Margen Unitario'].median()
+                fig_bubble.add_hline(y=margen_medio, line_width=1, line_dash="dash", line_color="gray", annotation_text="Margen Medio")
+                
+                fig_bubble.update_layout(
+                    plot_bgcolor='white',
+                    height=500,
+                    margin=dict(l=20, r=20, t=30, b=20)
+                )
+                fig_bubble.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                fig_bubble.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                
+                st.plotly_chart(fig_bubble, use_container_width=True)
+                st.info("👈 **Cuadrante Superior Izquierdo:** Estrellas (Alto Margen, Demanda Estable). 👉 **Cuadrante Inferior Derecho:** Tóxicos (Bajo Margen, Demanda Errática).")
+                st.divider()
 
+            # --- TABLA Y RESUMEN ORIGINAL ---
+            col_mat1, col_mat2 = st.columns([1, 2])
+            with col_mat1:
+                st.markdown("#### Distribución de SKUs")
+                resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
+                resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
+                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
+                
+            with col_mat2:
+                st.markdown("#### Detalle de Clasificación")
+                filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
+                df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
+                st.dataframe(
+                    df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
+                    .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
+                    .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
+                    use_container_width=True
+                )
     # ==========================================
     # MODULO 8: PANEL DE EXCEPCIONES (AUTOMATIZADO)
     # ==========================================
