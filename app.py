@@ -195,7 +195,7 @@ TEXTS = {
 if 'lang' not in st.session_state: st.session_state['lang'] = 'Español'
 
 with st.sidebar:
-    st.markdown("### 🏢 **ManceW Supply Chain**")
+
     st.divider()
     st.session_state['lang'] = st.selectbox(TEXTS[st.session_state['lang']]["sidebar_lang"], LANGUAGES, index=LANGUAGES.index(st.session_state['lang']))
     
