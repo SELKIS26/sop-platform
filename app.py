@@ -863,158 +863,73 @@ with tab_abc:
                     st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
 
 # ==========================================
-# MODULO 8: PANEL DE EXCEPCIONES (ALERTAS)
-# ==========================================
-with tab_exc:
-    if "tab8" not in modulos_permitidos:
-        st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
-    else:
-        st.subheader("🚨 Panel de Excepciones (Management by Exception)")
-        st.markdown("Escáner automático del horizonte M+1 para detectar **roturas inminentes** y **excesos de inventario**.")
-        
-        if st.button("🔍 Ejecutar Escáner Global S&OP", type="primary"):
-            with st.spinner("Analizando miles de registros de Demanda y MRP..."):
-                # Fecha del Mes 1 (El mes actual/próximo de ejecución)
-                mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-                
-                mps_g = generar_mps_global()
-                mrp_g = generar_mrp_global()
-                
-                alertas_pt = []
-                alertas_mp = []
-                
-                # 1. Escanear Producto Terminado (FG)
-                if mps_g:
-                    for sku, plan in mps_g.items():
-                        if mes_1_fecha in plan.index:
-                            datos_m1 = plan.loc[mes_1_fecha]
-                            # Alerta Rotura: Stock < 0 o DOH menor a 15 días
-                            if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
-                                alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
-                            # Alerta Exceso: DOH mayor a 90 días (y que no sea infinito=999)
-                            elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
-                                alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
-
-                # 2. Escanear Materia Prima (RM)
-                if not mrp_g.empty:
-                    mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
-                    for _, row in mrp_m1.iterrows():
-                        if row['Stock_Final'] <= 0 or row['DOH'] < 15:
-                            alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
-                        elif row['DOH'] > 90 and row['DOH'] != 999:
-                            alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
-
-                # Renderizado Visual
-                col_ex1, col_ex2 = st.columns(2)
-                
-                with col_ex1:
-                    st.markdown("#### 📦 Excepciones: Producto Terminado")
-                    if alertas_pt:
-                        df_al_pt = pd.DataFrame(alertas_pt)
-                        st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
-                    else:
-                        st.success("✅ Stock de PT balanceado para el Mes 1. Sin alertas.")
-                        
-                with col_ex2:
-                    st.markdown("#### 🧩 Excepciones: Materias Primas")
-                    if alertas_mp:
-                        df_al_mp = pd.DataFrame(alertas_mp)
-                        st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
-                    else:
-                        st.success("✅ Stock de MP balanceado para el Mes 1. Sin alertas.")
-
-# ==========================================
-# MODULO 9: S&OP COPILOT (IA) - INACTIVO/OCULTO
-# ==========================================
-'''
-    with tab_ia:
+    # MODULO 8: PANEL DE EXCEPCIONES (ALERTAS)
+    # ==========================================
+    with tab_exc:
         if "tab8" not in modulos_permitidos:
-            st.warning("🔒 No tienes permisos para usar la IA.")
+            st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
         else:
-            st.subheader("🤖 S&OP AI Copilot")
-            st.markdown("Tu asistente inteligente ahora lee un resumen cruzado de tus ventas, stock y segmentación en tiempo real.")
+            st.subheader("🚨 Panel de Excepciones (Management by Exception)")
+            st.markdown("Escáner automático del horizonte M+1 para detectar **roturas inminentes** y **excesos de inventario**.")
             
-            api_key = st.text_input("🔑 Introduce tu API Key de OpenAI (sk-...):", type="password")
-            
-            if api_key:
-                try:
-                    from openai import OpenAI
-                    client = OpenAI(api_key=api_key)
+            if st.button("🔍 Ejecutar Escáner Global S&OP", type="primary"):
+                with st.spinner("Analizando miles de registros de Demanda y MRP..."):
+                    # Fecha del Mes 1 (El mes actual/próximo de ejecución)
+                    mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
                     
-                    if "mensajes_chat" not in st.session_state:
-                        st.session_state.mensajes_chat = []
-                        
-                    # Mostrar historial
-                    for msg in st.session_state.mensajes_chat:
-                        with st.chat_message(msg["role"]): 
-                            st.markdown(msg["content"])
+                    mps_g = generar_mps_global()
+                    mrp_g = generar_mrp_global()
+                    
+                    alertas_pt = []
+                    alertas_mp = []
+                    
+                    # 1. Escanear Producto Terminado (FG)
+                    if mps_g:
+                        for sku, plan in mps_g.items():
+                            if mes_1_fecha in plan.index:
+                                datos_m1 = plan.loc[mes_1_fecha]
+                                # Alerta Rotura: Stock < 0 o DOH menor a 15 días
+                                if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
+                                    alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+                                # Alerta Exceso: DOH mayor a 90 días (y que no sea infinito=999)
+                                elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
+                                    alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+
+                    # 2. Escanear Materia Prima (RM)
+                    if not mrp_g.empty:
+                        mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
+                        for _, row in mrp_m1.iterrows():
+                            if row['Stock_Final'] <= 0 or row['DOH'] < 15:
+                                alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+                            elif row['DOH'] > 90 and row['DOH'] != 999:
+                                alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+
+                    # Renderizado Visual
+                    col_ex1, col_ex2 = st.columns(2)
+                    
+                    with col_ex1:
+                        st.markdown("#### 📦 Excepciones: Producto Terminado")
+                        if alertas_pt:
+                            df_al_pt = pd.DataFrame(alertas_pt)
+                            st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                        else:
+                            st.success("✅ Stock de PT balanceado para el Mes 1. Sin alertas.")
                             
-                    if prompt := st.chat_input("Ej: ¿Cuántos productos tenemos en clase AX? o ¿Cuál es mi producto con más volumen?"):
-                        st.session_state.mensajes_chat.append({"role": "user", "content": prompt})
-                        with st.chat_message("user"): 
-                            st.markdown(prompt)
-                            
-                        # --- INYECCIÓN DE DATOS (EL CEREBRO DE LA IA) ---
-                        
-                        # 1. Inyectar Top 15 Ventas Históricas
-                        top_vol = "Sin datos"
-                        if df is not None and not df.empty:
-                            top_vol = df.groupby('sku cod')['volume'].sum().sort_values(ascending=False).head(15).reset_index().to_string(index=False)
-                            
-                        # 2. Inyectar Top 15 Stock Inicial
-                        stock_text = "Sin datos de stock"
-                        if df_stock is not None and not df_stock.empty and 'sku cod' in df_stock.columns and 'stock_disponible' in df_stock.columns:
-                            stock_text = df_stock[['sku cod', 'stock_disponible']].sort_values(by='stock_disponible', ascending=False).head(15).to_string(index=False)
-                        
-                        # 3. Inyectar Segmentación ABC/XYZ (Agrupada y Extremos)
-                        abc_text = "Segmentación no calculada en la memoria."
-                        try:
-                            if not df_abcxyz.empty:
-                                conteo_clases = df_abcxyz.groupby('Clase')['sku cod'].count().to_string()
-                                extremos = df_abcxyz[df_abcxyz['Clase'].isin(['AX', 'CZ'])][['sku cod', 'Clase', 'volume']].sort_values('volume', ascending=False).head(15).to_string(index=False)
-                                abc_text = f"CANTIDAD DE SKUs POR CLASE:\n{conteo_clases}\n\nTOP 15 PRODUCTOS CRÍTICOS (AX y CZ):\n{extremos}"
-                        except Exception:
-                            pass
-                        
-                        # Construcción del Prompt del Sistema
-                        contexto_sistema = f"""
-                        Eres el Director de S&OP de AB Agri. Responde de forma ejecutiva, concisa y analítica.
-                        No digas "según los datos proporcionados", actúa como si estuvieras viendo el ERP corporativo en tu pantalla.
-                        
-                        DATOS ACTUALES DEL SISTEMA S&OP EN TIEMPO REAL:
-                        
-                        1. VENTAS HISTÓRICAS (TOP 15 SKUs con más volumen):
-                        {top_vol}
-                        
-                        2. INVENTARIO ACTUAL (TOP 15 SKUs con más stock):
-                        {stock_text}
-                        
-                        3. MATRIZ ABC/XYZ:
-                        {abc_text}
-                        
-                        REGLAS DE NEGOCIO AB AGRI:
-                        - Productos AX: Demanda estable y alto volumen -> Recomienda política Make to Stock (MTS).
-                        - Productos CZ: Demanda errática y bajo volumen -> Recomienda política Make to Order (MTO).
-                        
-                        Cruza estos datos para responder a la pregunta del usuario. Si pregunta por un SKU específico que está en la lista, dale sus cifras exactas.
-                        """
-                        
-                        mensajes_api = [{"role": "system", "content": contexto_sistema}] + st.session_state.mensajes_chat
-                        
-                        with st.chat_message("assistant"):
-                            with st.spinner("Analizando matrices del S&OP..."):
-                                response = client.chat.completions.create(
-                                    model="gpt-4o-mini",
-                                    messages=mensajes_api,
-                                    temperature=0.3 # Temperatura baja para que sea analítico y no invente datos
-                                )
-                                respuesta_ia = response.choices[0].message.content
-                                st.markdown(respuesta_ia)
-                                
-                        st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_ia})
-                except Exception as e:
-                    st.error(f"Error de conexión con OpenAI: Comprueba tu conexión o tu API Key. Detalle: {e}")
-            else:
-                st.info("💡 Introduce tu API Key para activar el cerebro analítico de la aplicación.")
+                    with col_ex2:
+                        st.markdown("#### 🧩 Excepciones: Materias Primas")
+                        if alertas_mp:
+                            df_al_mp = pd.DataFrame(alertas_mp)
+                            st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                        else:
+                            st.success("✅ Stock de MP balanceado para el Mes 1. Sin alertas.")
+
+    # ==========================================
+    # MODULO 9: S&OP COPILOT (IA) - INACTIVO/OCULTO
+    # ==========================================
+    # Para reactivar la IA en el futuro, solo tienes que quitar las 
+    # almohadillas de este bloque y asegurar que tab_ia existe arriba.
+    #
+    # with tab_ia:
+    #     st.subheader("🤖 S&OP AI Copilot")
+    #     st.info("Módulo en reserva para futuras implementaciones.")
             st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
-'''
