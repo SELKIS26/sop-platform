@@ -1071,16 +1071,17 @@ with tab_kpis:
         st.subheader("📊 Executive Dashboard & Global KPIs")
         st.markdown("Visión corporativa consolidada: Histórico (Last 12 Months) vs Plan S&OP (Next 12 Months).")
         
-        if 'df' in locals() and df is not None and not df.empty and 'dict_price' in locals() and dict_price:
+        # --- CONEXIÓN A LOS FILTROS: Usamos df_final en lugar de df ---
+        if 'df_final' in locals() and df_final is not None and not df_final.empty and 'dict_price' in locals() and dict_price:
             with st.spinner("Calculando consolidación financiera global L12M vs N12M..."):
                 
                 # 1. Total SKUs y Clientes por País
-                total_skus = df['sku cod'].nunique()
-                df_clientes = df.groupby('País')['customer cod'].nunique().reset_index()
+                total_skus = df_final['sku cod'].nunique()
+                df_clientes = df_final.groupby('País')['customer cod'].nunique().reset_index()
                 df_clientes.columns = ['País', 'Clientes Activos']
                 total_clientes = df_clientes['Clientes Activos'].sum()
                 
-                st.markdown("#### 🌍 Estructura Comercial")
+                st.markdown("#### 🌍 Estructura Comercial (Datos Filtrados)")
                 col_e1, col_e2, col_e3 = st.columns(3)
                 col_e1.metric("SKUs Activos (PT)", f"{total_skus}")
                 col_e2.metric("Total Clientes Globales", f"{total_clientes}")
@@ -1089,9 +1090,9 @@ with tab_kpis:
                     st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), use_container_width=True, hide_index=True)
                 
                 # 2. Cálculos Históricos (L12M)
-                max_date = df['Date'].max()
+                max_date = df_final['Date'].max()
                 min_date_12m = max_date - pd.DateOffset(months=11)
-                df_12m = df[df['Date'] >= min_date_12m].copy()
+                df_12m = df_final[df_final['Date'] >= min_date_12m].copy()
                 
                 vol_12m_hist = df_12m['volume'].sum()
                 
@@ -1107,8 +1108,8 @@ with tab_kpis:
                 # 3. Cálculos Forecast (N12M)
                 vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = 0, 0, 0
                 
-                for sku in df['sku cod'].unique():
-                    serie = df[df['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                for sku in df_final['sku cod'].unique():
+                    serie = df_final[df_final['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
                     fcst = calcular_forecast(limpiar_anomalias(serie) if usar_limpieza_outliers else serie, 12)
                     
                     vol_sku = fcst.head(12).sum()
@@ -1137,3 +1138,4 @@ with tab_kpis:
                 
         else:
             st.info("⚠️ Sube tu archivo de Ventas y de Finanzas para que el Dashboard pueda consolidar los datos.")
+       
