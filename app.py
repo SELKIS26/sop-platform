@@ -130,7 +130,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Idioma / Language",
         "tab0": "📖 0. Guía", "tab1": "📊 1. Demanda", "tab2": "🏭 2. Producción", 
-        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
+        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones",
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa (Estándar APICS)",
@@ -146,7 +146,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Demand", "tab2": "🏭 2. Production", 
-        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
+        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions",
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform (APICS Standard)",
@@ -162,7 +162,7 @@ TEXTS = {
         "title": "Platforma S&OP i Planowania",
         "sidebar_lang": "🌐 Język / Language",
         "tab0": "📖 0. Przewodnik", "tab1": "📊 1. Popyt", "tab2": "🏭 2. Produkcja", 
-        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
+        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. Wyjątki",
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik (Standard APICS)",
@@ -178,7 +178,7 @@ TEXTS = {
         "title": "S&OP Eksekveringsplatform",
         "sidebar_lang": "🌐 Sprog / Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Efterspørgsel", "tab2": "🏭 2. Produktion", 
-        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
+        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Undtagelser",
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide (APICS Standard)",
@@ -461,8 +461,8 @@ LAYOUT_STYLE = dict(
 # ==========================================
 # PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_ia = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🤖 8. IA Copilot")
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc = st.tabs([
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones")
 ])
 
 with tab_guia:
@@ -863,7 +863,69 @@ with tab_abc:
                     st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
 
 # ==========================================
-    # MODULO 8: S&OP COPILOT (IA) - VERSIÓN CONTEXTO PROFUNDO
+# MODULO 8: PANEL DE EXCEPCIONES (ALERTAS)
+# ==========================================
+with tab_exc:
+    if "tab8" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
+    else:
+        st.subheader("🚨 Panel de Excepciones (Management by Exception)")
+        st.markdown("Escáner automático del horizonte M+1 para detectar **roturas inminentes** y **excesos de inventario**.")
+        
+        if st.button("🔍 Ejecutar Escáner Global S&OP", type="primary"):
+            with st.spinner("Analizando miles de registros de Demanda y MRP..."):
+                # Fecha del Mes 1 (El mes actual/próximo de ejecución)
+                mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
+                
+                mps_g = generar_mps_global()
+                mrp_g = generar_mrp_global()
+                
+                alertas_pt = []
+                alertas_mp = []
+                
+                # 1. Escanear Producto Terminado (FG)
+                if mps_g:
+                    for sku, plan in mps_g.items():
+                        if mes_1_fecha in plan.index:
+                            datos_m1 = plan.loc[mes_1_fecha]
+                            # Alerta Rotura: Stock < 0 o DOH menor a 15 días
+                            if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
+                                alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+                            # Alerta Exceso: DOH mayor a 90 días (y que no sea infinito=999)
+                            elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
+                                alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+
+                # 2. Escanear Materia Prima (RM)
+                if not mrp_g.empty:
+                    mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
+                    for _, row in mrp_m1.iterrows():
+                        if row['Stock_Final'] <= 0 or row['DOH'] < 15:
+                            alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+                        elif row['DOH'] > 90 and row['DOH'] != 999:
+                            alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+
+                # Renderizado Visual
+                col_ex1, col_ex2 = st.columns(2)
+                
+                with col_ex1:
+                    st.markdown("#### 📦 Excepciones: Producto Terminado")
+                    if alertas_pt:
+                        df_al_pt = pd.DataFrame(alertas_pt)
+                        st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                    else:
+                        st.success("✅ Stock de PT balanceado para el Mes 1. Sin alertas.")
+                        
+                with col_ex2:
+                    st.markdown("#### 🧩 Excepciones: Materias Primas")
+                    if alertas_mp:
+                        df_al_mp = pd.DataFrame(alertas_mp)
+                        st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                    else:
+                        st.success("✅ Stock de MP balanceado para el Mes 1. Sin alertas.")
+
+'''
+# ==========================================
+    # MODULO 9: S&OP COPILOT (IA) - VERSIÓN CONTEXTO PROFUNDO
     # ==========================================
     with tab_ia:
         if "tab8" not in modulos_permitidos:
@@ -955,3 +1017,4 @@ with tab_abc:
             else:
                 st.info("💡 Introduce tu API Key para activar el cerebro analítico de la aplicación.")
             st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
+'''
