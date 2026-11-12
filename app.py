@@ -923,10 +923,10 @@ with tab_exc:
                     else:
                         st.success("✅ Stock de MP balanceado para el Mes 1. Sin alertas.")
 
-'''
 # ==========================================
-    # MODULO 9: S&OP COPILOT (IA) - VERSIÓN CONTEXTO PROFUNDO
-    # ==========================================
+# MODULO 9: S&OP COPILOT (IA) - INACTIVO/OCULTO
+# ==========================================
+'''
     with tab_ia:
         if "tab8" not in modulos_permitidos:
             st.warning("🔒 No tienes permisos para usar la IA.")
