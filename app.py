@@ -752,23 +752,23 @@ with tab_cap:
                                 st.plotly_chart(fig_cap, use_container_width=True)
 
 with tab_fin:
-    if "tab5" not in modulos_permitidos:
-        st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
+if "tab5" not in modulos_permitidos:
+    st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
+else:
+    st.subheader("Financial Valuation & Working Capital (GBP)")
+    if not dict_price: st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
     else:
-        st.subheader("Financial Valuation & Working Capital (GBP)")
-        if not dict_price: st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
-        else:
-            col1, col2 = st.columns(2)
-            with col1:
-                nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
-                filtro_pl = None
-                if nivel_pl == "Por País": filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
-                elif nivel_pl == "Por Cliente": filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
-                elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
-            with col2:
-                vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
-
-          if st.button("📈 Calculate Finance"):
+        col1, col2 = st.columns(2)
+        with col1:
+            nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
+            filtro_pl = None
+            if nivel_pl == "Por País": filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
+            elif nivel_pl == "Por Cliente": filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
+            elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
+        with col2:
+            vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
+            
+        if st.button("📈 Calculate Finance"):
             with st.spinner("Processing P&L (Optimized)..."):
                 
                 if nivel_pl == "Por País":
@@ -790,14 +790,12 @@ with tab_fin:
                     pais = keys[0] if nivel_pl == "Por País" else "Varios"
                     cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
 
-                    # --- HISTÓRICO REAL PARA EL GRÁFICO ---
                     if 'Rev_GBP' in df_grupo.columns:
                         df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
                         df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
                         df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
                         lista_pl.append(df_hist)
 
-                    # --- FORECAST PROYECTADO ---
                     serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
                     df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
                     
