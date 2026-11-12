@@ -97,10 +97,10 @@ elif st.session_state["authentication_status"]:
     # --- SISTEMA DE PERMISOS (ROLES) ---
     # tab0: Guía | tab1: Demanda | tab2: Producción | tab3: Compras
     # tab4: Capacidad | tab5: Finanzas | tab6: Ejecución
-    PERMISOS = {
-        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6"], # Acceso Total
-        "borja": ["tab0", "tab2"] # Borja solo tiene acceso a Guía y Producción
-    }
+   PERMISOS = {
+    "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8"], 
+    "borja": ["tab0", "tab2"] 
+}
     modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
     
     with st.sidebar:
@@ -130,7 +130,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Idioma / Language",
         "tab0": "📖 0. Guía", "tab1": "📊 1. Demanda", "tab2": "🏭 2. Producción", 
-        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP",
+        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa (Estándar APICS)",
@@ -146,7 +146,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Demand", "tab2": "🏭 2. Production", 
-        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution",
+        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform (APICS Standard)",
@@ -162,7 +162,7 @@ TEXTS = {
         "title": "Platforma S&OP i Planowania",
         "sidebar_lang": "🌐 Język / Language",
         "tab0": "📖 0. Przewodnik", "tab1": "📊 1. Popyt", "tab2": "🏭 2. Produkcja", 
-        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP",
+        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik (Standard APICS)",
@@ -178,7 +178,7 @@ TEXTS = {
         "title": "S&OP Eksekveringsplatform",
         "sidebar_lang": "🌐 Sprog / Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Efterspørgsel", "tab2": "🏭 2. Produktion", 
-        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse",
+        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. IA Copilot",
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide (APICS Standard)",
@@ -461,8 +461,8 @@ LAYOUT_STYLE = dict(
 # ==========================================
 # PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"]
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_ia = st.tabs([
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🤖 8. IA Copilot")
 ])
 
 with tab_guia:
@@ -817,3 +817,111 @@ with tab_ejec:
                     df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
                     st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
                 else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+    # ==========================================
+# MODULO 7: MATRIZ ABC / XYZ
+# ==========================================
+with tab_abc:
+    if "tab7" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
+    else:
+        st.subheader("Segmentación Estratégica ABC / XYZ (Informativo)")
+        st.markdown("Clasificación basada en **Volumen Acumulado (ABC)** y **Volatilidad de la Demanda (XYZ)**.")
+        
+        if df is not None and not df.empty:
+            with st.spinner("Calculando variabilidad y pesos..."):
+                # 1. Cálculo ABC (Por Volumen)
+                df_vol = df.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
+                df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
+                df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
+                
+                # 2. Cálculo XYZ (Por Coeficiente de Variación CV = Std / Mean)
+                df_mes = df.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
+                df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
+                df_cv['CV'] = df_cv['std'] / df_cv['mean'].replace(0, 1) # Evitar división por 0
+                df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
+                
+                # 3. Consolidación
+                df_abcxyz = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
+                df_abcxyz['Clase'] = df_abcxyz['ABC'] + df_abcxyz['XYZ']
+                df_abcxyz = pd.merge(df_abcxyz, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
+                
+                col_mat1, col_mat2 = st.columns([1, 2])
+                
+                with col_mat1:
+                    st.markdown("#### Matriz de Distribución")
+                    resumen_matriz = df_abcxyz.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
+                    # Reordenar para que sea A,B,C y X,Y,Z
+                    resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
+                    st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
+                    st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
+                    st.caption("X: Estable | Y: Variable | Z: Errático")
+                    
+                with col_mat2:
+                    st.markdown("#### Detalle de SKUs")
+                    filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz['Clase'].unique()))
+                    df_show_abc = df_abcxyz if not filtro_clase else df_abcxyz[df_abcxyz['Clase'].isin(filtro_clase)]
+                    st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
+
+# ==========================================
+# MODULO 8: S&OP COPILOT (IA)
+# ==========================================
+with tab_ia:
+    if "tab8" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para usar la IA.")
+    else:
+        st.subheader("🤖 S&OP AI Copilot")
+        st.markdown("Tu asistente inteligente para analizar el plan actual. Escribe tu propia clave de OpenAI para empezar a consultar los datos.")
+        
+        api_key = st.text_input("🔑 Introduce tu API Key de OpenAI (sk-...):", type="password")
+        
+        if api_key:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+                
+                if "mensajes_chat" not in st.session_state:
+                    st.session_state.mensajes_chat = []
+                    
+                # Mostrar historial de chat
+                for msg in st.session_state.mensajes_chat:
+                    with st.chat_message(msg["role"]): 
+                        st.markdown(msg["content"])
+                        
+                # Entrada del usuario
+                if prompt := st.chat_input("Pregunta sobre tu inventario, demanda o S&OP..."):
+                    # Añadir y mostrar la pregunta del usuario
+                    st.session_state.mensajes_chat.append({"role": "user", "content": prompt})
+                    with st.chat_message("user"): 
+                        st.markdown(prompt)
+                        
+                    # Crear el contexto "secreto" que le mandamos a la IA por debajo
+                    total_skus = df['sku cod'].nunique() if df is not None else 0
+                    vol_total = df['volume'].sum() if df is not None else 0
+                    contexto_sistema = f"""
+                    Eres un director de Supply Chain experto en S&OP trabajando para AB Agri.
+                    Responde de forma ejecutiva, concisa y profesional. 
+                    Datos actuales cargados en el sistema del usuario:
+                    - SKUs activos gestionados: {total_skus}
+                    - Volumen histórico total: {vol_total:,.0f} Kilos.
+                    - (El usuario ha calculado una matriz ABC/XYZ para segmentar el inventario).
+                    Si te piden consejo sobre políticas, recuerda: AX=Make to Stock con bajo stock de seguridad; CZ=Make to Order.
+                    """
+                    
+                    mensajes_api = [{"role": "system", "content": contexto_sistema}] + st.session_state.mensajes_chat
+                    
+                    # Llamada a OpenAI
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analizando datos..."):
+                            response = client.chat.completions.create(
+                                model="gpt-4o-mini", # Rápido y barato
+                                messages=mensajes_api
+                            )
+                            respuesta_ia = response.choices[0].message.content
+                            st.markdown(respuesta_ia)
+                            
+                    # Guardar respuesta
+                    st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_ia})
+            except Exception as e:
+                st.error(f"Error al conectar con OpenAI: Comprueba que tu API Key es válida. Detalle: {e}")
+        else:
+            st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
