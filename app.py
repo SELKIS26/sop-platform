@@ -927,34 +927,34 @@ with tab_fin:
                     st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
                 else: st.success("✅ Sin alertas para M1.")
 
-    # ==========================================
-    # MODULO 9: WHAT-IF SCENARIOS (SIMULADOR)
-    # ==========================================
-    with tab_whatif:
-        if "tab9" not in modulos_permitidos:
-            st.warning("🔒 No tienes permisos para acceder al Simulador What-If.")
+# ==========================================
+# MODULO 9: WHAT-IF SCENARIOS (SIMULADOR)
+# ==========================================
+with tab_whatif:
+    if "tab9" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al Simulador What-If.")
+    else:
+        st.subheader("🔀 Simulador de Escenarios (What-If)")
+        st.markdown("Aplica shocks a los datos filtrados para evaluar el impacto en el P&L consolidado.")
+        
+        if not dict_price:
+            st.warning("⚠️ Necesitas cargar datos históricos que incluyan 'revenue' y 'margin'.")
         else:
-            st.subheader("🔀 Simulador de Escenarios (What-If)")
-            st.markdown("Aplica macro-shocks (inflación, variaciones de volumen) para evaluar el impacto en el P&L consolidado para el horizonte S&OP.")
+            col_w1, col_w2, col_w3 = st.columns(3)
+            with col_w1:
+                shock_vol = st.slider("📈 Variación Volumen (%)", -50, 50, 0, step=5)
+            with col_w2:
+                shock_precio = st.slider("🏷️ Variación Precios (%)", -30, 30, 0, step=5)
+            with col_w3:
+                shock_coste = st.slider("💸 Variación Costes MP (%)", -30, 50, 0, step=5)
+                
+            st.divider()
             
-            if not dict_price:
-                st.warning("⚠️ Necesitas cargar datos históricos que incluyan columnas de 'revenue' y 'margin' para simular finanzas.")
-            else:
-                st.markdown("### 1. Define tu Escenario")
-                col_w1, col_w2, col_w3 = st.columns(3)
-                with col_w1:
-                    shock_vol = st.slider("📈 Variación de Volumen (%)", -50, 50, 0, step=5, help="Simula una caída o pico de demanda global.")
-                with col_w2:
-                    shock_precio = st.slider("🏷️ Variación Precios Venta (%)", -30, 30, 0, step=5, help="Simula una política de ajuste de tarifas de venta.")
-                with col_w3:
-                    shock_coste = st.slider("💸 Variación Costes/MP (%)", -30, 50, 0, step=5, help="Simula la inflación sobre las materias primas y producción.")
-                    
-                st.divider()
-                
-                lista_base, lista_whatif = [], []
-                
-                for sku in df['sku cod'].unique():
-                    serie_vol = df[df['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+            lista_base, lista_whatif = [], []
+            
+            if 'df_final' in locals() and not df_final.empty:
+                for sku in df_final['sku cod'].unique():
+                    serie_vol = df_final[df_final['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
                     fcst_base = calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)
                     
                     precio = dict_price.get(sku, 0)
@@ -982,85 +982,67 @@ with tab_fin:
                 df_base = pd.DataFrame(lista_base)
                 df_sim = pd.DataFrame(lista_whatif)
                 
-                tot_rev_base = df_base['Revenue'].sum()
-                tot_mar_base = df_base['Margin'].sum()
+                tot_rev_base = df_base['Revenue'].sum() if not df_base.empty else 0
+                tot_mar_base = df_base['Margin'].sum() if not df_base.empty else 0
+                tot_rev_sim = df_sim['Revenue'].sum() if not df_sim.empty else 0
+                tot_mar_sim = df_sim['Margin'].sum() if not df_sim.empty else 0
                 
-                tot_rev_sim = df_sim['Revenue'].sum()
-                tot_mar_sim = df_sim['Margin'].sum()
-                
+                # CORRECCIÓN DE MÉTRICAS (Módulo 9)
                 col_r1, col_r2, col_r3 = st.columns(3)
-                col_r1.metric("Revenue (Escenario Simulado)", f"£ {tot_rev_sim:,.0f}", f"£ {tot_rev_sim - tot_rev_base:,.0f} vs Base")
-                col_r2.metric("Margen (Escenario Simulado)", f"£ {tot_mar_sim:,.0f}", f"£ {tot_mar_sim - tot_mar_base:,.0f} vs Base")
+                delta_rev = tot_rev_sim - tot_rev_base
+                col_r1.metric("Revenue (Simulado)", f"£ {tot_rev_sim:,.0f}", f"{delta_rev:,.0f} £ vs Base")
+                
+                delta_mar = tot_mar_sim - tot_mar_base
+                col_r2.metric("Margen (Simulado)", f"£ {tot_mar_sim:,.0f}", f"{delta_mar:,.0f} £ vs Base")
                 
                 mar_pct_base = (tot_mar_base / tot_rev_base * 100) if tot_rev_base > 0 else 0
                 mar_pct_sim = (tot_mar_sim / tot_rev_sim * 100) if tot_rev_sim > 0 else 0
-                col_r3.metric("% Margen Bruto (Simulado)", f"{mar_pct_sim:.1f}%", f"{mar_pct_sim - mar_pct_base:.1f}% vs Base")
+                delta_pct = mar_pct_sim - mar_pct_base
+                col_r3.metric("% Margen Bruto (Simulado)", f"{mar_pct_sim:.1f}%", f"{delta_pct:.1f}% vs Base")
                 
                 fig_wi = go.Figure(data=[
                     go.Bar(name='Baseline (Plan Actual)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_base, tot_mar_base], marker_color='#A0B2C6'),
                     go.Bar(name='What-If (Shock Aplicado)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_sim, tot_mar_sim], marker_color='#1E3E5B')
                 ])
-                fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero Consolidado en GBP", yaxis_title="GBP (£)")
+                fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero (Filtrado) en GBP", yaxis_title="GBP (£)")
                 st.plotly_chart(fig_wi, use_container_width=True)
-# --- EXPORTACIÓN A PDF DIRECTIVO ---
-            st.divider()
-            st.markdown("### 📥 Exportar Informe Directivo")
-            
-            # Importar la librería dentro del módulo para evitar bloqueos
-            from fpdf import FPDF
-            
-            # Crear el documento PDF en memoria
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            
-            # Cabecera
-            pdf.set_font("Arial", 'B', 16)
-            pdf.set_text_color(30, 62, 91) # Azul corporativo AB Agri
-            pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
-            pdf.set_font("Arial", size=10)
-            pdf.set_text_color(100, 100, 100)
-            pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C')
-            pdf.ln(10)
-            
-            # 1. Parámetros del Shock
-            pdf.set_font("Arial", 'B', 12)
-            pdf.set_text_color(0, 0, 0)
-            pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
-            pdf.set_font("Arial", size=11)
-            pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
-            pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
-            pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True)
-            pdf.ln(5)
-            
-            # 2. Impacto Financiero
-            pdf.set_font("Arial", 'B', 12)
-            pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
-            pdf.set_font("Arial", size=11)
-            pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
-            pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {tot_rev_sim - tot_rev_base:,.0f})", ln=True)
-            pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
-            pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True)
-            pdf.ln(2)
-            
-            # Resaltar el impacto final
-            pdf.set_font("Arial", 'B', 12)
-            if tot_mar_sim >= tot_mar_base:
-                pdf.set_text_color(0, 128, 0) # Verde si ganamos margen
-            else:
-                pdf.set_text_color(200, 0, 0) # Rojo si perdemos margen
-            pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {tot_mar_sim - tot_mar_base:,.0f}", ln=True)
-            
-# Compilar el PDF a formato estricto de bytes para Streamlit
-            pdf_bytes = bytes(pdf.output())
-            
-            st.download_button(
-                label="📄 Descargar Resumen PDF",
-                data=pdf_bytes,
-                file_name="SOP_WhatIf_Analysis.pdf",
-                mime="application/pdf",
-                type="primary"
-            )
+                
+                st.divider()
+                st.markdown("### 📥 Exportar Informe Directivo")
+                from fpdf import FPDF
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", size=12)
+                pdf.set_font("Arial", 'B', 16)
+                pdf.set_text_color(30, 62, 91)
+                pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
+                pdf.set_font("Arial", size=10)
+                pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C')
+                pdf.ln(10)
+                pdf.set_font("Arial", 'B', 12)
+                pdf.set_text_color(0, 0, 0)
+                pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
+                pdf.set_font("Arial", size=11)
+                pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
+                pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
+                pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True)
+                pdf.ln(5)
+                pdf.set_font("Arial", 'B', 12)
+                pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
+                pdf.set_font("Arial", size=11)
+                pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
+                pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {delta_rev:,.0f})", ln=True)
+                pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
+                pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True)
+                pdf.ln(2)
+                pdf.set_font("Arial", 'B', 12)
+                if tot_mar_sim >= tot_mar_base: pdf.set_text_color(0, 128, 0)
+                else: pdf.set_text_color(200, 0, 0)
+                pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {delta_mar:,.0f}", ln=True)
+                
+                st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf_Analysis.pdf", mime="application/pdf", type="primary")
+
 # ==========================================
 # MODULO 10: EXECUTIVE DASHBOARD (KPIs)
 # ==========================================
@@ -1069,13 +1051,10 @@ with tab_kpis:
         st.warning("🔒 No tienes permisos para acceder al Dashboard de KPIs.")
     else:
         st.subheader("📊 Executive Dashboard & Global KPIs")
-        st.markdown("Visión corporativa consolidada: Histórico (Last 12 Months) vs Plan S&OP (Next 12 Months).")
         
-        # --- CONEXIÓN A LOS FILTROS: Usamos df_final en lugar de df ---
         if 'df_final' in locals() and df_final is not None and not df_final.empty and 'dict_price' in locals() and dict_price:
-            with st.spinner("Calculando consolidación financiera global L12M vs N12M..."):
+            with st.spinner("Consolidando datos filtrados..."):
                 
-                # 1. Total SKUs y Clientes por País
                 total_skus = df_final['sku cod'].nunique()
                 df_clientes = df_final.groupby('País')['customer cod'].nunique().reset_index()
                 df_clientes.columns = ['País', 'Clientes Activos']
@@ -1084,28 +1063,28 @@ with tab_kpis:
                 st.markdown("#### 🌍 Estructura Comercial (Datos Filtrados)")
                 col_e1, col_e2, col_e3 = st.columns(3)
                 col_e1.metric("SKUs Activos (PT)", f"{total_skus}")
-                col_e2.metric("Total Clientes Globales", f"{total_clientes}")
-                
+                col_e2.metric("Total Clientes", f"{total_clientes}")
                 with col_e3:
                     st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), use_container_width=True, hide_index=True)
                 
-                # 2. Cálculos Históricos (L12M)
-                max_date = df_final['Date'].max()
-                min_date_12m = max_date - pd.DateOffset(months=11)
-                df_12m = df_final[df_final['Date'] >= min_date_12m].copy()
+                max_date_global = df['Date'].max()
+                min_date_12m = max_date_global - pd.DateOffset(months=11)
                 
-                vol_12m_hist = df_12m['volume'].sum()
+                df_12m = df_final[(df_final['Date'] >= min_date_12m) & (df_final['Date'] <= max_date_global)].copy()
+                vol_12m_hist = df_12m['volume'].sum() if not df_12m.empty else 0
                 
                 dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
-                df_12m['Precio'] = df_12m['sku cod'].map(dict_price).fillna(0)
-                df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
-                df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
-                df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
+                if not df_12m.empty:
+                    df_12m['Precio'] = df_12m['sku cod'].map(dict_price).fillna(0)
+                    df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
+                    df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
+                    df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
+                    
+                    rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
+                    mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
+                else:
+                    rev_12m_hist, mar_12m_hist = 0, 0
                 
-                rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
-                mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
-                
-                # 3. Cálculos Forecast (N12M)
                 vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = 0, 0, 0
                 
                 for sku in df_final['sku cod'].unique():
@@ -1122,20 +1101,23 @@ with tab_kpis:
                     rev_12m_fcst += vol_sku * precio * tasa
                     mar_12m_fcst += vol_sku * margen * tasa
                     
-                # 4. Renderizado de la Comparativa
                 st.divider()
                 st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
                 
+                # CORRECCIÓN DE MÉTRICAS (Módulo 10)
                 col_h1, col_h2, col_h3 = st.columns(3)
-                col_h1.metric("Volumen Histórico L12M", f"{vol_12m_hist:,.0f} Kg")
-                col_h2.metric("Revenue Histórico L12M", f"£ {rev_12m_hist:,.0f}")
-                col_h3.metric("Margen Histórico L12M", f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist/rev_12m_hist*100) if rev_12m_hist else 0:.1f}%)")
+                col_h1.metric("Volumen L12M", f"{vol_12m_hist:,.0f} Kg")
+                col_h2.metric("Revenue L12M", f"£ {rev_12m_hist:,.0f}")
+                col_h3.metric("Margen L12M", f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist/rev_12m_hist*100) if rev_12m_hist else 0:.1f}%)")
                 
                 col_f1, col_f2, col_f3 = st.columns(3)
-                col_f1.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{vol_12m_fcst - vol_12m_hist:,.0f} Kg vs L12M")
-                col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"£ {rev_12m_fcst - rev_12m_hist:,.0f} vs L12M")
-                col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"£ {mar_12m_fcst - mar_12m_hist:,.0f} vs L12M")
+                delta_vol = vol_12m_fcst - vol_12m_hist
+                col_f1.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{delta_vol:,.0f} Kg vs L12M")
                 
+                delta_rev2 = rev_12m_fcst - rev_12m_hist
+                col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
+                
+                delta_mar2 = mar_12m_fcst - mar_12m_hist
+                col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
         else:
-            st.info("⚠️ Sube tu archivo de Ventas y de Finanzas para que el Dashboard pueda consolidar los datos.")
-       
+            st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
