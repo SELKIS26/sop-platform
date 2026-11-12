@@ -101,7 +101,7 @@ elif st.session_state["authentication_status"]:
     }
     modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
     
-    with st.sidebar:
+with st.sidebar:
         st.markdown(f"👤 **Bienvenido/a, {st.session_state['name']}**")
         if usuario_actual == "borja":
             st.caption("🔹 Rol: Manager de Producción")
@@ -109,6 +109,25 @@ elif st.session_state["authentication_status"]:
             st.caption("🔹 Rol: Administrador Global")
             
         authenticator.logout("Cerrar Sesión", "main")
+        st.divider()
+        
+        # --- NUEVO: KPIs GLOBALES EN SIDEBAR ---
+        st.markdown("### 📊 Global S&OP KPIs")
+        if 'df' in locals() and df is not None and not df.empty:
+            kpi_skus = df['sku cod'].nunique()
+            kpi_vol = df['volume'].sum()
+            
+            pct_ax = 0
+            if 'df_abcxyz_global' in locals() and not df_abcxyz_global.empty:
+                ax_skus = df_abcxyz_global[df_abcxyz_global['Clase'] == 'AX']['sku cod'].count()
+                pct_ax = (ax_skus / kpi_skus * 100) if kpi_skus > 0 else 0
+
+            st.metric("Total SKUs Activos", f"{kpi_skus}")
+            st.metric("Volumen Histórico", f"{kpi_vol:,.0f} Kg")
+            st.metric("% SKUs Clase AX", f"{pct_ax:.1f}%")
+        else:
+            st.info("Sube datos para ver los KPIs")
+            
         st.divider()
         
 with st.sidebar.expander("📲 Compartir App (QR)"):
@@ -497,6 +516,12 @@ with tab_guia:
     st.markdown(f"**{t['g_cap_t']}**: {t['g_cap_d']}")
     st.markdown(f"**{t['g_fin_t']}**: {t['g_fin_d']}")
     st.markdown(f"**{t['g_erp_t']}**: {t['g_erp_d']}")
+    
+    st.markdown("---")
+    st.markdown("### Nuevos Módulos Analíticos (Executive)")
+    st.markdown("* **🔠 7. ABC/XYZ:** Segmentación estratégica cruzando volumen (ABC) y volatilidad (XYZ).")
+    st.markdown("* **🚨 8. Excepciones:** Radar automático para roturas (DOH < 15) y excesos (DOH > 90).")
+    st.markdown("* **🔀 9. What-If:** Simulador financiero interactivo. Estresa volúmenes, precios y costes para ver impacto en Margen Bruto.")
 
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
