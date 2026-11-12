@@ -30,7 +30,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 0. CONTROL DE ACCESO (LOGIN)
+# 0. CONTROL DE ACCESO Y ROLES (LOGIN)
 # ==========================================
 credenciales = {
     "usernames": {
@@ -38,11 +38,16 @@ credenciales = {
             "email": "amancebo@abagri.com",
             "name": "Ángel Mancebo",
             "password": "Sop2026"
+        },
+        "borja": {
+            "email": "bdelrio@abagri.com",
+            "name": "Borja Del Rio",
+            "password": "BorjaDR"
         }
     }
 }
 
-# Encriptación automática (sin listas sueltas)
+# Encriptación automática
 stauth.Hasher.hash_passwords(credenciales)
 
 authenticator = stauth.Authenticate(
@@ -62,15 +67,30 @@ elif st.session_state["authentication_status"] is None:
     st.stop()
 elif st.session_state["authentication_status"]:
     
+    usuario_actual = st.session_state["username"]
+    
+    # --- SISTEMA DE PERMISOS (ROLES) ---
+    # tab0: Guía | tab1: Demanda | tab2: Producción | tab3: Compras
+    # tab4: Capacidad | tab5: Finanzas | tab6: Ejecución
+    PERMISOS = {
+        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6"], # Acceso Total
+        "borja": ["tab0", "tab2"] # Borja solo tiene acceso a Guía y Producción
+    }
+    modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
+    
     with st.sidebar:
         st.markdown(f"👤 **Bienvenido/a, {st.session_state['name']}**")
+        if usuario_actual == "borja":
+            st.caption("🔹 Rol: Manager de Producción")
+        else:
+            st.caption("🔹 Rol: Administrador Global")
+            
         authenticator.logout("Cerrar Sesión", "main")
         st.divider()
 
 # ==========================================
-# 0. DICCIONARIO DE IDIOMAS (MOTOR DE TRADUCCIÓN)
+# 0. DICCIONARIO DE IDIOMAS 
 # ==========================================
-
 LANGUAGES = ["Español", "English", "Polski", "Dansk"]
 TEXTS = {
     "Español": {
@@ -142,7 +162,7 @@ TEXTS = {
 if 'lang' not in st.session_state: st.session_state['lang'] = 'Español'
 
 with st.sidebar:
-    st.markdown("### 🏢 **ManceW Supply Chain**")
+    st.markdown("### 🏢 **AB Agri Supply Chain**")
     st.divider()
     st.session_state['lang'] = st.selectbox(TEXTS[st.session_state['lang']]["sidebar_lang"], LANGUAGES, index=LANGUAGES.index(st.session_state['lang']))
     
@@ -172,11 +192,15 @@ with st.sidebar:
     cobertura_fg = st.slider("Cov. PT (Months):", 0, 6, 1)
     cobertura_rm = st.slider("Cov. MP (Months):", 0, 6, 2)
     
-    st.divider()
-    st.header("💱 4. Finance (FX to GBP)")
-    fx_eur_gbp = st.number_input("EUR -> GBP:", value=0.85, step=0.01)
-    fx_dkk_gbp = st.number_input("DKK -> GBP:", value=0.11, step=0.01)
-    fx_pln_gbp = st.number_input("PLN -> GBP:", value=0.20, step=0.01)
+    # Ocultamos opciones financieras si el usuario no tiene acceso a Finanzas
+    if "tab5" in modulos_permitidos:
+        st.divider()
+        st.header("💱 4. Finance (FX to GBP)")
+        fx_eur_gbp = st.number_input("EUR -> GBP:", value=0.85, step=0.01)
+        fx_dkk_gbp = st.number_input("DKK -> GBP:", value=0.11, step=0.01)
+        fx_pln_gbp = st.number_input("PLN -> GBP:", value=0.20, step=0.01)
+    else:
+        fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp = 0.85, 0.11, 0.20
     
     st.divider()
     usar_limpieza_outliers = st.checkbox("🧹 Clean Outliers", value=True)
@@ -402,7 +426,7 @@ LAYOUT_STYLE = dict(
 )
 
 # ==========================================
-# PESTAÑAS (TABS)
+# PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec = st.tabs([
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"]
@@ -419,328 +443,344 @@ with tab_guia:
     st.markdown(f"**{t['g_erp_t']}**: {t['g_erp_d']}")
 
 with tab_demanda:
-    st.subheader(f"Forecast: {sku_sel}")
-    fig_demanda = go.Figure()
-    if not df_grouped.empty: 
-        fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name='Histórico Real', line=dict(color='#A0B2C6', width=2)))
-    fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name='Forecast Estadistico', line=dict(color='gray', width=2, dash='dot')))
-    fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name='Forecast Consenso', line=dict(color='#1E3E5B', width=4)))
-    
-    fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
-    st.plotly_chart(fig_demanda, use_container_width=True)
-    
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown("#### Tabla Editable / Edit Forecast")
-        df_display = df_comparativo.copy()
-        df_display.index = df_display.index.strftime('%Y-%m')
+    if "tab1" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Demanda.")
+    else:
+        st.subheader(f"Forecast: {sku_sel}")
+        fig_demanda = go.Figure()
+        if not df_grouped.empty: 
+            fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name='Histórico Real', line=dict(color='#A0B2C6', width=2)))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name='Forecast Estadistico', line=dict(color='gray', width=2, dash='dot')))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name='Forecast Consenso', line=dict(color='#1E3E5B', width=4)))
         
-        if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-            df_editado = st.data_editor(df_display, column_config={"Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"), "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")}, use_container_width=True)
-        else:
-            st.dataframe(df_display.style.format("{:,.2f}"), use_container_width=True)
+        fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_demanda, use_container_width=True)
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown("#### Tabla Editable / Edit Forecast")
+            df_display = df_comparativo.copy()
+            df_display.index = df_display.index.strftime('%Y-%m')
             
-        st.markdown("---")
-        
-        btn_c1, btn_c2 = st.columns(2)
-        with btn_c1:
             if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
-                    if st.session_state['df_ajustes'] is not None:
-                        try:
-                            df_aj = st.session_state['df_ajustes'].copy()
-                            df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
-                            df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
-                            nuevas_filas = [{'Date': pd.to_datetime(f), 'País': pais_sel, 'customer cod': cliente_sel, 'sku cod': sku_sel, 'override_value': r['Consenso']} for f, r in df_mod.iterrows()]
-                            if nuevas_filas: df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
-                            st.session_state['df_ajustes'] = df_aj
-                            st.success("Guardado Temporal"); st.rerun()
-                        except: pass
+                df_editado = st.data_editor(df_display, column_config={"Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"), "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")}, use_container_width=True)
             else:
-                st.info("⚠️ Selecciona País, Cliente y SKU para editar.")
+                st.dataframe(df_display.style.format("{:,.2f}"), use_container_width=True)
                 
-        with btn_c2:
-            if not st.session_state['df_ajustes'].empty:
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Ajustes_Consenso')
-                st.download_button(
-                    label="📥 Descargar Ajustes (Excel Final)", 
-                    data=output.getvalue(), 
-                    file_name="2_Ajustes_Consenso_Actualizado.xlsx", 
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+            st.markdown("---")
             
-    with col2:
-        st.markdown("#### Matrix Forecasting (Macro Factor)")
-        pais_macro = st.selectbox("País / Country:", sorted(df['País'].dropna().unique()), key="macro_pais")
-        cli_macro = st.selectbox("Cliente / Customer:", sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
-        pct_macro = st.number_input("Variation % (e.g. 15, -20):", value=15.0, step=5.0, format="%.1f")
-        if st.button("🚀 Apply Macro Factor"):
-            if pais_macro and cli_macro:
-                with st.spinner("Processing..."):
-                    exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
-                    if exito: st.success("Done!"); st.rerun()
-                    else: st.error("Error")
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
+                    if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
+                        if st.session_state['df_ajustes'] is not None:
+                            try:
+                                df_aj = st.session_state['df_ajustes'].copy()
+                                df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
+                                df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
+                                nuevas_filas = [{'Date': pd.to_datetime(f), 'País': pais_sel, 'customer cod': cliente_sel, 'sku cod': sku_sel, 'override_value': r['Consenso']} for f, r in df_mod.iterrows()]
+                                if nuevas_filas: df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
+                                st.session_state['df_ajustes'] = df_aj
+                                st.success("Guardado Temporal"); st.rerun()
+                            except: pass
+                else:
+                    st.info("⚠️ Selecciona País, Cliente y SKU para editar.")
+                    
+            with btn_c2:
+                if not st.session_state['df_ajustes'].empty:
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Ajustes_Consenso')
+                    st.download_button(
+                        label="📥 Descargar Ajustes (Excel Final)", 
+                        data=output.getvalue(), 
+                        file_name="2_Ajustes_Consenso_Actualizado.xlsx", 
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                
+        with col2:
+            st.markdown("#### Matrix Forecasting (Macro Factor)")
+            pais_macro = st.selectbox("País / Country:", sorted(df['País'].dropna().unique()), key="macro_pais")
+            cli_macro = st.selectbox("Cliente / Customer:", sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
+            pct_macro = st.number_input("Variation % (e.g. 15, -20):", value=15.0, step=5.0, format="%.1f")
+            if st.button("🚀 Apply Macro Factor"):
+                if pais_macro and cli_macro:
+                    with st.spinner("Processing..."):
+                        exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
+                        if exito: st.success("Done!"); st.rerun()
+                        else: st.error("Error")
 
 with tab_prod:
-    if df_stock is None or sku_sel == "TODOS": st.info("👈 Upload Stock file and select SKU.")
+    if "tab2" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Producción.")
     else:
-        st.subheader(f"Master Production Schedule (MPS): [{sku_sel}] {dict_sku_desc.get(sku_sel, sku_sel)}")
-        stock_sku_fg, cob_real_fg, _ = obtener_parametros_stock(sku_sel, cobertura_fg)
-        
-        serie_erp = pd.Series(0.0, index=df_comparativo.index)
-        for idx in df_comparativo.index: serie_erp[idx] = dict_prd_erp.get((sku_sel, idx), 0.0)
+        if df_stock is None or sku_sel == "TODOS": st.info("👈 Upload Stock file and select SKU.")
+        else:
+            st.subheader(f"Master Production Schedule (MPS): [{sku_sel}] {dict_sku_desc.get(sku_sel, sku_sel)}")
+            stock_sku_fg, cob_real_fg, _ = obtener_parametros_stock(sku_sel, cobertura_fg)
             
-        df_plan_fg = calcular_necesidades_netas(df_comparativo['Consenso'], stock_sku_fg, cob_real_fg, serie_erp)
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric(t["kpi_fab"], f"{df_plan_fg['Entradas_Netas'].sum():,.0f} Kg")
-        c2.metric("ERP Pipeline", f"{df_plan_fg['Recepciones_ERP'].sum():,.0f} Kg")
-        c3.metric(t["kpi_doh"], f"{df_plan_fg['DOH'].mean():.0f} Días/Days")
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        fig_prod = go.Figure()
-        fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Salidas_Brutas'], name='Demanda / Demand', marker_color='#E5E9ED'))
-        fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Recepciones_ERP'], name='ERP Pipeline', marker_color='#A0B2C6'))
-        fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Entradas_Netas'], name='Nuevas Órdenes / New Prod', marker_color='#1E3E5B'))
-        fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f'Stock FG (Obj: {cob_real_fg}m)', line=dict(color='#88FFBB', width=3)))
-        
-        fig_prod.update_layout(**LAYOUT_STYLE, barmode='stack', hovermode="x unified")
-        st.plotly_chart(fig_prod, use_container_width=True)
-        
-        df_show_fg = df_plan_fg.copy()
-        df_show_fg.index = df_show_fg.index.strftime('%Y-%m')
-        st.dataframe(df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
+            serie_erp = pd.Series(0.0, index=df_comparativo.index)
+            for idx in df_comparativo.index: serie_erp[idx] = dict_prd_erp.get((sku_sel, idx), 0.0)
+                
+            df_plan_fg = calcular_necesidades_netas(df_comparativo['Consenso'], stock_sku_fg, cob_real_fg, serie_erp)
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric(t["kpi_fab"], f"{df_plan_fg['Entradas_Netas'].sum():,.0f} Kg")
+            c2.metric("ERP Pipeline", f"{df_plan_fg['Recepciones_ERP'].sum():,.0f} Kg")
+            c3.metric(t["kpi_doh"], f"{df_plan_fg['DOH'].mean():.0f} Días/Days")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            fig_prod = go.Figure()
+            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Salidas_Brutas'], name='Demanda / Demand', marker_color='#E5E9ED'))
+            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Recepciones_ERP'], name='ERP Pipeline', marker_color='#A0B2C6'))
+            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Entradas_Netas'], name='Nuevas Órdenes / New Prod', marker_color='#1E3E5B'))
+            fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f'Stock FG (Obj: {cob_real_fg}m)', line=dict(color='#88FFBB', width=3)))
+            
+            fig_prod.update_layout(**LAYOUT_STYLE, barmode='stack', hovermode="x unified")
+            st.plotly_chart(fig_prod, use_container_width=True)
+            
+            df_show_fg = df_plan_fg.copy()
+            df_show_fg.index = df_show_fg.index.strftime('%Y-%m')
+            st.dataframe(df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
 
 with tab_bom:
-    st.subheader("MRP / Purchasing Plan")
-    if df_bom is None or df_stock is None: st.info("👈 Upload BOM & Stock files.")
+    if "tab3" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Compras (MRP).")
     else:
-        lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist()) if 'rm cod' in df_bom.columns else ["TODAS"]
-        rm_sel = st.selectbox("🔍 Filter Material:", lista_rms)
-        if st.button("🚀 Execute BOM Explosion"):
-            with st.spinner("Processing BOM..."):
-                df_viz = generar_mrp_global()
-                if rm_sel != "TODAS": df_viz = df_viz[df_viz['rm cod'] == rm_sel]
-                if df_viz.empty: st.warning("No demand.")
-                else:
-                    df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc']
-                    
-                    fig_rm = px.bar(pd.melt(df_viz, id_vars=['Date', 'MP_Visual'], value_vars=['Recepciones_ERP', 'Entradas_Netas'], var_name='Tipo', value_name='Volumen').replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, title="Llegadas a Fábrica (Firme + Teórico)", barmode='stack', color_discrete_sequence=['#1E3E5B', '#88FFBB'])
-                    fig_rm.update_layout(**LAYOUT_STYLE)
-                    st.plotly_chart(fig_rm, use_container_width=True)
-                    
-                    # --- NUEVO: MÓDULO DE TRAZABILIDAD (PEGGING) ---
-                    if rm_sel != "TODAS":
-                        st.markdown("### 🔍 Trazabilidad del Material (Pegging)")
-                        st.write(f"Desglose del origen de la demanda para **{rm_sel}** en todo el horizonte:")
+        st.subheader("MRP / Purchasing Plan")
+        if df_bom is None or df_stock is None: st.info("👈 Upload BOM & Stock files.")
+        else:
+            lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist()) if 'rm cod' in df_bom.columns else ["TODAS"]
+            rm_sel = st.selectbox("🔍 Filter Material:", lista_rms)
+            if st.button("🚀 Execute BOM Explosion"):
+                with st.spinner("Processing BOM..."):
+                    df_viz = generar_mrp_global()
+                    if rm_sel != "TODAS": df_viz = df_viz[df_viz['rm cod'] == rm_sel]
+                    if df_viz.empty: st.warning("No demand.")
+                    else:
+                        df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc']
                         
-                        mps_g = generar_mps_global()
-                        pegging_data = []
-                        for sku, plan in mps_g.items():
-                            bom_fila = df_bom[(df_bom['sku cod'] == sku) & (df_bom['rm cod'] == rm_sel)]
-                            if not bom_fila.empty:
-                                qty = bom_fila['Cantidad'].values[0]
-                                necesidad_total_rm = plan['Entradas_Netas'].sum() * qty
-                                
-                                if necesidad_total_rm > 0:
-                                    df_sku = df[df['sku cod'] == sku]
-                                    if not df_sku.empty:
-                                        mix_clientes = df_sku.groupby('customer cod')['volume'].sum()
-                                        total_vol = mix_clientes.sum()
-                                        for cli, vol in mix_clientes.items():
-                                            pct = vol / total_vol if total_vol > 0 else 0
-                                            pegging_data.append({
-                                                'SKU (Producto)': sku,
-                                                'Cliente': cli,
-                                                'Kilos_MP': necesidad_total_rm * pct
-                                            })
-                                    else:
-                                        pegging_data.append({'SKU (Producto)': sku, 'Cliente': 'Desconocido', 'Kilos_MP': necesidad_total_rm})
+                        fig_rm = px.bar(pd.melt(df_viz, id_vars=['Date', 'MP_Visual'], value_vars=['Recepciones_ERP', 'Entradas_Netas'], var_name='Tipo', value_name='Volumen').replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, title="Llegadas a Fábrica (Firme + Teórico)", barmode='stack', color_discrete_sequence=['#1E3E5B', '#88FFBB'])
+                        fig_rm.update_layout(**LAYOUT_STYLE)
+                        st.plotly_chart(fig_rm, use_container_width=True)
                         
-                        if pegging_data:
-                            df_peg = pd.DataFrame(pegging_data)
-                            col_p1, col_p2 = st.columns(2)
+                        if rm_sel != "TODAS":
+                            st.markdown("### 🔍 Trazabilidad del Material (Pegging)")
+                            st.write(f"Desglose del origen de la demanda para **{rm_sel}** en todo el horizonte:")
                             
-                            with col_p1:
-                                df_peg_sku = df_peg.groupby('SKU (Producto)')['Kilos_MP'].sum().reset_index()
-                                fig_peg_sku = px.pie(df_peg_sku, values='Kilos_MP', names='SKU (Producto)', title="Consumo por Producto Terminado (SKU)", hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
-                                fig_peg_sku.update_traces(textposition='inside', textinfo='percent+label')
-                                fig_peg_sku.update_layout(**LAYOUT_STYLE)
-                                st.plotly_chart(fig_peg_sku, use_container_width=True)
+                            mps_g = generar_mps_global()
+                            pegging_data = []
+                            for sku, plan in mps_g.items():
+                                bom_fila = df_bom[(df_bom['sku cod'] == sku) & (df_bom['rm cod'] == rm_sel)]
+                                if not bom_fila.empty:
+                                    qty = bom_fila['Cantidad'].values[0]
+                                    necesidad_total_rm = plan['Entradas_Netas'].sum() * qty
+                                    
+                                    if necesidad_total_rm > 0:
+                                        df_sku = df[df['sku cod'] == sku]
+                                        if not df_sku.empty:
+                                            mix_clientes = df_sku.groupby('customer cod')['volume'].sum()
+                                            total_vol = mix_clientes.sum()
+                                            for cli, vol in mix_clientes.items():
+                                                pct = vol / total_vol if total_vol > 0 else 0
+                                                pegging_data.append({
+                                                    'SKU (Producto)': sku,
+                                                    'Cliente': cli,
+                                                    'Kilos_MP': necesidad_total_rm * pct
+                                                })
+                                        else:
+                                            pegging_data.append({'SKU (Producto)': sku, 'Cliente': 'Desconocido', 'Kilos_MP': necesidad_total_rm})
+                            
+                            if pegging_data:
+                                df_peg = pd.DataFrame(pegging_data)
+                                col_p1, col_p2 = st.columns(2)
                                 
-                            with col_p2:
-                                df_peg_cli = df_peg.groupby('Cliente')['Kilos_MP'].sum().reset_index()
-                                fig_peg_cli = px.pie(df_peg_cli, values='Kilos_MP', names='Cliente', title="Consumo por Cliente (Customer Cod)", hole=0.4, color_discrete_sequence=px.colors.sequential.Mint_r)
-                                fig_peg_cli.update_traces(textposition='inside', textinfo='percent+label')
-                                fig_peg_cli.update_layout(**LAYOUT_STYLE)
-                                st.plotly_chart(fig_peg_cli, use_container_width=True)
-                    # ------------------------------------------------
-                    
-                    df_show = df_viz[['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']].copy()
-                    df_show['Date'] = df_show['Date'].dt.strftime('%Y-%m')
-                    st.dataframe(df_show.reset_index(drop=True).style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
+                                with col_p1:
+                                    df_peg_sku = df_peg.groupby('SKU (Producto)')['Kilos_MP'].sum().reset_index()
+                                    fig_peg_sku = px.pie(df_peg_sku, values='Kilos_MP', names='SKU (Producto)', title="Consumo por Producto Terminado (SKU)", hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
+                                    fig_peg_sku.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_peg_sku.update_layout(**LAYOUT_STYLE)
+                                    st.plotly_chart(fig_peg_sku, use_container_width=True)
+                                    
+                                with col_p2:
+                                    df_peg_cli = df_peg.groupby('Cliente')['Kilos_MP'].sum().reset_index()
+                                    fig_peg_cli = px.pie(df_peg_cli, values='Kilos_MP', names='Cliente', title="Consumo por Cliente (Customer Cod)", hole=0.4, color_discrete_sequence=px.colors.sequential.Mint_r)
+                                    fig_peg_cli.update_traces(textposition='inside', textinfo='percent+label')
+                                    fig_peg_cli.update_layout(**LAYOUT_STYLE)
+                                    st.plotly_chart(fig_peg_cli, use_container_width=True)
+                        
+                        df_show = df_viz[['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']].copy()
+                        df_show['Date'] = df_show['Date'].dt.strftime('%Y-%m')
+                        st.dataframe(df_show.reset_index(drop=True).style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
 
 with tab_cap:
-    st.subheader("Capacity Planning (RCCP)")
-    if df_rutas is None or df_cal is None: st.info("👈 Upload Rutas & Calendario.")
+    if "tab4" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Capacidad.")
     else:
-        lista_maquinas = ["TODAS"] + sorted(df_rutas['Maquina'].dropna().unique().tolist()) if 'Maquina' in df_rutas.columns else ["TODAS"]
-        maq_sel = st.selectbox("⚙️ Filter Line / Línea:", lista_maquinas)
-        if st.button("⚖️ Calculate Saturation"):
-            with st.spinner("Processing..."):
-                mps_g = generar_mps_global()
-                if mps_g:
-                    df_req = pd.merge(pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})[lambda x: x['Entradas_Netas'] > 0], df_rutas, on='sku cod', how='inner')
-                    df_req['Horas_Necesarias'] = df_req['Entradas_Netas'] / df_req['Kilos_por_Hora'].replace(0, 1)
-                    df_cal['Date'] = pd.to_datetime(df_cal['Date'], dayfirst=True)
-                    if maq_sel == "TODAS":
-                        df_capacidad = pd.merge(df_req.groupby(['Date', 'Maquina'])['Horas_Necesarias'].sum().reset_index(), df_cal, on=['Date', 'Maquina'], how='left').fillna({'Horas_Disponibles': 1})
-                        df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
-                        df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
-                        df_pivot.columns = df_pivot.columns.strftime('%Y-%m')
-                        st.markdown("#### % Utilización / Utilization")
-                        try: st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), use_container_width=True)
-                        except: st.dataframe(df_pivot.style.format("{:.0f}%"), use_container_width=True)
-                    else:
-                        df_req_maq = df_req[df_req['Maquina'] == maq_sel]
-                        if not df_req_maq.empty:
-                            fig_cap = px.bar(df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), x='Date', y='Horas_Necesarias', color='sku desc', title=f"Carga vs Capacidad: {maq_sel}")
-                            fig_cap.add_trace(go.Scatter(x=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Date'], y=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Horas_Disponibles'], mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')))
-                            fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
-                            st.plotly_chart(fig_cap, use_container_width=True)
+        st.subheader("Capacity Planning (RCCP)")
+        if df_rutas is None or df_cal is None: st.info("👈 Upload Rutas & Calendario.")
+        else:
+            lista_maquinas = ["TODAS"] + sorted(df_rutas['Maquina'].dropna().unique().tolist()) if 'Maquina' in df_rutas.columns else ["TODAS"]
+            maq_sel = st.selectbox("⚙️ Filter Line / Línea:", lista_maquinas)
+            if st.button("⚖️ Calculate Saturation"):
+                with st.spinner("Processing..."):
+                    mps_g = generar_mps_global()
+                    if mps_g:
+                        df_req = pd.merge(pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})[lambda x: x['Entradas_Netas'] > 0], df_rutas, on='sku cod', how='inner')
+                        df_req['Horas_Necesarias'] = df_req['Entradas_Netas'] / df_req['Kilos_por_Hora'].replace(0, 1)
+                        df_cal['Date'] = pd.to_datetime(df_cal['Date'], dayfirst=True)
+                        if maq_sel == "TODAS":
+                            df_capacidad = pd.merge(df_req.groupby(['Date', 'Maquina'])['Horas_Necesarias'].sum().reset_index(), df_cal, on=['Date', 'Maquina'], how='left').fillna({'Horas_Disponibles': 1})
+                            df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
+                            df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
+                            df_pivot.columns = df_pivot.columns.strftime('%Y-%m')
+                            st.markdown("#### % Utilización / Utilization")
+                            try: st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), use_container_width=True)
+                            except: st.dataframe(df_pivot.style.format("{:.0f}%"), use_container_width=True)
+                        else:
+                            df_req_maq = df_req[df_req['Maquina'] == maq_sel]
+                            if not df_req_maq.empty:
+                                fig_cap = px.bar(df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), x='Date', y='Horas_Necesarias', color='sku desc', title=f"Carga vs Capacidad: {maq_sel}")
+                                fig_cap.add_trace(go.Scatter(x=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Date'], y=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Horas_Disponibles'], mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')))
+                                fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
+                                st.plotly_chart(fig_cap, use_container_width=True)
 
 with tab_fin:
-    st.subheader("Financial Valuation & Working Capital (GBP)")
-    if not dict_price: st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
+    if "tab5" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
-            filtro_pl = None
-            if nivel_pl == "Por País": filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
-            elif nivel_pl == "Por Cliente": filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
-            elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
-        with col2:
-            vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
-            
-        if st.button("📈 Calculate Finance"):
-            with st.spinner("Processing P&L..."):
-                lista_pl = []
-                for (pais, cli, sku), df_grupo in df.groupby(['País', 'customer cod', 'sku cod']):
-                    serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                    df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
-                    aj_filtro = st.session_state['df_ajustes'][(st.session_state['df_ajustes']['País'] == pais) & (st.session_state['df_ajustes']['customer cod'] == cli) & (st.session_state['df_ajustes']['sku cod'] == sku)]
-                    if not aj_filtro.empty:
-                        aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
-                        for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                            if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
-                    precio, margen, moneda = dict_price.get(sku, 0), dict_margin.get(sku, 0), str(dict_currency.get(sku, 'EUR')).strip().upper()
-                    tasa_cambio = fx_eur_gbp if moneda == 'EUR' else (fx_dkk_gbp if moneda == 'DKK' else (fx_pln_gbp if moneda == 'PLN' else 1.0))
-                    df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio * tasa_cambio, 'Margin_GBP': df_fcst['Consenso'].values * margen * tasa_cambio})
-                    lista_pl.append(df_res)
-                    
-                df_plot_pl = pd.concat(lista_pl)
-                skus_validos = df['sku cod'].unique()
-                if nivel_pl == "Por País": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['País'] == filtro_pl], df[df['País'] == filtro_pl]['sku cod'].unique(), filtro_pl
-                elif nivel_pl == "Por Cliente": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['Cliente'] == filtro_pl], df[df['customer cod'] == filtro_pl]['sku cod'].unique(), filtro_pl
-                elif nivel_pl == "Por SKU": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['SKU'] == filtro_pl], [filtro_pl], filtro_pl
-                else: titulo_estrategico = "Consolidado Global"
-                df_plot_pl = df_plot_pl.groupby('Date')[['Revenue_GBP', 'Margin_GBP']].sum().reset_index()
+        st.subheader("Financial Valuation & Working Capital (GBP)")
+        if not dict_price: st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
+                filtro_pl = None
+                if nivel_pl == "Por País": filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
+                elif nivel_pl == "Por Cliente": filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
+                elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
+            with col2:
+                vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
                 
-                mps_g = generar_mps_global()
-                lista_wc_pt = [pd.DataFrame({'Date': mps_g[sku].index, 'Elemento': sku, 'WorkingCapital_GBP': mps_g[sku]['Stock_Final'].values * (dict_price.get(sku, 0) - dict_margin.get(sku, 0)) * (fx_eur_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'EUR' else (fx_dkk_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'DKK' else (fx_pln_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'PLN' else 1.0))), 'Categoria': 'Producto Terminado'}) for sku in mps_g]
-                df_wc_pt_filtrado = pd.concat(lista_wc_pt)[lambda x: x['Elemento'].isin(skus_validos)] if lista_wc_pt else pd.DataFrame()
-                
-                df_mrp = generar_mrp_global()
-                lista_wc_mp = []
-                if not df_mrp.empty and df_stock is not None and 'Coste_Unitario' in df_stock.columns:
-                    for rm_cod, df_rm in df_mrp.groupby('rm cod'):
-                        coste_rm_serie = df_stock.loc[df_stock['sku cod'] == rm_cod, 'Coste_Unitario'].values
-                        val_coste = float(coste_rm_serie[0]) if len(coste_rm_serie) > 0 and pd.notna(coste_rm_serie[0]) else 0.0
-                        lista_wc_mp.append(pd.DataFrame({'Date': df_rm['Date'], 'Elemento': rm_cod, 'WorkingCapital_GBP': df_rm['Stock_Final'].values * val_coste, 'Categoria': 'Materia Prima'}))
-                
-                df_wc_mp = pd.concat(lista_wc_mp) if lista_wc_mp else pd.DataFrame()
-                rms_validos = df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique() if (df_bom is not None and not df_bom.empty and 'sku cod' in df_bom.columns) else []
-                df_wc_mp_filtrado = df_wc_mp[df_wc_mp['Elemento'].isin(rms_validos)] if not df_wc_mp.empty else pd.DataFrame()
-                df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado]) if not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty else pd.DataFrame()
-                
-                if not df_wc_total.empty:
-                    df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0)
-                    if 'Producto Terminado' not in df_wc_pivot.columns: df_wc_pivot['Producto Terminado'] = 0
-                    if 'Materia Prima' not in df_wc_pivot.columns: df_wc_pivot['Materia Prima'] = 0
-                    df_plot_pl = pd.merge(df_plot_pl, df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']], on='Date', how='left').fillna(0)
-                    df_plot_pl['WC_Total_GBP'] = df_plot_pl['WC_PT_GBP'] + df_plot_pl['WC_MP_GBP']
-                else: df_plot_pl['WC_PT_GBP'], df_plot_pl['WC_MP_GBP'], df_plot_pl['WC_Total_GBP'] = 0, 0, 0
-
-                tot_rev = df_plot_pl['Revenue_GBP'].sum()
-                tot_mar = df_plot_pl['Margin_GBP'].sum()
-                mar_pct = (tot_mar / tot_rev * 100) if tot_rev > 0 else 0
-                avg_wc = df_plot_pl['WC_Total_GBP'].mean()
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric(t["kpi_rev"], f"£ {tot_rev:,.0f}")
-                c2.metric(t["kpi_mar"], f"£ {tot_mar:,.0f} ({mar_pct:.1f}%)")
-                c3.metric(t["kpi_wc"], f"£ {avg_wc:,.0f}")
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                fig_pl = go.Figure()
-                fig_pl.add_trace(go.Bar(x=df_plot_pl['Date'], y=df_plot_pl['Revenue_GBP'], name='Revenue', marker_color='#1E3E5B'))
-                fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name='Margen Bruto', mode='lines+markers', line=dict(color='#88FFBB', width=4)))
-                fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
-                st.plotly_chart(fig_pl, use_container_width=True)
-
-                if vista_wc == "Total (PT + MP)" and not df_wc_total.empty: 
-                    fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'])['WorkingCapital_GBP'].sum().reset_index(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
-                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty: 
-                    fig_wc = px.area(df_wc_pt_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (PT): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Blues_r)
-                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty: 
-                    fig_wc = px.area(df_wc_mp_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (MP): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Mint_r)
-                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+            if st.button("📈 Calculate Finance"):
+                with st.spinner("Processing P&L..."):
+                    lista_pl = []
+                    for (pais, cli, sku), df_grupo in df.groupby(['País', 'customer cod', 'sku cod']):
+                        serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
+                        aj_filtro = st.session_state['df_ajustes'][(st.session_state['df_ajustes']['País'] == pais) & (st.session_state['df_ajustes']['customer cod'] == cli) & (st.session_state['df_ajustes']['sku cod'] == sku)]
+                        if not aj_filtro.empty:
+                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
+                            for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
+                                if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
+                        precio, margen, moneda = dict_price.get(sku, 0), dict_margin.get(sku, 0), str(dict_currency.get(sku, 'EUR')).strip().upper()
+                        tasa_cambio = fx_eur_gbp if moneda == 'EUR' else (fx_dkk_gbp if moneda == 'DKK' else (fx_pln_gbp if moneda == 'PLN' else 1.0))
+                        df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio * tasa_cambio, 'Margin_GBP': df_fcst['Consenso'].values * margen * tasa_cambio})
+                        lista_pl.append(df_res)
                         
-                df_plot_pl.set_index('Date', inplace=True)
-                df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
-                st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), use_container_width=True)
+                    df_plot_pl = pd.concat(lista_pl)
+                    skus_validos = df['sku cod'].unique()
+                    if nivel_pl == "Por País": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['País'] == filtro_pl], df[df['País'] == filtro_pl]['sku cod'].unique(), filtro_pl
+                    elif nivel_pl == "Por Cliente": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['Cliente'] == filtro_pl], df[df['customer cod'] == filtro_pl]['sku cod'].unique(), filtro_pl
+                    elif nivel_pl == "Por SKU": df_plot_pl, skus_validos, titulo_estrategico = df_plot_pl[df_plot_pl['SKU'] == filtro_pl], [filtro_pl], filtro_pl
+                    else: titulo_estrategico = "Consolidado Global"
+                    df_plot_pl = df_plot_pl.groupby('Date')[['Revenue_GBP', 'Margin_GBP']].sum().reset_index()
+                    
+                    mps_g = generar_mps_global()
+                    lista_wc_pt = [pd.DataFrame({'Date': mps_g[sku].index, 'Elemento': sku, 'WorkingCapital_GBP': mps_g[sku]['Stock_Final'].values * (dict_price.get(sku, 0) - dict_margin.get(sku, 0)) * (fx_eur_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'EUR' else (fx_dkk_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'DKK' else (fx_pln_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'PLN' else 1.0))), 'Categoria': 'Producto Terminado'}) for sku in mps_g]
+                    df_wc_pt_filtrado = pd.concat(lista_wc_pt)[lambda x: x['Elemento'].isin(skus_validos)] if lista_wc_pt else pd.DataFrame()
+                    
+                    df_mrp = generar_mrp_global()
+                    lista_wc_mp = []
+                    if not df_mrp.empty and df_stock is not None and 'Coste_Unitario' in df_stock.columns:
+                        for rm_cod, df_rm in df_mrp.groupby('rm cod'):
+                            coste_rm_serie = df_stock.loc[df_stock['sku cod'] == rm_cod, 'Coste_Unitario'].values
+                            val_coste = float(coste_rm_serie[0]) if len(coste_rm_serie) > 0 and pd.notna(coste_rm_serie[0]) else 0.0
+                            lista_wc_mp.append(pd.DataFrame({'Date': df_rm['Date'], 'Elemento': rm_cod, 'WorkingCapital_GBP': df_rm['Stock_Final'].values * val_coste, 'Categoria': 'Materia Prima'}))
+                    
+                    df_wc_mp = pd.concat(lista_wc_mp) if lista_wc_mp else pd.DataFrame()
+                    rms_validos = df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique() if (df_bom is not None and not df_bom.empty and 'sku cod' in df_bom.columns) else []
+                    df_wc_mp_filtrado = df_wc_mp[df_wc_mp['Elemento'].isin(rms_validos)] if not df_wc_mp.empty else pd.DataFrame()
+                    df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado]) if not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty else pd.DataFrame()
+                    
+                    if not df_wc_total.empty:
+                        df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0)
+                        if 'Producto Terminado' not in df_wc_pivot.columns: df_wc_pivot['Producto Terminado'] = 0
+                        if 'Materia Prima' not in df_wc_pivot.columns: df_wc_pivot['Materia Prima'] = 0
+                        df_plot_pl = pd.merge(df_plot_pl, df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']], on='Date', how='left').fillna(0)
+                        df_plot_pl['WC_Total_GBP'] = df_plot_pl['WC_PT_GBP'] + df_plot_pl['WC_MP_GBP']
+                    else: df_plot_pl['WC_PT_GBP'], df_plot_pl['WC_MP_GBP'], df_plot_pl['WC_Total_GBP'] = 0, 0, 0
+
+                    tot_rev = df_plot_pl['Revenue_GBP'].sum()
+                    tot_mar = df_plot_pl['Margin_GBP'].sum()
+                    mar_pct = (tot_mar / tot_rev * 100) if tot_rev > 0 else 0
+                    avg_wc = df_plot_pl['WC_Total_GBP'].mean()
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric(t["kpi_rev"], f"£ {tot_rev:,.0f}")
+                    c2.metric(t["kpi_mar"], f"£ {tot_mar:,.0f} ({mar_pct:.1f}%)")
+                    c3.metric(t["kpi_wc"], f"£ {avg_wc:,.0f}")
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    fig_pl = go.Figure()
+                    fig_pl.add_trace(go.Bar(x=df_plot_pl['Date'], y=df_plot_pl['Revenue_GBP'], name='Revenue', marker_color='#1E3E5B'))
+                    fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name='Margen Bruto', mode='lines+markers', line=dict(color='#88FFBB', width=4)))
+                    fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
+                    st.plotly_chart(fig_pl, use_container_width=True)
+
+                    if vista_wc == "Total (PT + MP)" and not df_wc_total.empty: 
+                        fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'])['WorkingCapital_GBP'].sum().reset_index(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
+                        st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                    elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty: 
+                        fig_wc = px.area(df_wc_pt_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (PT): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Blues_r)
+                        st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                    elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty: 
+                        fig_wc = px.area(df_wc_mp_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (MP): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Mint_r)
+                        st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                            
+                    df_plot_pl.set_index('Date', inplace=True)
+                    df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
+                    st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), use_container_width=True)
 
 with tab_ejec:
-    st.subheader("Action Plan: S&OP Month 1 Execution")
-    col_ej1, col_ej2 = st.columns(2)
-    with col_ej1:
-        st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
-        if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, use_container_width=True)
-    with col_ej2:
-        st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
-        if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, use_container_width=True)
-            
-    st.divider()
-    if st.button("🚨 Generar Plan de Acción (Nuevos Lanzamientos M1)"):
-        with st.spinner("Processing..."):
-            mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-            st.info(f"📅 **Mes Objetivo de Ejecución:** {mes_1_fecha.strftime('%Y-%m')}")
-            
-            mps_g = generar_mps_global()
-            if mps_g:
-                df_sug_fab = pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})
-                df_sug_fab = df_sug_fab[(df_sug_fab['Date'] == mes_1_fecha) & (df_sug_fab['Entradas_Netas'] > 0)][['Date', 'sku cod', 'sku desc', 'Entradas_Netas']]
-            else: df_sug_fab = pd.DataFrame()
-            
-            df_mrp = generar_mrp_global()
-            if not df_mrp.empty:
-                df_sug_comp = df_mrp[(df_mrp['Date'] == mes_1_fecha) & (df_mrp['Lanzamiento_Pedidos'] > 0)][['Date', 'rm cod', 'rm desc', 'Lanzamiento_Pedidos']]
-            else: df_sug_comp = pd.DataFrame()
+    if "tab6" not in modulos_permitidos:
+        st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
+    else:
+        st.subheader("Action Plan: S&OP Month 1 Execution")
+        col_ej1, col_ej2 = st.columns(2)
+        with col_ej1:
+            st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
+            if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, use_container_width=True)
+        with col_ej2:
+            st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
+            if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, use_container_width=True)
+                
+        st.divider()
+        if st.button("🚨 Generar Plan de Acción (Nuevos Lanzamientos M1)"):
+            with st.spinner("Processing..."):
+                mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
+                st.info(f"📅 **Mes Objetivo de Ejecución:** {mes_1_fecha.strftime('%Y-%m')}")
+                
+                mps_g = generar_mps_global()
+                if mps_g:
+                    df_sug_fab = pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})
+                    df_sug_fab = df_sug_fab[(df_sug_fab['Date'] == mes_1_fecha) & (df_sug_fab['Entradas_Netas'] > 0)][['Date', 'sku cod', 'sku desc', 'Entradas_Netas']]
+                else: df_sug_fab = pd.DataFrame()
+                
+                df_mrp = generar_mrp_global()
+                if not df_mrp.empty:
+                    df_sug_comp = df_mrp[(df_mrp['Date'] == mes_1_fecha) & (df_mrp['Lanzamiento_Pedidos'] > 0)][['Date', 'rm cod', 'rm desc', 'Lanzamiento_Pedidos']]
+                else: df_sug_comp = pd.DataFrame()
 
-            st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
-            if not df_sug_fab.empty: 
-                df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
-                st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), use_container_width=True)
-            else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
-            
-            st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
-            if not df_sug_comp.empty: 
-                df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
-                st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
-            else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+                st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
+                if not df_sug_fab.empty: 
+                    df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
+                    st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), use_container_width=True)
+                else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
+                
+                st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
+                if not df_sug_comp.empty: 
+                    df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
+                    st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
+                else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
