@@ -111,24 +111,6 @@ with st.sidebar:
         authenticator.logout("Cerrar Sesión", "main")
         st.divider()
         
-        # --- NUEVO: KPIs GLOBALES EN SIDEBAR ---
-        st.markdown("### 📊 Global S&OP KPIs")
-        if 'df' in locals() and df is not None and not df.empty:
-            kpi_skus = df['sku cod'].nunique()
-            kpi_vol = df['volume'].sum()
-            
-            pct_ax = 0
-            if 'df_abcxyz_global' in locals() and not df_abcxyz_global.empty:
-                ax_skus = df_abcxyz_global[df_abcxyz_global['Clase'] == 'AX']['sku cod'].count()
-                pct_ax = (ax_skus / kpi_skus * 100) if kpi_skus > 0 else 0
-
-            st.metric("Total SKUs Activos", f"{kpi_skus}")
-            st.metric("Volumen Histórico", f"{kpi_vol:,.0f} Kg")
-            st.metric("% SKUs Clase AX", f"{pct_ax:.1f}%")
-        else:
-            st.info("Sube datos para ver los KPIs")
-            
-        st.divider()
         
 with st.sidebar.expander("📲 Compartir App (QR)"):
         st.caption("Escanea para entrar desde móvil:")
@@ -1079,3 +1061,25 @@ with tab_fin:
                 mime="application/pdf",
                 type="primary"
             )
+# ==========================================
+# KPIs GLOBALES EN SIDEBAR
+# ==========================================
+# Lo colocamos al final para asegurar que df y df_abcxyz_global ya existen
+with st.sidebar:
+    st.markdown("### 📊 Global S&OP KPIs")
+    if 'df' in locals() and df is not None and not df.empty:
+        kpi_skus = df['sku cod'].nunique()
+        kpi_vol = df['volume'].sum()
+        
+        pct_ax = 0
+        if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
+            ax_skus = df_abcxyz_global[df_abcxyz_global['Clase'] == 'AX']['sku cod'].count()
+            pct_ax = (ax_skus / kpi_skus * 100) if kpi_skus > 0 else 0
+
+        st.metric("Total SKUs Activos", f"{kpi_skus}")
+        st.metric("Volumen Histórico", f"{kpi_vol:,.0f} Kg")
+        st.metric("% SKUs Clase AX", f"{pct_ax:.1f}%")
+    else:
+        st.info("Sube datos para ver los KPIs")
+        
+    st.divider()
