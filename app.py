@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import io
+import qrcode
 import warnings
 import streamlit_authenticator as stauth
 
@@ -17,7 +18,6 @@ st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
     div[data-testid="metric-container"] {
         background-color: #ffffff;
         border: 1px solid #e0e6ed;
