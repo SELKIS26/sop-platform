@@ -11,13 +11,15 @@ import streamlit_authenticator as stauth
 
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="auto")
 
-# --- MODO KIOSK Y CSS CORPORATIVO ---
+# --- MODO KIOSK Y CSS CORPORATIVO RESPONSIVE ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Diseño base para PC (Métricas) */
     div[data-testid="metric-container"] {
         background-color: #ffffff;
         border: 1px solid #e0e6ed;
@@ -25,6 +27,29 @@ st.markdown("""
         border-radius: 8px;
         box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
         border-left: 5px solid #1E3E5B;
+    }
+
+    /* Reglas exclusivas para Móviles */
+    @media (max-width: 768px) {
+        /* 1. Reduce los espacios laterales y superiores de la app */
+        .block-container {
+            padding-top: 1.5rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        /* 2. Hace las tarjetas de KPIs (Revenue, DOH) más finas */
+        div[data-testid="metric-container"] {
+            padding: 10px 10px !important;
+        }
+        /* 3. Reduce el tamaño de los números grandes de los KPIs */
+        div[data-testid="stMetricValue"] {
+            font-size: 1.4rem !important;
+        }
+        /* 4. Ajusta las pestañas (tabs) para que el texto quepa mejor */
+        button[data-baseweb="tab"] {
+            font-size: 0.9rem !important;
+            padding: 5px 10px !important;
+        }
     }
     </style>
     """, unsafe_allow_html=True)
