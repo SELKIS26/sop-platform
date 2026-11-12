@@ -97,8 +97,8 @@ elif st.session_state["authentication_status"]:
     # --- SISTEMA DE PERMISOS (ROLES) ---
     # tab0: Guía | tab1: Demanda | tab2: Producción | tab3: Compras
     # tab4: Capacidad | tab5: Finanzas | tab6: Ejecución
-    PERMISOS = {
-        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8"], 
+PERMISOS = {
+        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9"], 
         "borja": ["tab0", "tab2"] 
     }
     modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
@@ -130,7 +130,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Idioma / Language",
         "tab0": "📖 0. Guía", "tab1": "📊 1. Demanda", "tab2": "🏭 2. Producción", 
-        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones",
+        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones", "tab9": "🔀 9. What-If",
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa (Estándar APICS)",
@@ -146,7 +146,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Demand", "tab2": "🏭 2. Production", 
-        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions",
+        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform (APICS Standard)",
@@ -162,7 +162,7 @@ TEXTS = {
         "title": "Platforma S&OP i Planowania",
         "sidebar_lang": "🌐 Język / Language",
         "tab0": "📖 0. Przewodnik", "tab1": "📊 1. Popyt", "tab2": "🏭 2. Produkcja", 
-        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🤖 8. Wyjątki",
+        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik (Standard APICS)",
@@ -178,7 +178,7 @@ TEXTS = {
         "title": "S&OP Eksekveringsplatform",
         "sidebar_lang": "🌐 Sprog / Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Efterspørgsel", "tab2": "🏭 2. Produktion", 
-        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Undtagelser",
+        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If",
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide (APICS Standard)",
@@ -486,8 +486,8 @@ LAYOUT_STYLE = dict(
 # ==========================================
 # PESTAÑAS (TABS) CON CONTROL DE ACCESO
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones")
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif = st.tabs([
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If")
 ])
 
 with tab_guia:
@@ -800,143 +800,201 @@ with tab_fin:
                     df_plot_pl.set_index('Date', inplace=True)
                     df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
                     st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), use_container_width=True)
-
-with tab_ejec:
-    if "tab6" not in modulos_permitidos:
-        st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
-    else:
-        st.subheader("Action Plan: S&OP Month 1 Execution")
-        col_ej1, col_ej2 = st.columns(2)
-        with col_ej1:
-            st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
-            if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, use_container_width=True)
-        with col_ej2:
-            st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
-            if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, use_container_width=True)
-                
-        st.divider()
-        if st.button("🚨 Generar Plan de Acción (Nuevos Lanzamientos M1)"):
-            with st.spinner("Processing..."):
-                mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-                st.info(f"📅 **Mes Objetivo de Ejecución:** {mes_1_fecha.strftime('%Y-%m')}")
-                
-                mps_g = generar_mps_global()
-                if mps_g:
-                    df_sug_fab = pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})
-                    df_sug_fab = df_sug_fab[(df_sug_fab['Date'] == mes_1_fecha) & (df_sug_fab['Entradas_Netas'] > 0)][['Date', 'sku cod', 'sku desc', 'Entradas_Netas']]
-                else: df_sug_fab = pd.DataFrame()
-                
-                df_mrp = generar_mrp_global()
-                if not df_mrp.empty:
-                    df_sug_comp = df_mrp[(df_mrp['Date'] == mes_1_fecha) & (df_mrp['Lanzamiento_Pedidos'] > 0)][['Date', 'rm cod', 'rm desc', 'Lanzamiento_Pedidos']]
-                else: df_sug_comp = pd.DataFrame()
-
-                st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
-                if not df_sug_fab.empty: 
-                    df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
-                    st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), use_container_width=True)
-                else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
-                
-                st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
-                if not df_sug_comp.empty: 
-                    df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
-                    st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
-                else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
 # ==========================================
-# MODULO 7: MATRIZ ABC / XYZ
-# ==========================================
-with tab_abc:
-    if "tab7" not in modulos_permitidos:
-        st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
-    else:
-        st.subheader("Segmentación Estratégica ABC / XYZ (Informativo)")
-        st.markdown("Clasificación basada en **Volumen Acumulado (ABC)** y **Volatilidad de la Demanda (XYZ)**.")
-        
-        if df_abcxyz_global is not None and not df_abcxyz_global.empty:
-            df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
+    # MODULO 6: EJECUCIÓN ERP (AUTOMATIZADO)
+    # ==========================================
+    with tab_ejec:
+        if "tab6" not in modulos_permitidos:
+            st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
+        else:
+            st.subheader("Action Plan: S&OP Month 1 Execution")
+            col_ej1, col_ej2 = st.columns(2)
+            with col_ej1:
+                st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
+                if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, use_container_width=True)
+            with col_ej2:
+                st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
+                if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, use_container_width=True)
+                    
+            st.divider()
             
-            col_mat1, col_mat2 = st.columns([1, 2])
-            with col_mat1:
-                st.markdown("#### Matriz de Distribución")
-                resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
-                resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
-                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
-                st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
-                st.caption("X: Estable | Y: Variable | Z: Errático")
+            mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
+            st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {mes_1_fecha.strftime('%Y-%m')}")
+            
+            mps_g = generar_mps_global()
+            df_sug_fab = pd.DataFrame()
+            if mps_g:
+                df_sug_fab = pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})
+                df_sug_fab = df_sug_fab[(df_sug_fab['Date'] == mes_1_fecha) & (df_sug_fab['Entradas_Netas'] > 0)][['Date', 'sku cod', 'sku desc', 'Entradas_Netas']]
+            
+            df_mrp = generar_mrp_global()
+            df_sug_comp = pd.DataFrame()
+            if not df_mrp.empty:
+                df_sug_comp = df_mrp[(df_mrp['Date'] == mes_1_fecha) & (df_mrp['Lanzamiento_Pedidos'] > 0)][['Date', 'rm cod', 'rm desc', 'Lanzamiento_Pedidos']]
+
+            st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
+            if not df_sug_fab.empty: 
+                df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
+                st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), use_container_width=True)
+            else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
+            
+            st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
+            if not df_sug_comp.empty: 
+                df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
+                st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
+            else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+
+    # ==========================================
+    # MODULO 7: MATRIZ ABC / XYZ
+    # ==========================================
+    with tab_abc:
+        if "tab7" not in modulos_permitidos:
+            st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
+        else:
+            st.subheader("Segmentación Estratégica ABC / XYZ (Informativo)")
+            st.markdown("Clasificación basada en **Volumen Acumulado (ABC)** y **Volatilidad de la Demanda (XYZ)**.")
+            
+            if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
+                df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
                 
-            with col_mat2:
-                st.markdown("#### Detalle de SKUs")
-                filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
-                df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
-                st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
-# ==========================================
-    # MODULO 8: PANEL DE EXCEPCIONES (ALERTAS)
+                col_mat1, col_mat2 = st.columns([1, 2])
+                with col_mat1:
+                    st.markdown("#### Matriz de Distribución")
+                    resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
+                    resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
+                    st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
+                    st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
+                    st.caption("X: Estable | Y: Variable | Z: Errático")
+                    
+                with col_mat2:
+                    st.markdown("#### Detalle de SKUs")
+                    filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
+                    df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
+                    st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
+
+    # ==========================================
+    # MODULO 8: PANEL DE EXCEPCIONES (AUTOMATIZADO)
     # ==========================================
     with tab_exc:
         if "tab8" not in modulos_permitidos:
             st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
         else:
             st.subheader("🚨 Panel de Excepciones (Management by Exception)")
-            st.markdown("Escáner automático del horizonte M+1 para detectar **roturas inminentes** y **excesos de inventario**.")
+            st.markdown("Radar automático de **roturas inminentes** y **excesos de inventario** para el próximo ciclo.")
             
-            if st.button("🔍 Ejecutar Escáner Global S&OP", type="primary"):
-                with st.spinner("Analizando miles de registros de Demanda y MRP..."):
-                    # Fecha del Mes 1 (El mes actual/próximo de ejecución)
-                    mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-                    
-                    mps_g = generar_mps_global()
-                    mrp_g = generar_mrp_global()
-                    
-                    alertas_pt = []
-                    alertas_mp = []
-                    
-                    # 1. Escanear Producto Terminado (FG)
-                    if mps_g:
-                        for sku, plan in mps_g.items():
-                            if mes_1_fecha in plan.index:
-                                datos_m1 = plan.loc[mes_1_fecha]
-                                # Alerta Rotura: Stock < 0 o DOH menor a 15 días
-                                if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
-                                    alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
-                                # Alerta Exceso: DOH mayor a 90 días (y que no sea infinito=999)
-                                elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
-                                    alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+            mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
+            
+            mps_g = generar_mps_global()
+            mrp_g = generar_mrp_global()
+            
+            alertas_pt, alertas_mp = [], []
+            
+            if mps_g:
+                for sku, plan in mps_g.items():
+                    if mes_1_fecha in plan.index:
+                        datos_m1 = plan.loc[mes_1_fecha]
+                        if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
+                            alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+                        elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
+                            alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
 
-                    # 2. Escanear Materia Prima (RM)
-                    if not mrp_g.empty:
-                        mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
-                        for _, row in mrp_m1.iterrows():
-                            if row['Stock_Final'] <= 0 or row['DOH'] < 15:
-                                alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
-                            elif row['DOH'] > 90 and row['DOH'] != 999:
-                                alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+            if not mrp_g.empty:
+                mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
+                for _, row in mrp_m1.iterrows():
+                    if row['Stock_Final'] <= 0 or row['DOH'] < 15:
+                        alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+                    elif row['DOH'] > 90 and row['DOH'] != 999:
+                        alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
 
-                    # Renderizado Visual
-                    col_ex1, col_ex2 = st.columns(2)
+            col_ex1, col_ex2 = st.columns(2)
+            
+            with col_ex1:
+                st.markdown("#### 📦 Producto Terminado")
+                if alertas_pt:
+                    df_al_pt = pd.DataFrame(alertas_pt)
+                    st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                else: st.success("✅ Sin alertas para M1.")
                     
-                    with col_ex1:
-                        st.markdown("#### 📦 Excepciones: Producto Terminado")
-                        if alertas_pt:
-                            df_al_pt = pd.DataFrame(alertas_pt)
-                            st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
-                        else:
-                            st.success("✅ Stock de PT balanceado para el Mes 1. Sin alertas.")
-                            
-                    with col_ex2:
-                        st.markdown("#### 🧩 Excepciones: Materias Primas")
-                        if alertas_mp:
-                            df_al_mp = pd.DataFrame(alertas_mp)
-                            st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
-                        else:
-                            st.success("✅ Stock de MP balanceado para el Mes 1. Sin alertas.")
+            with col_ex2:
+                st.markdown("#### 🧩 Materias Primas")
+                if alertas_mp:
+                    df_al_mp = pd.DataFrame(alertas_mp)
+                    st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                else: st.success("✅ Sin alertas para M1.")
 
     # ==========================================
-    # MODULO 9: S&OP COPILOT (IA) - INACTIVO/OCULTO
+    # MODULO 9: WHAT-IF SCENARIOS (SIMULADOR)
     # ==========================================
-    # Para reactivar la IA en el futuro, solo tienes que quitar las 
-    # almohadillas de este bloque y asegurar que tab_ia existe arriba.
-    #
-    # with tab_ia:
-    #     st.subheader("🤖 S&OP AI Copilot")
-    #     st.info("Módulo en reserva para futuras implementaciones.")
-    #       st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
+    with tab_whatif:
+        if "tab9" not in modulos_permitidos:
+            st.warning("🔒 No tienes permisos para acceder al Simulador What-If.")
+        else:
+            st.subheader("🔀 Simulador de Escenarios (What-If)")
+            st.markdown("Aplica macro-shocks (inflación, variaciones de volumen) para evaluar el impacto en el P&L consolidado para el horizonte S&OP.")
+            
+            if not dict_price:
+                st.warning("⚠️ Necesitas cargar datos históricos que incluyan columnas de 'revenue' y 'margin' para simular finanzas.")
+            else:
+                st.markdown("### 1. Define tu Escenario")
+                col_w1, col_w2, col_w3 = st.columns(3)
+                with col_w1:
+                    shock_vol = st.slider("📈 Variación de Volumen (%)", -50, 50, 0, step=5, help="Simula una caída o pico de demanda global.")
+                with col_w2:
+                    shock_precio = st.slider("🏷️ Variación Precios Venta (%)", -30, 30, 0, step=5, help="Simula una política de ajuste de tarifas de venta.")
+                with col_w3:
+                    shock_coste = st.slider("💸 Variación Costes/MP (%)", -30, 50, 0, step=5, help="Simula la inflación sobre las materias primas y producción.")
+                    
+                st.divider()
+                
+                lista_base, lista_whatif = [], []
+                
+                for sku in df['sku cod'].unique():
+                    serie_vol = df[df['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                    fcst_base = calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)
+                    
+                    precio = dict_price.get(sku, 0)
+                    margen = dict_margin.get(sku, 0)
+                    coste_base = precio - margen
+                    
+                    moneda = str(dict_currency.get(sku, 'EUR')).strip().upper()
+                    tasa = fx_eur_gbp if moneda == 'EUR' else (fx_dkk_gbp if moneda == 'DKK' else (fx_pln_gbp if moneda == 'PLN' else 1.0))
+                    
+                    vol_base_total = fcst_base.sum()
+                    
+                    rev_base = vol_base_total * precio * tasa
+                    mar_base = vol_base_total * margen * tasa
+                    
+                    vol_sim = vol_base_total * (1 + (shock_vol / 100))
+                    precio_sim = precio * (1 + (shock_precio / 100))
+                    coste_sim = coste_base * (1 + (shock_coste / 100))
+                    
+                    rev_sim = vol_sim * precio_sim * tasa
+                    mar_sim = vol_sim * (precio_sim - coste_sim) * tasa
+                    
+                    lista_base.append({'Revenue': rev_base, 'Margin': mar_base})
+                    lista_whatif.append({'Revenue': rev_sim, 'Margin': mar_sim})
+                    
+                df_base = pd.DataFrame(lista_base)
+                df_sim = pd.DataFrame(lista_whatif)
+                
+                tot_rev_base = df_base['Revenue'].sum()
+                tot_mar_base = df_base['Margin'].sum()
+                
+                tot_rev_sim = df_sim['Revenue'].sum()
+                tot_mar_sim = df_sim['Margin'].sum()
+                
+                col_r1, col_r2, col_r3 = st.columns(3)
+                col_r1.metric("Revenue (Escenario Simulado)", f"£ {tot_rev_sim:,.0f}", f"£ {tot_rev_sim - tot_rev_base:,.0f} vs Base")
+                col_r2.metric("Margen (Escenario Simulado)", f"£ {tot_mar_sim:,.0f}", f"£ {tot_mar_sim - tot_mar_base:,.0f} vs Base")
+                
+                mar_pct_base = (tot_mar_base / tot_rev_base * 100) if tot_rev_base > 0 else 0
+                mar_pct_sim = (tot_mar_sim / tot_rev_sim * 100) if tot_rev_sim > 0 else 0
+                col_r3.metric("% Margen Bruto (Simulado)", f"{mar_pct_sim:.1f}%", f"{mar_pct_sim - mar_pct_base:.1f}% vs Base")
+                
+                fig_wi = go.Figure(data=[
+                    go.Bar(name='Baseline (Plan Actual)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_base, tot_mar_base], marker_color='#A0B2C6'),
+                    go.Bar(name='What-If (Shock Aplicado)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_sim, tot_mar_sim], marker_color='#1E3E5B')
+                ])
+                fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero Consolidado en GBP", yaxis_title="GBP (£)")
+                st.plotly_chart(fig_wi, use_container_width=True)
+
