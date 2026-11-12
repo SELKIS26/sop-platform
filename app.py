@@ -8,7 +8,7 @@ import io
 import qrcode
 import warnings
 import streamlit_authenticator as stauth
-from fpdf import FPDF  # Importado al inicio para optimizar
+from fpdf import FPDF
 
 warnings.filterwarnings("ignore")
 
@@ -112,7 +112,7 @@ with st.sidebar:
             img_qr = qrcode.make(enlace_app)
             buf = io.BytesIO()
             img_qr.save(buf, format="PNG")
-            st.image(buf.getvalue(), width="stretch")
+            st.image(buf.getvalue(), use_container_width=True)
 
 # ==========================================
 # 0. DICCIONARIO DE IDIOMAS 
@@ -229,7 +229,7 @@ with st.sidebar:
     st.divider()
     usar_limpieza_outliers = st.checkbox("🧹 Clean Outliers", value=True)
 
-@st.cache_data(ttl=300, show_spinner=False) 
+@st.cache_data(ttl=300, show_spinner=False)
 def cargar_datos(uploaded_file):
     if uploaded_file is None: return None
     try:
@@ -261,7 +261,7 @@ df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
 df = df.dropna(subset=['Date'])
 fecha_maxima = df['Date'].max()
 fecha_corte = fecha_maxima - pd.DateOffset(months=24)
-df = df[df['Date'] >= fecha_corte].copy() # Nos quedamos estrictamente con 24 meses.
+df = df[df['Date'] >= fecha_corte].copy() 
 
 if 'volume' in df.columns: df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
 
@@ -338,7 +338,6 @@ def obtener_parametros_stock(codigo, cobertura_defecto):
             if 'LT_Meses' in fila.columns and pd.notna(fila['LT_Meses'].iloc[0]): lead_time = int(fila['LT_Meses'].iloc[0])
     return stk_inicial, cob_meses, lead_time
 
-# --- OPTIMIZACIÓN 2: MEMOIZATION DE MATEMÁTICAS ---
 @st.cache_data(show_spinner=False, max_entries=5000)
 def limpiar_anomalias(serie):
     if len(serie) < 6: return serie
@@ -419,7 +418,7 @@ if df_compras_erp is not None and not df_compras_erp.empty:
     df_cmp_tmp['Date'] = pd.to_datetime(df_cmp_tmp['Date']).apply(lambda x: x.replace(day=1) if pd.notnull(x) else x)
     dict_cmp_erp = df_cmp_tmp.groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
 
-# Sin decorador de caché, las funciones de MPS/MRP vuelan gracias al caché interno de calcular_forecast
+@st.cache_data(show_spinner=False)
 def generar_mps_global():
     mps_dict = {}
     ajustes_agg = st.session_state['df_ajustes'].dropna(subset=['Date']).copy() if not st.session_state['df_ajustes'].empty else None
@@ -442,6 +441,7 @@ def generar_mps_global():
         mps_dict[sku] = df_plan
     return mps_dict
 
+@st.cache_data(show_spinner=False)
 def generar_mrp_global():
     mps_g = generar_mps_global()
     if df_bom is None or df_stock is None: return pd.DataFrame()
@@ -457,6 +457,37 @@ def generar_mrp_global():
         plan['rm cod'], plan['rm desc'], plan['LT_Meses'] = rm_cod, dict_rm_desc.get(rm_cod, rm_cod), lt
         lista_compras_g.append(plan.reset_index())
     return pd.concat(lista_compras_g)
+
+# ==========================================
+# FUNCIONES AUXILIARES PARA ALIGERAR TABS 9 Y 10
+# ==========================================
+@st.cache_data(show_spinner=False)
+def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, outl, s_vol, s_pre, s_cos):
+    l_base, l_wi = [], []
+    for sku in df_f['sku cod'].unique():
+        serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, horiz)
+        p, m = dict_p.get(sku, 0), dict_m.get(sku, 0)
+        c_base = p - m
+        mon = str(dict_c.get(sku, 'EUR')).strip().upper()
+        t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
+        vol = fcst.sum()
+        l_base.append({'Revenue': vol * p * t, 'Margin': vol * m * t})
+        l_wi.append({'Revenue': vol * (1 + s_vol/100) * p * (1 + s_pre/100) * t, 'Margin': vol * (1 + s_vol/100) * (p * (1 + s_pre/100) - c_base * (1 + s_cos/100)) * t})
+    return pd.DataFrame(l_base), pd.DataFrame(l_wi)
+
+@st.cache_data(show_spinner=False)
+def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl):
+    v, r, m = 0, 0, 0
+    for sku in df_f['sku cod'].unique():
+        serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, 12)
+        vol = fcst.sum()
+        p, mg = dict_p.get(sku, 0), dict_m.get(sku, 0)
+        mon = str(dict_c.get(sku, 'EUR')).strip().upper()
+        t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
+        v += vol; r += vol * p * t; m += vol * mg * t
+    return v, r, m
 
 # ==========================================
 # PREPARACIÓN DATOS BASE
@@ -518,7 +549,7 @@ with tab_demanda:
         fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name='Forecast Consenso', line=dict(color='#1E3E5B', width=4)))
         
         fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_demanda, width="stretch")
+        st.plotly_chart(fig_demanda, use_container_width=True)
         
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -536,7 +567,7 @@ with tab_demanda:
             btn_c1, btn_c2 = st.columns(2)
             with btn_c1:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                    if st.button("💾 Guardar / Save (RAM)", width="stretch"):
+                    if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
                         if st.session_state['df_ajustes'] is not None:
                             try:
                                 df_aj = st.session_state['df_ajustes'].copy()
@@ -560,7 +591,7 @@ with tab_demanda:
                         data=output.getvalue(), 
                         file_name="2_Ajustes_Consenso_Actualizado.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        width="stretch"
+                        use_container_width=True
                     )
                 
         with col2:
@@ -602,7 +633,7 @@ with tab_prod:
             fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f'Stock FG (Obj: {cob_real_fg}m)', line=dict(color='#88FFBB', width=3)))
             
             fig_prod.update_layout(**LAYOUT_STYLE, barmode='stack', hovermode="x unified")
-            st.plotly_chart(fig_prod, width="stretch")
+            st.plotly_chart(fig_prod, use_container_width=True)
             
             df_show_fg = df_plan_fg.copy()
             df_show_fg.index = df_show_fg.index.strftime('%Y-%m')
@@ -627,7 +658,7 @@ with tab_bom:
                         
                         fig_rm = px.bar(pd.melt(df_viz, id_vars=['Date', 'MP_Visual'], value_vars=['Recepciones_ERP', 'Entradas_Netas'], var_name='Tipo', value_name='Volumen').replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, title="Llegadas a Fábrica (Firme + Teórico)", barmode='stack', color_discrete_sequence=['#1E3E5B', '#88FFBB'])
                         fig_rm.update_layout(**LAYOUT_STYLE)
-                        st.plotly_chart(fig_rm, width="stretch")
+                        st.plotly_chart(fig_rm, use_container_width=True)
                         
                         if rm_sel != "TODAS":
                             st.markdown("### 🔍 Trazabilidad del Material (Pegging)")
@@ -665,14 +696,14 @@ with tab_bom:
                                     fig_peg_sku = px.pie(df_peg_sku, values='Kilos_MP', names='SKU (Producto)', title="Consumo por Producto Terminado (SKU)", hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
                                     fig_peg_sku.update_traces(textposition='inside', textinfo='percent+label')
                                     fig_peg_sku.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_sku, width="stretch")
+                                    st.plotly_chart(fig_peg_sku, use_container_width=True)
                                     
                                 with col_p2:
                                     df_peg_cli = df_peg.groupby('Cliente')['Kilos_MP'].sum().reset_index()
                                     fig_peg_cli = px.pie(df_peg_cli, values='Kilos_MP', names='Cliente', title="Consumo por Cliente (Customer Cod)", hole=0.4, color_discrete_sequence=px.colors.sequential.Mint_r)
                                     fig_peg_cli.update_traces(textposition='inside', textinfo='percent+label')
                                     fig_peg_cli.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_cli, width="stretch")
+                                    st.plotly_chart(fig_peg_cli, use_container_width=True)
                         
                         df_show = df_viz[['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']].copy()
                         df_show['Date'] = df_show['Date'].dt.strftime('%Y-%m')
@@ -708,7 +739,7 @@ with tab_cap:
                                 fig_cap = px.bar(df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), x='Date', y='Horas_Necesarias', color='sku desc', title=f"Carga vs Capacidad: {maq_sel}")
                                 fig_cap.add_trace(go.Scatter(x=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Date'], y=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Horas_Disponibles'], mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')))
                                 fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
-                                st.plotly_chart(fig_cap, width="stretch")
+                                st.plotly_chart(fig_cap, use_container_width=True)
 
 with tab_fin:
     if "tab5" not in modulos_permitidos:
@@ -730,7 +761,6 @@ with tab_fin:
             if st.button("📈 Calculate Finance"):
                 with st.spinner("Processing P&L (Optimized)..."):
                     
-                    # --- OPTIMIZACIÓN 3: FILTRADO INTELIGENTE ANTES DEL BUCLE HW ---
                     if nivel_pl == "Por País":
                         df_fin_target = df[df['País'] == filtro_pl]
                         group_cols = ['País', 'sku cod']
@@ -753,7 +783,6 @@ with tab_fin:
                         serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
                         df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
                         
-                        # Aplicar ajustes sólo para el SKU/filtro correspondiente
                         aj_filtro = st.session_state['df_ajustes']
                         if nivel_pl == "Por País": aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
                         elif nivel_pl == "Por Cliente": aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
@@ -819,17 +848,17 @@ with tab_fin:
                         fig_pl.add_trace(go.Bar(x=df_plot_pl['Date'], y=df_plot_pl['Revenue_GBP'], name='Revenue', marker_color='#1E3E5B'))
                         fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name='Margen Bruto', mode='lines+markers', line=dict(color='#88FFBB', width=4)))
                         fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
-                        st.plotly_chart(fig_pl, width="stretch")
+                        st.plotly_chart(fig_pl, use_container_width=True)
 
                         if vista_wc == "Total (PT + MP)" and not df_wc_total.empty: 
                             fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'])['WorkingCapital_GBP'].sum().reset_index(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
                         elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty: 
                             fig_wc = px.area(df_wc_pt_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (PT): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Blues_r)
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
                         elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty: 
                             fig_wc = px.area(df_wc_mp_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (MP): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Mint_r)
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
                                 
                         df_plot_pl.set_index('Date', inplace=True)
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
@@ -905,7 +934,7 @@ with tab_abc:
                 fig_bubble.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
                 fig_bubble.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
                 
-                st.plotly_chart(fig_bubble, width="stretch")
+                st.plotly_chart(fig_bubble, use_container_width=True)
                 st.info("👈 **Cuadrante Superior Izquierdo:** Estrellas (Alto Margen, Demanda Estable). 👉 **Cuadrante Inferior Derecho:** Tóxicos (Bajo Margen, Demanda Errática).")
                 st.divider()
 
@@ -986,39 +1015,10 @@ with tab_whatif:
             with col_w1: shock_vol = st.slider("📈 Variación Volumen (%)", -50, 50, 0, step=5)
             with col_w2: shock_precio = st.slider("🏷️ Variación Precios (%)", -30, 30, 0, step=5)
             with col_w3: shock_coste = st.slider("💸 Variación Costes MP (%)", -30, 50, 0, step=5)
-                
             st.divider()
             
-            lista_base, lista_whatif = [], []
-            
             if 'df_final' in locals() and not df_final.empty:
-                for sku in df_final['sku cod'].unique():
-                    serie_vol = df_final[df_final['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                    fcst_base = calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)
-                    
-                    precio = dict_price.get(sku, 0)
-                    margen = dict_margin.get(sku, 0)
-                    coste_base = precio - margen
-                    
-                    moneda = str(dict_currency.get(sku, 'EUR')).strip().upper()
-                    tasa = fx_eur_gbp if moneda == 'EUR' else (fx_dkk_gbp if moneda == 'DKK' else (fx_pln_gbp if moneda == 'PLN' else 1.0))
-                    
-                    vol_base_total = fcst_base.sum()
-                    rev_base = vol_base_total * precio * tasa
-                    mar_base = vol_base_total * margen * tasa
-                    
-                    vol_sim = vol_base_total * (1 + (shock_vol / 100))
-                    precio_sim = precio * (1 + (shock_precio / 100))
-                    coste_sim = coste_base * (1 + (shock_coste / 100))
-                    
-                    rev_sim = vol_sim * precio_sim * tasa
-                    mar_sim = vol_sim * (precio_sim - coste_sim) * tasa
-                    
-                    lista_base.append({'Revenue': rev_base, 'Margin': mar_base})
-                    lista_whatif.append({'Revenue': rev_sim, 'Margin': mar_sim})
-                    
-                df_base = pd.DataFrame(lista_base)
-                df_sim = pd.DataFrame(lista_whatif)
+                df_base, df_sim = motor_simulador_whatif(df_final, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, horizonte, usar_limpieza_outliers, shock_vol, shock_precio, shock_coste)
                 
                 tot_rev_base = df_base['Revenue'].sum() if not df_base.empty else 0
                 tot_mar_base = df_base['Margin'].sum() if not df_base.empty else 0
@@ -1028,63 +1028,50 @@ with tab_whatif:
                 col_r1, col_r2, col_r3 = st.columns(3)
                 delta_rev = tot_rev_sim - tot_rev_base
                 col_r1.metric("Revenue (Simulado)", f"£ {tot_rev_sim:,.0f}", f"{delta_rev:,.0f} £ vs Base")
-                
                 delta_mar = tot_mar_sim - tot_mar_base
                 col_r2.metric("Margen (Simulado)", f"£ {tot_mar_sim:,.0f}", f"{delta_mar:,.0f} £ vs Base")
-                
                 mar_pct_base = (tot_mar_base / tot_rev_base * 100) if tot_rev_base > 0 else 0
                 mar_pct_sim = (tot_mar_sim / tot_rev_sim * 100) if tot_rev_sim > 0 else 0
                 delta_pct = mar_pct_sim - mar_pct_base
                 col_r3.metric("% Margen Bruto (Simulado)", f"{mar_pct_sim:.1f}%", f"{delta_pct:.1f}% vs Base")
                 
                 fig_wi = go.Figure(data=[
-                    go.Bar(name='Baseline (Plan Actual)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_base, tot_mar_base], marker_color='#A0B2C6'),
-                    go.Bar(name='What-If (Shock Aplicado)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_sim, tot_mar_sim], marker_color='#1E3E5B')
+                    go.Bar(name='Baseline', x=['Revenue (Ingresos)', 'Margin (Bruto)'], y=[tot_rev_base, tot_mar_base], marker_color='#A0B2C6'),
+                    go.Bar(name='What-If', x=['Revenue (Ingresos)', 'Margin (Bruto)'], y=[tot_rev_sim, tot_mar_sim], marker_color='#1E3E5B')
                 ])
-                fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero (Filtrado) en GBP", yaxis_title="GBP (£)")
-                st.plotly_chart(fig_wi, width="stretch")
+                fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero (GBP)", yaxis_title="GBP (£)")
+                st.plotly_chart(fig_wi, use_container_width=True)
                 
                 st.divider()
                 st.markdown("### 📥 Exportar Informe Directivo")
                 pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", size=12)
-                pdf.set_font("Arial", 'B', 16)
-                pdf.set_text_color(30, 62, 91)
+                pdf.add_page(); pdf.set_font("Arial", 'B', 16); pdf.set_text_color(30, 62, 91)
                 pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
-                pdf.set_font("Arial", size=10)
-                pdf.set_text_color(100, 100, 100)
-                pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C')
-                pdf.ln(10)
-                pdf.set_font("Arial", 'B', 12)
-                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("Arial", size=10); pdf.set_text_color(100, 100, 100)
+                pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C'); pdf.ln(10)
+                pdf.set_font("Arial", 'B', 12); pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
                 pdf.set_font("Arial", size=11)
                 pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
                 pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
-                pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True)
-                pdf.ln(5)
+                pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True); pdf.ln(5)
                 pdf.set_font("Arial", 'B', 12)
                 pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
                 pdf.set_font("Arial", size=11)
                 pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
                 pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {delta_rev:,.0f})", ln=True)
                 pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
-                pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True)
-                pdf.ln(2)
+                pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True); pdf.ln(2)
                 pdf.set_font("Arial", 'B', 12)
-                if tot_mar_sim >= tot_mar_base: pdf.set_text_color(0, 128, 0)
-                else: pdf.set_text_color(200, 0, 0)
+                pdf.set_text_color(0, 128, 0) if tot_mar_sim >= tot_mar_base else pdf.set_text_color(200, 0, 0)
                 pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {delta_mar:,.0f}", ln=True)
-                
-                st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf_Analysis.pdf", mime="application/pdf", type="primary")
+                st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
 
 with tab_kpis:
     if "tab10" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Dashboard de KPIs.")
     else:
         st.subheader("📊 Executive Dashboard & Global KPIs")
-        
         if 'df_final' in locals() and df_final is not None and not df_final.empty and 'dict_price' in locals() and dict_price:
             with st.spinner("Consolidando datos filtrados..."):
                 
@@ -1102,7 +1089,6 @@ with tab_kpis:
                 
                 max_date_global = df['Date'].max()
                 min_date_12m = max_date_global - pd.DateOffset(months=11)
-                
                 df_12m = df_final[(df_final['Date'] >= min_date_12m) & (df_final['Date'] <= max_date_global)].copy()
                 vol_12m_hist = df_12m['volume'].sum() if not df_12m.empty else 0
                 
@@ -1112,31 +1098,15 @@ with tab_kpis:
                     df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
                     df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
                     df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
-                    
                     rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
                     mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
                 else:
                     rev_12m_hist, mar_12m_hist = 0, 0
                 
-                vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = 0, 0, 0
-                
-                for sku in df_final['sku cod'].unique():
-                    serie = df_final[df_final['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                    fcst = calcular_forecast(limpiar_anomalias(serie) if usar_limpieza_outliers else serie, 12)
-                    
-                    vol_sku = fcst.head(12).sum()
-                    precio = dict_price.get(sku, 0)
-                    margen = dict_margin.get(sku, 0)
-                    moneda = str(dict_currency.get(sku, 'EUR')).strip().upper()
-                    tasa = dict_fx.get(moneda, 1.0)
-                    
-                    vol_12m_fcst += vol_sku
-                    rev_12m_fcst += vol_sku * precio * tasa
-                    mar_12m_fcst += vol_sku * margen * tasa
+                vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(df_final, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, usar_limpieza_outliers)
                     
                 st.divider()
                 st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
-                
                 col_h1, col_h2, col_h3 = st.columns(3)
                 col_h1.metric("Volumen L12M", f"{vol_12m_hist:,.0f} Kg")
                 col_h2.metric("Revenue L12M", f"£ {rev_12m_hist:,.0f}")
@@ -1145,10 +1115,8 @@ with tab_kpis:
                 col_f1, col_f2, col_f3 = st.columns(3)
                 delta_vol = vol_12m_fcst - vol_12m_hist
                 col_f1.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{delta_vol:,.0f} Kg vs L12M")
-                
                 delta_rev2 = rev_12m_fcst - rev_12m_hist
                 col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
-                
                 delta_mar2 = mar_12m_fcst - mar_12m_hist
                 col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
         else:
