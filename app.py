@@ -863,65 +863,95 @@ with tab_abc:
                     st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
 
 # ==========================================
-# MODULO 8: S&OP COPILOT (IA)
-# ==========================================
-with tab_ia:
-    if "tab8" not in modulos_permitidos:
-        st.warning("🔒 No tienes permisos para usar la IA.")
-    else:
-        st.subheader("🤖 S&OP AI Copilot")
-        st.markdown("Tu asistente inteligente para analizar el plan actual. Escribe tu propia clave de OpenAI para empezar a consultar los datos.")
-        
-        api_key = st.text_input("🔑 Introduce tu API Key de OpenAI (sk-...):", type="password")
-        
-        if api_key:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-                
-                if "mensajes_chat" not in st.session_state:
-                    st.session_state.mensajes_chat = []
-                    
-                # Mostrar historial de chat
-                for msg in st.session_state.mensajes_chat:
-                    with st.chat_message(msg["role"]): 
-                        st.markdown(msg["content"])
-                        
-                # Entrada del usuario
-                if prompt := st.chat_input("Pregunta sobre tu inventario, demanda o S&OP..."):
-                    # Añadir y mostrar la pregunta del usuario
-                    st.session_state.mensajes_chat.append({"role": "user", "content": prompt})
-                    with st.chat_message("user"): 
-                        st.markdown(prompt)
-                        
-                    # Crear el contexto "secreto" que le mandamos a la IA por debajo
-                    total_skus = df['sku cod'].nunique() if df is not None else 0
-                    vol_total = df['volume'].sum() if df is not None else 0
-                    contexto_sistema = f"""
-                    Eres un director de Supply Chain experto en S&OP trabajando para AB Agri.
-                    Responde de forma ejecutiva, concisa y profesional. 
-                    Datos actuales cargados en el sistema del usuario:
-                    - SKUs activos gestionados: {total_skus}
-                    - Volumen histórico total: {vol_total:,.0f} Kilos.
-                    - (El usuario ha calculado una matriz ABC/XYZ para segmentar el inventario).
-                    Si te piden consejo sobre políticas, recuerda: AX=Make to Stock con bajo stock de seguridad; CZ=Make to Order.
-                    """
-                    
-                    mensajes_api = [{"role": "system", "content": contexto_sistema}] + st.session_state.mensajes_chat
-                    
-                    # Llamada a OpenAI
-                    with st.chat_message("assistant"):
-                        with st.spinner("Analizando datos..."):
-                            response = client.chat.completions.create(
-                                model="gpt-4o-mini", # Rápido y barato
-                                messages=mensajes_api
-                            )
-                            respuesta_ia = response.choices[0].message.content
-                            st.markdown(respuesta_ia)
-                            
-                    # Guardar respuesta
-                    st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_ia})
-            except Exception as e:
-                st.error(f"Error al conectar con OpenAI: Comprueba que tu API Key es válida. Detalle: {e}")
+    # MODULO 8: S&OP COPILOT (IA) - VERSIÓN CONTEXTO PROFUNDO
+    # ==========================================
+    with tab_ia:
+        if "tab8" not in modulos_permitidos:
+            st.warning("🔒 No tienes permisos para usar la IA.")
         else:
+            st.subheader("🤖 S&OP AI Copilot")
+            st.markdown("Tu asistente inteligente ahora lee un resumen cruzado de tus ventas, stock y segmentación en tiempo real.")
+            
+            api_key = st.text_input("🔑 Introduce tu API Key de OpenAI (sk-...):", type="password")
+            
+            if api_key:
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
+                    
+                    if "mensajes_chat" not in st.session_state:
+                        st.session_state.mensajes_chat = []
+                        
+                    # Mostrar historial
+                    for msg in st.session_state.mensajes_chat:
+                        with st.chat_message(msg["role"]): 
+                            st.markdown(msg["content"])
+                            
+                    if prompt := st.chat_input("Ej: ¿Cuántos productos tenemos en clase AX? o ¿Cuál es mi producto con más volumen?"):
+                        st.session_state.mensajes_chat.append({"role": "user", "content": prompt})
+                        with st.chat_message("user"): 
+                            st.markdown(prompt)
+                            
+                        # --- INYECCIÓN DE DATOS (EL CEREBRO DE LA IA) ---
+                        
+                        # 1. Inyectar Top 15 Ventas Históricas
+                        top_vol = "Sin datos"
+                        if df is not None and not df.empty:
+                            top_vol = df.groupby('sku cod')['volume'].sum().sort_values(ascending=False).head(15).reset_index().to_string(index=False)
+                            
+                        # 2. Inyectar Top 15 Stock Inicial
+                        stock_text = "Sin datos de stock"
+                        if df_stock is not None and not df_stock.empty and 'sku cod' in df_stock.columns and 'stock_disponible' in df_stock.columns:
+                            stock_text = df_stock[['sku cod', 'stock_disponible']].sort_values(by='stock_disponible', ascending=False).head(15).to_string(index=False)
+                        
+                        # 3. Inyectar Segmentación ABC/XYZ (Agrupada y Extremos)
+                        abc_text = "Segmentación no calculada en la memoria."
+                        try:
+                            if not df_abcxyz.empty:
+                                conteo_clases = df_abcxyz.groupby('Clase')['sku cod'].count().to_string()
+                                extremos = df_abcxyz[df_abcxyz['Clase'].isin(['AX', 'CZ'])][['sku cod', 'Clase', 'volume']].sort_values('volume', ascending=False).head(15).to_string(index=False)
+                                abc_text = f"CANTIDAD DE SKUs POR CLASE:\n{conteo_clases}\n\nTOP 15 PRODUCTOS CRÍTICOS (AX y CZ):\n{extremos}"
+                        except Exception:
+                            pass
+                        
+                        # Construcción del Prompt del Sistema
+                        contexto_sistema = f"""
+                        Eres el Director de S&OP de AB Agri. Responde de forma ejecutiva, concisa y analítica.
+                        No digas "según los datos proporcionados", actúa como si estuvieras viendo el ERP corporativo en tu pantalla.
+                        
+                        DATOS ACTUALES DEL SISTEMA S&OP EN TIEMPO REAL:
+                        
+                        1. VENTAS HISTÓRICAS (TOP 15 SKUs con más volumen):
+                        {top_vol}
+                        
+                        2. INVENTARIO ACTUAL (TOP 15 SKUs con más stock):
+                        {stock_text}
+                        
+                        3. MATRIZ ABC/XYZ:
+                        {abc_text}
+                        
+                        REGLAS DE NEGOCIO AB AGRI:
+                        - Productos AX: Demanda estable y alto volumen -> Recomienda política Make to Stock (MTS).
+                        - Productos CZ: Demanda errática y bajo volumen -> Recomienda política Make to Order (MTO).
+                        
+                        Cruza estos datos para responder a la pregunta del usuario. Si pregunta por un SKU específico que está en la lista, dale sus cifras exactas.
+                        """
+                        
+                        mensajes_api = [{"role": "system", "content": contexto_sistema}] + st.session_state.mensajes_chat
+                        
+                        with st.chat_message("assistant"):
+                            with st.spinner("Analizando matrices del S&OP..."):
+                                response = client.chat.completions.create(
+                                    model="gpt-4o-mini",
+                                    messages=mensajes_api,
+                                    temperature=0.3 # Temperatura baja para que sea analítico y no invente datos
+                                )
+                                respuesta_ia = response.choices[0].message.content
+                                st.markdown(respuesta_ia)
+                                
+                        st.session_state.mensajes_chat.append({"role": "assistant", "content": respuesta_ia})
+                except Exception as e:
+                    st.error(f"Error de conexión con OpenAI: Comprueba tu conexión o tu API Key. Detalle: {e}")
+            else:
+                st.info("💡 Introduce tu API Key para activar el cerebro analítico de la aplicación.")
             st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
