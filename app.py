@@ -1069,8 +1069,8 @@ with tab_fin:
                 pdf.set_text_color(200, 0, 0) # Rojo si perdemos margen
             pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {tot_mar_sim - tot_mar_base:,.0f}", ln=True)
             
-            # Compilar el PDF a bytes
-            pdf_bytes = pdf.output()
+# Compilar el PDF a formato estricto de bytes para Streamlit
+            pdf_bytes = bytes(pdf.output())
             
             st.download_button(
                 label="📄 Descargar Resumen PDF",
