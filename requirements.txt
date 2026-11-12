@@ -6,3 +6,4 @@ statsmodels
 openpyxl
 streamlit-authenticator
 qrcode
+openai
