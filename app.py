@@ -767,24 +767,24 @@ with tab_fin:
                 elif nivel_pl == "Por SKU": filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
             with col2:
                 vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
-                
-            if st.button("📈 Calculate Finance"):
-                with st.spinner("Processing P&L (Optimized)..."):
-                    
-                    if nivel_pl == "Por País":
-                        df_fin_target = df[df['País'] == filtro_pl]
-                        group_cols = ['País', 'sku cod']
-                    elif nivel_pl == "Por Cliente":
-                        df_fin_target = df[df['customer cod'] == filtro_pl]
-                        group_cols = ['customer cod', 'sku cod']
-                    elif nivel_pl == "Por SKU":
-                        df_fin_target = df[df['sku cod'] == filtro_pl]
-                        group_cols = ['sku cod']
-                    else:
-                        df_fin_target = df
-                        group_cols = ['sku cod']
 
-lista_pl = []
+  if st.button("📈 Calculate Finance"):
+            with st.spinner("Processing P&L (Optimized)..."):
+                
+                if nivel_pl == "Por País":
+                    df_fin_target = df[df['País'] == filtro_pl]
+                    group_cols = ['País', 'sku cod']
+                elif nivel_pl == "Por Cliente":
+                    df_fin_target = df[df['customer cod'] == filtro_pl]
+                    group_cols = ['customer cod', 'sku cod']
+                elif nivel_pl == "Por SKU":
+                    df_fin_target = df[df['sku cod'] == filtro_pl]
+                    group_cols = ['sku cod']
+                else:
+                    df_fin_target = df
+                    group_cols = ['sku cod']
+
+                lista_pl = []
                 for keys, df_grupo in df_fin_target.groupby(group_cols):
                     sku = keys[-1] if isinstance(keys, tuple) else keys
                     pais = keys[0] if nivel_pl == "Por País" else "Varios"
@@ -812,8 +812,6 @@ lista_pl = []
                             if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
                     
                     precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
-                    
-                    # Al estar en GBP puras, ya no multiplicamos otra vez por tasa_cambio
                     df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio, 'Margin_GBP': df_fcst['Consenso'].values * margen})
                     lista_pl.append(df_res)
                         
