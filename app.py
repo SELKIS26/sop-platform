@@ -279,29 +279,54 @@ if 'revenue' in df.columns and 'margin' in df.columns:
     dict_currency = dict(zip(df_fin_base['sku cod'], df_fin_base['currency']))
 
 # ==========================================
-# 2. FILTROS EN CASCADA
+# 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
 # ==========================================
-col_f1, col_f2, col_f3 = st.columns(3)
+@st.cache_data(ttl=300)
+def calcular_abc_xyz_global(df_in):
+    if df_in is None or df_in.empty or 'volume' not in df_in.columns: return pd.DataFrame()
+    df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
+    if df_vol['volume'].sum() == 0: return pd.DataFrame()
+    df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
+    df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
+    df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
+    df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
+    df_cv['CV'] = df_cv['std'] / df_cv['mean'].replace(0, 1)
+    df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
+    df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
+    df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
+    return df_res
+
+df_abcxyz_global = calcular_abc_xyz_global(df)
+
+col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
     lista_paises = ["TODOS"] + sorted(df['País'].dropna().unique().tolist())
-    pais_sel = st.selectbox("1. Filter Country / País:", lista_paises)
+    pais_sel = st.selectbox("1. Country / País:", lista_paises)
 df_filtro1 = df if pais_sel == "TODOS" else df[df['País'] == pais_sel]
 
 with col_f2:
     lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().unique().tolist())
-    cliente_sel = st.selectbox("2. Filter Customer / Cliente:", lista_clientes)
+    cliente_sel = st.selectbox("2. Customer / Cliente:", lista_clientes)
 df_filtro2 = df_filtro1 if cliente_sel == "TODOS" else df_filtro1[df_filtro1['customer cod'] == cliente_sel]
 
 with col_f3:
-    lista_skus = ["TODOS"] + sorted(df_filtro2['sku cod'].dropna().unique().tolist())
-    sku_sel = st.selectbox("3. Filter SKU (PT):", lista_skus)
-df_final = df_filtro2 if sku_sel == "TODOS" else df_filtro2[df_filtro2['sku cod'] == sku_sel]
+    lista_clases = ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique().tolist()) if not df_abcxyz_global.empty else ["TODAS"]
+    clase_sel = st.selectbox("3. Clase ABC/XYZ:", lista_clases)
+
+if clase_sel != "TODAS" and not df_abcxyz_global.empty:
+    skus_en_clase = df_abcxyz_global[df_abcxyz_global['Clase'] == clase_sel]['sku cod'].unique()
+    df_filtro3 = df_filtro2[df_filtro2['sku cod'].isin(skus_en_clase)]
+else:
+    df_filtro3 = df_filtro2
+
+with col_f4:
+    lista_skus = ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().unique().tolist())
+    sku_sel = st.selectbox("4. Filter SKU (PT):", lista_skus)
+df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'] == sku_sel]
 
 col_objetivo = 'volume'
 dict_sku_desc = dict(zip(df['sku cod'], df['sku desc']))
 dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc'])) if (df_bom is not None and 'rm cod' in df_bom.columns) else {}
-
-# ==========================================
 # 3. FUNCIONES CORE
 # ==========================================
 def obtener_parametros_stock(codigo, cobertura_defecto):
@@ -817,7 +842,7 @@ with tab_ejec:
                     df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
                     st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
                 else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
-    # ==========================================
+# ==========================================
 # MODULO 7: MATRIZ ABC / XYZ
 # ==========================================
 with tab_abc:
@@ -827,41 +852,23 @@ with tab_abc:
         st.subheader("Segmentación Estratégica ABC / XYZ (Informativo)")
         st.markdown("Clasificación basada en **Volumen Acumulado (ABC)** y **Volatilidad de la Demanda (XYZ)**.")
         
-        if df is not None and not df.empty:
-            with st.spinner("Calculando variabilidad y pesos..."):
-                # 1. Cálculo ABC (Por Volumen)
-                df_vol = df.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
-                df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
-                df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
+        if df_abcxyz_global is not None and not df_abcxyz_global.empty:
+            df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
+            
+            col_mat1, col_mat2 = st.columns([1, 2])
+            with col_mat1:
+                st.markdown("#### Matriz de Distribución")
+                resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
+                resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
+                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
+                st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
+                st.caption("X: Estable | Y: Variable | Z: Errático")
                 
-                # 2. Cálculo XYZ (Por Coeficiente de Variación CV = Std / Mean)
-                df_mes = df.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
-                df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
-                df_cv['CV'] = df_cv['std'] / df_cv['mean'].replace(0, 1) # Evitar división por 0
-                df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
-                
-                # 3. Consolidación
-                df_abcxyz = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
-                df_abcxyz['Clase'] = df_abcxyz['ABC'] + df_abcxyz['XYZ']
-                df_abcxyz = pd.merge(df_abcxyz, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
-                
-                col_mat1, col_mat2 = st.columns([1, 2])
-                
-                with col_mat1:
-                    st.markdown("#### Matriz de Distribución")
-                    resumen_matriz = df_abcxyz.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
-                    # Reordenar para que sea A,B,C y X,Y,Z
-                    resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
-                    st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
-                    st.caption("A: 80% Vol | B: 15% Vol | C: 5% Vol")
-                    st.caption("X: Estable | Y: Variable | Z: Errático")
-                    
-                with col_mat2:
-                    st.markdown("#### Detalle de SKUs")
-                    filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz['Clase'].unique()))
-                    df_show_abc = df_abcxyz if not filtro_clase else df_abcxyz[df_abcxyz['Clase'].isin(filtro_clase)]
-                    st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
-
+            with col_mat2:
+                st.markdown("#### Detalle de SKUs")
+                filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
+                df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
+                st.dataframe(df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV']].rename(columns={'volume': 'Volumen Total', 'CV': 'Coef. Variación'}).style.format({"Volumen Total": "{:,.0f}", "Coef. Variación": "{:.2f}"}), use_container_width=True)
 # ==========================================
     # MODULO 8: PANEL DE EXCEPCIONES (ALERTAS)
     # ==========================================
