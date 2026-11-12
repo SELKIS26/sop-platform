@@ -267,12 +267,22 @@ if 'volume' in df.columns: df['volume'] = pd.to_numeric(df['volume'], errors='co
 
 dict_price, dict_margin, dict_currency = {}, {}, {}
 if 'revenue' in df.columns and 'margin' in df.columns:
-    df_fin_base = df.groupby('sku cod').agg({'volume':'sum', 'revenue':'sum', 'margin':'sum', 'currency':'first'}).reset_index()
-    df_fin_base['unit_price'] = np.where(df_fin_base['volume']>0, df_fin_base['revenue']/df_fin_base['volume'], 0)
-    df_fin_base['unit_margin'] = np.where(df_fin_base['volume']>0, df_fin_base['margin']/df_fin_base['volume'], 0)
+    # 1. Convertir fila a fila a GBP antes de sumar nada
+    dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
+    df['Moneda'] = df.get('currency', pd.Series(['EUR']*len(df))).astype(str).str.strip().str.upper()
+    df['FX'] = df['Moneda'].map(dict_fx).fillna(1.0)
+    df['Rev_GBP'] = df['revenue'] * df['FX']
+    df['Mar_GBP'] = df['margin'] * df['FX']
+    
+    # 2. Calcular precios unitarios reales en GBP puros
+    df_fin_base = df.groupby('sku cod').agg({'volume':'sum', 'Rev_GBP':'sum', 'Mar_GBP':'sum'}).reset_index()
+    df_fin_base['unit_price'] = np.where(df_fin_base['volume']>0, df_fin_base['Rev_GBP']/df_fin_base['volume'], 0)
+    df_fin_base['unit_margin'] = np.where(df_fin_base['volume']>0, df_fin_base['Mar_GBP']/df_fin_base['volume'], 0)
+    
     dict_price = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_price']))
     dict_margin = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_margin']))
-    dict_currency = dict(zip(df_fin_base['sku cod'], df_fin_base['currency']))
+    # Inyectamos 'GBP' a todo porque ya lo hemos convertido
+    dict_currency = dict(zip(df_fin_base['sku cod'], ['GBP'] * len(df_fin_base)))
 
 # ==========================================
 # 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
@@ -774,30 +784,38 @@ with tab_fin:
                         df_fin_target = df
                         group_cols = ['sku cod']
 
-                    lista_pl = []
-                    for keys, df_grupo in df_fin_target.groupby(group_cols):
-                        sku = keys[-1] if isinstance(keys, tuple) else keys
-                        pais = keys[0] if nivel_pl == "Por País" else "Varios"
-                        cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
+lista_pl = []
+                for keys, df_grupo in df_fin_target.groupby(group_cols):
+                    sku = keys[-1] if isinstance(keys, tuple) else keys
+                    pais = keys[0] if nivel_pl == "Por País" else "Varios"
+                    cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
 
-                        serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
-                        
-                        aj_filtro = st.session_state['df_ajustes']
-                        if nivel_pl == "Por País": aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        elif nivel_pl == "Por Cliente": aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        else: aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
+                    # --- HISTÓRICO REAL PARA EL GRÁFICO ---
+                    if 'Rev_GBP' in df_grupo.columns:
+                        df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
+                        df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
+                        df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
+                        lista_pl.append(df_hist)
 
-                        if not aj_filtro.empty:
-                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
-                            for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                                if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
-                        
-                        precio, margen, moneda = dict_price.get(sku, 0), dict_margin.get(sku, 0), str(dict_currency.get(sku, 'EUR')).strip().upper()
-                        tasa_cambio = fx_eur_gbp if moneda == 'EUR' else (fx_dkk_gbp if moneda == 'DKK' else (fx_pln_gbp if moneda == 'PLN' else 1.0))
-                        
-                        df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio * tasa_cambio, 'Margin_GBP': df_fcst['Consenso'].values * margen * tasa_cambio})
-                        lista_pl.append(df_res)
+                    # --- FORECAST PROYECTADO ---
+                    serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+                    df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
+                    
+                    aj_filtro = st.session_state['df_ajustes']
+                    if nivel_pl == "Por País": aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
+                    elif nivel_pl == "Por Cliente": aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
+                    else: aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
+
+                    if not aj_filtro.empty:
+                        aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
+                        for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
+                            if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
+                    
+                    precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
+                    
+                    # Al estar en GBP puras, ya no multiplicamos otra vez por tasa_cambio
+                    df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio, 'Margin_GBP': df_fcst['Consenso'].values * margen})
+                    lista_pl.append(df_res)
                         
                     df_plot_pl = pd.concat(lista_pl) if lista_pl else pd.DataFrame()
                     skus_validos = df_fin_target['sku cod'].unique()
