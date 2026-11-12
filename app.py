@@ -112,7 +112,7 @@ with st.sidebar:
             img_qr = qrcode.make(enlace_app)
             buf = io.BytesIO()
             img_qr.save(buf, format="PNG")
-            st.image(buf.getvalue(), use_container_width=True)
+            st.image(buf.getvalue(), width="stretch")
 
 # ==========================================
 # 0. DICCIONARIO DE IDIOMAS 
@@ -518,7 +518,7 @@ with tab_demanda:
         fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name='Forecast Consenso', line=dict(color='#1E3E5B', width=4)))
         
         fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_demanda, use_container_width=True)
+        st.plotly_chart(fig_demanda, width="stretch")
         
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -527,16 +527,16 @@ with tab_demanda:
             df_display.index = df_display.index.strftime('%Y-%m')
             
             if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                df_editado = st.data_editor(df_display, column_config={"Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"), "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")}, use_container_width=True)
+                df_editado = st.data_editor(df_display, column_config={"Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"), "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")}, width="stretch")
             else:
-                st.dataframe(df_display.style.format("{:,.2f}"), use_container_width=True)
+                st.dataframe(df_display.style.format("{:,.2f}"), width="stretch")
                 
             st.markdown("---")
             
             btn_c1, btn_c2 = st.columns(2)
             with btn_c1:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                    if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
+                    if st.button("💾 Guardar / Save (RAM)", width="stretch"):
                         if st.session_state['df_ajustes'] is not None:
                             try:
                                 df_aj = st.session_state['df_ajustes'].copy()
@@ -560,7 +560,7 @@ with tab_demanda:
                         data=output.getvalue(), 
                         file_name="2_Ajustes_Consenso_Actualizado.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        width="stretch"
                     )
                 
         with col2:
@@ -602,11 +602,11 @@ with tab_prod:
             fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f'Stock FG (Obj: {cob_real_fg}m)', line=dict(color='#88FFBB', width=3)))
             
             fig_prod.update_layout(**LAYOUT_STYLE, barmode='stack', hovermode="x unified")
-            st.plotly_chart(fig_prod, use_container_width=True)
+            st.plotly_chart(fig_prod, width="stretch")
             
             df_show_fg = df_plan_fg.copy()
             df_show_fg.index = df_show_fg.index.strftime('%Y-%m')
-            st.dataframe(df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
+            st.dataframe(df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), width="stretch")
 
 with tab_bom:
     if "tab3" not in modulos_permitidos:
@@ -627,7 +627,7 @@ with tab_bom:
                         
                         fig_rm = px.bar(pd.melt(df_viz, id_vars=['Date', 'MP_Visual'], value_vars=['Recepciones_ERP', 'Entradas_Netas'], var_name='Tipo', value_name='Volumen').replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, title="Llegadas a Fábrica (Firme + Teórico)", barmode='stack', color_discrete_sequence=['#1E3E5B', '#88FFBB'])
                         fig_rm.update_layout(**LAYOUT_STYLE)
-                        st.plotly_chart(fig_rm, use_container_width=True)
+                        st.plotly_chart(fig_rm, width="stretch")
                         
                         if rm_sel != "TODAS":
                             st.markdown("### 🔍 Trazabilidad del Material (Pegging)")
@@ -665,18 +665,18 @@ with tab_bom:
                                     fig_peg_sku = px.pie(df_peg_sku, values='Kilos_MP', names='SKU (Producto)', title="Consumo por Producto Terminado (SKU)", hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
                                     fig_peg_sku.update_traces(textposition='inside', textinfo='percent+label')
                                     fig_peg_sku.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_sku, use_container_width=True)
+                                    st.plotly_chart(fig_peg_sku, width="stretch")
                                     
                                 with col_p2:
                                     df_peg_cli = df_peg.groupby('Cliente')['Kilos_MP'].sum().reset_index()
                                     fig_peg_cli = px.pie(df_peg_cli, values='Kilos_MP', names='Cliente', title="Consumo por Cliente (Customer Cod)", hole=0.4, color_discrete_sequence=px.colors.sequential.Mint_r)
                                     fig_peg_cli.update_traces(textposition='inside', textinfo='percent+label')
                                     fig_peg_cli.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_cli, use_container_width=True)
+                                    st.plotly_chart(fig_peg_cli, width="stretch")
                         
                         df_show = df_viz[['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']].copy()
                         df_show['Date'] = df_show['Date'].dt.strftime('%Y-%m')
-                        st.dataframe(df_show.reset_index(drop=True).style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), use_container_width=True)
+                        st.dataframe(df_show.reset_index(drop=True).style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), width="stretch")
 
 with tab_cap:
     if "tab4" not in modulos_permitidos:
@@ -700,15 +700,15 @@ with tab_cap:
                             df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
                             df_pivot.columns = df_pivot.columns.strftime('%Y-%m')
                             st.markdown("#### % Utilización / Utilization")
-                            try: st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), use_container_width=True)
-                            except: st.dataframe(df_pivot.style.format("{:.0f}%"), use_container_width=True)
+                            try: st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), width="stretch")
+                            except: st.dataframe(df_pivot.style.format("{:.0f}%"), width="stretch")
                         else:
                             df_req_maq = df_req[df_req['Maquina'] == maq_sel]
                             if not df_req_maq.empty:
                                 fig_cap = px.bar(df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), x='Date', y='Horas_Necesarias', color='sku desc', title=f"Carga vs Capacidad: {maq_sel}")
                                 fig_cap.add_trace(go.Scatter(x=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Date'], y=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Horas_Disponibles'], mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')))
                                 fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
-                                st.plotly_chart(fig_cap, use_container_width=True)
+                                st.plotly_chart(fig_cap, width="stretch")
 
 with tab_fin:
     if "tab5" not in modulos_permitidos:
@@ -819,21 +819,21 @@ with tab_fin:
                         fig_pl.add_trace(go.Bar(x=df_plot_pl['Date'], y=df_plot_pl['Revenue_GBP'], name='Revenue', marker_color='#1E3E5B'))
                         fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name='Margen Bruto', mode='lines+markers', line=dict(color='#88FFBB', width=4)))
                         fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
-                        st.plotly_chart(fig_pl, use_container_width=True)
+                        st.plotly_chart(fig_pl, width="stretch")
 
                         if vista_wc == "Total (PT + MP)" and not df_wc_total.empty: 
                             fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'])['WorkingCapital_GBP'].sum().reset_index(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
                         elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty: 
                             fig_wc = px.area(df_wc_pt_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (PT): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Blues_r)
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
                         elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty: 
                             fig_wc = px.area(df_wc_mp_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (MP): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Mint_r)
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), width="stretch")
                                 
                         df_plot_pl.set_index('Date', inplace=True)
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
-                        st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), use_container_width=True)
+                        st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
 
 with tab_ejec:
     if "tab6" not in modulos_permitidos:
@@ -843,10 +843,10 @@ with tab_ejec:
         col_ej1, col_ej2 = st.columns(2)
         with col_ej1:
             st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
-            if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, use_container_width=True)
+            if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, width="stretch")
         with col_ej2:
             st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
-            if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, use_container_width=True)
+            if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, width="stretch")
                 
         st.divider()
         mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
@@ -866,13 +866,13 @@ with tab_ejec:
         st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
         if not df_sug_fab.empty: 
             df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
-            st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), use_container_width=True)
+            st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), width="stretch")
         else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
         
         st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
         if not df_sug_comp.empty: 
             df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
-            st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), use_container_width=True)
+            st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), width="stretch")
         else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
 
 with tab_abc:
@@ -905,7 +905,7 @@ with tab_abc:
                 fig_bubble.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
                 fig_bubble.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
                 
-                st.plotly_chart(fig_bubble, use_container_width=True)
+                st.plotly_chart(fig_bubble, width="stretch")
                 st.info("👈 **Cuadrante Superior Izquierdo:** Estrellas (Alto Margen, Demanda Estable). 👉 **Cuadrante Inferior Derecho:** Tóxicos (Bajo Margen, Demanda Errática).")
                 st.divider()
 
@@ -914,7 +914,7 @@ with tab_abc:
                 st.markdown("#### Distribución de SKUs")
                 resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
                 resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
-                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
+                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), width="stretch")
                 
             with col_mat2:
                 st.markdown("#### Detalle de Clasificación")
@@ -924,7 +924,7 @@ with tab_abc:
                     df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
                     .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
                     .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
-                    use_container_width=True
+                    width="stretch"
                 )
 
 with tab_exc:
@@ -962,14 +962,14 @@ with tab_exc:
             st.markdown("#### 📦 Producto Terminado")
             if alertas_pt:
                 df_al_pt = pd.DataFrame(alertas_pt)
-                st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), width="stretch")
             else: st.success("✅ Sin alertas para M1.")
                 
         with col_ex2:
             st.markdown("#### 🧩 Materias Primas")
             if alertas_mp:
                 df_al_mp = pd.DataFrame(alertas_mp)
-                st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), use_container_width=True)
+                st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), width="stretch")
             else: st.success("✅ Sin alertas para M1.")
 
 with tab_whatif:
@@ -1042,7 +1042,7 @@ with tab_whatif:
                     go.Bar(name='What-If (Shock Aplicado)', x=['Revenue (Ingresos)', 'Margin (Beneficio Bruto)'], y=[tot_rev_sim, tot_mar_sim], marker_color='#1E3E5B')
                 ])
                 fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero (Filtrado) en GBP", yaxis_title="GBP (£)")
-                st.plotly_chart(fig_wi, use_container_width=True)
+                st.plotly_chart(fig_wi, width="stretch")
                 
                 st.divider()
                 st.markdown("### 📥 Exportar Informe Directivo")
@@ -1098,7 +1098,7 @@ with tab_kpis:
                 col_e1.metric("SKUs Activos (PT)", f"{total_skus}")
                 col_e2.metric("Total Clientes", f"{total_clientes}")
                 with col_e3:
-                    st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), use_container_width=True, hide_index=True)
+                    st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), width="stretch", hide_index=True)
                 
                 max_date_global = df['Date'].max()
                 min_date_12m = max_date_global - pd.DateOffset(months=11)
