@@ -768,7 +768,7 @@ with tab_fin:
             with col2:
                 vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
 
-  if st.button("📈 Calculate Finance"):
+          if st.button("📈 Calculate Finance"):
             with st.spinner("Processing P&L (Optimized)..."):
                 
                 if nivel_pl == "Por País":
