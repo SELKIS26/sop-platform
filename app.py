@@ -932,4 +932,4 @@ with tab_abc:
     # with tab_ia:
     #     st.subheader("🤖 S&OP AI Copilot")
     #     st.info("Módulo en reserva para futuras implementaciones.")
-            st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
+    #       st.info("💡 Puedes conseguir una API Key en https://platform.openai.com/api-keys")
