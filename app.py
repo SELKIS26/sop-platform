@@ -507,6 +507,9 @@ tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, t
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If")
 ])
 
+# ==========================================
+# MODULO 0: GUÍA DE USO
+# ==========================================
 with tab_guia:
     st.header(t["guide_title"])
     st.write(t["guide_desc"])
@@ -516,12 +519,9 @@ with tab_guia:
     st.markdown(f"**{t['g_cap_t']}**: {t['g_cap_d']}")
     st.markdown(f"**{t['g_fin_t']}**: {t['g_fin_d']}")
     st.markdown(f"**{t['g_erp_t']}**: {t['g_erp_d']}")
-    
-    st.markdown("---")
-    st.markdown("### Nuevos Módulos Analíticos (Executive)")
-    st.markdown("* **🔠 7. ABC/XYZ:** Segmentación estratégica cruzando volumen (ABC) y volatilidad (XYZ).")
-    st.markdown("* **🚨 8. Excepciones:** Radar automático para roturas (DOH < 15) y excesos (DOH > 90).")
-    st.markdown("* **🔀 9. What-If:** Simulador financiero interactivo. Estresa volúmenes, precios y costes para ver impacto en Margen Bruto.")
+    st.markdown("**🔠 7. ABC/XYZ**: Segmentación estratégica cruzando volumen (ABC) y volatilidad (XYZ).")
+    st.markdown("**🚨 8. Excepciones**: Radar automático para riesgo de roturas (DOH < 15) y excesos (DOH > 90).")
+    st.markdown("**🔀 9. What-If**: Simulador financiero interactivo. Estresa volúmenes, precios y costes para evaluar impacto en margen.")
 
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
