@@ -95,9 +95,7 @@ elif st.session_state["authentication_status"]:
     usuario_actual = st.session_state["username"]
     
     # --- SISTEMA DE PERMISOS (ROLES) ---
-    # tab0: Guía | tab1: Demanda | tab2: Producción | tab3: Compras
-    # tab4: Capacidad | tab5: Finanzas | tab6: Ejecución
-PERMISOS = {
+    PERMISOS = {
         "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9"], 
         "borja": ["tab0", "tab2"] 
     }
