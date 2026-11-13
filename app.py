@@ -1305,5 +1305,3 @@ with tab_kpis:
                         )
                     else:
                         st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
-                else:
-                    st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
