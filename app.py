@@ -487,13 +487,28 @@ def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, ho
     return pd.DataFrame(l_base), pd.DataFrame(l_wi)
 
 @st.cache_data(show_spinner=False)
-def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, horiz=12):
+@st.cache_data(show_spinner=False)
+def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, max_date_global, horiz=12):
+    # Definir el rango exacto y común de los próximos 12 meses corporativos
+    inicio_fcst = max_date_global.replace(day=1) + pd.DateOffset(months=1)
+    rango_futuro = pd.date_range(start=inicio_fcst, periods=horiz, freq="MS")
+    
     v_total, r_total, m_total = 0, 0, 0
+    
     for sku in df_f['sku cod'].unique():
-        serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, horiz)
+        # Agrupar histórico del SKU
+        serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum()
         
-        vol_sku = fcst.sum() # Suma los 12 meses del horizonte
+        # Asegurar continuidad reindexando hasta la fecha máxima global
+        serie_completa = serie.reindex(pd.date_range(start=serie.index.min(), end=max_date_global.replace(day=1), freq="MS"), fill_value=0)
+        
+        # Calcular forecast estandarizado
+        fcst = calcular_forecast(limpiar_anomalias(serie_completa) if outl else serie_completa, horiz)
+        
+        # Alinear estrictamente al calendario futuro común
+        fcst.index = rango_futuro
+        
+        vol_sku = fcst.sum()
         p, mg = dict_p.get(sku, 0), dict_margin.get(sku, 0)
         mon = str(dict_c.get(sku, 'EUR')).strip().upper()
         t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
@@ -501,6 +516,7 @@ def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, hor
         v_total += vol_sku
         r_total += vol_sku * p * t
         m_total += vol_sku * mg * t
+        
     return v_total, r_total, m_total
 
 # ==========================================
