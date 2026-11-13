@@ -457,44 +457,79 @@ if df_compras_erp is not None and not df_compras_erp.empty:
     dict_cmp_erp = df_cmp_tmp.groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
 
 @st.cache_data(show_spinner=False)
-def generar_mps_global():
+def generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp):
     mps_dict = {}
-    ajustes_agg = st.session_state['df_ajustes'].dropna(subset=['Date']).copy() if not st.session_state['df_ajustes'].empty else None
+    ajustes_agg = aj_df.dropna(subset=['Date']).copy() if aj_df is not None and not aj_df.empty else None
     if ajustes_agg is not None:
         ajustes_agg['Date'] = pd.to_datetime(ajustes_agg['Date'], dayfirst=True)
         ajustes_agg = ajustes_agg.groupby(['sku cod', 'Date'])['override_value'].sum().reset_index()
 
-    for sku in df['sku cod'].unique():
-        serie_vol_bruta = df[df['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horizonte)})
+    for sku in df_v['sku cod'].unique():
+        serie_vol_bruta = df_v[df_v['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horiz)})
         if ajustes_agg is not None:
             aj_sku = ajustes_agg[ajustes_agg['sku cod'] == sku].set_index('Date')
             for f, r in aj_sku.iterrows():
                 if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
-        stk, cob, _ = obtener_parametros_stock(sku, cobertura_fg)
+        
+        # Parámetros stock
+        stk_inicial, cob_meses, lead_time = 0, cob_fg, 0
+        if df_stk is not None and not df_stk.empty and 'sku cod' in df_stk.columns:
+            fila = df_stk[df_stk['sku cod'] == sku]
+            if not fila.empty:
+                if 'stock_disponible' in fila.columns: stk_inicial = pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum()
+                if 'Cobertura_Meses' in fila.columns and pd.notna(fila['Cobertura_Meses'].iloc[0]): cob_meses = int(fila['Cobertura_Meses'].iloc[0])
+                if 'LT_Meses' in fila.columns and pd.notna(fila['LT_Meses'].iloc[0]): lead_time = int(fila['LT_Meses'].iloc[0])
+
         serie_erp = pd.Series(0.0, index=df_fcst.index)
-        for idx in df_fcst.index: serie_erp[idx] = dict_prd_erp.get((sku, idx), 0.0)
-        df_plan = calcular_necesidades_netas(df_fcst['Consenso'], stk, cob, serie_erp)
+        for idx in df_fcst.index: serie_erp[idx] = prod_erp.get((sku, idx), 0.0)
+        
+        df_plan = calcular_necesidades_netas(df_fcst['Consenso'], stk_inicial, cob_meses, serie_erp)
         df_plan['sku cod'], df_plan['sku desc'] = sku, dict_sku_desc.get(sku, sku)
         mps_dict[sku] = df_plan
     return mps_dict
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global():
-    mps_g = generar_mps_global()
-    if df_bom is None or df_stock is None: return pd.DataFrame()
-    lista_req = [pd.DataFrame({'Date': mps_g[sku].index, 'Necesidad_Bruta': mps_g[sku]['Entradas_Netas'] * row.get('Cantidad', 0), 'rm cod': row.get('rm cod')}) for sku in mps_g for _, row in df_bom[df_bom['sku cod'] == sku].iterrows() if pd.notna(row.get('rm cod'))]
+def generar_mrp_global(df_v, df_stk, df_b, aj_df, horiz, cob_fg, cob_rm, prod_erp, cmp_erp):
+    mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp)
+    if df_b is None or df_stk is None: return pd.DataFrame()
+    
+    lista_req = []
+    for sku in mps_g:
+        sub_bom = df_b[df_b['sku cod'] == sku]
+        for _, row in sub_bom.iterrows():
+            rm_c = row.get('rm cod')
+            if pd.notna(rm_c):
+                lista_req.append(pd.DataFrame({
+                    'Date': mps_g[sku].index, 
+                    'Necesidad_Bruta': mps_g[sku]['Entradas_Netas'] * row.get('Cantidad', 0), 
+                    'rm cod': rm_c
+                }))
+                
     if not lista_req: return pd.DataFrame()
+    df_req_all = pd.concat(lista_req)
+    
     lista_compras_g = []
-    for rm_cod, df_rm in pd.concat(lista_req).groupby(['Date', 'rm cod'])['Necesidad_Bruta'].sum().reset_index().groupby('rm cod'):
-        stk, cob, lt = obtener_parametros_stock(rm_cod, cobertura_rm)
+    for rm_cod, df_rm in df_req_all.groupby(['Date', 'rm cod'])['Necesidad_Bruta'].sum().reset_index().groupby('rm cod'):
+        stk, cob, lt = 0, cob_rm, 0
+        fila_s = df_stk[df_stk['sku cod'] == rm_cod]
+        if not fila_s.empty:
+            stk = pd.to_numeric(fila_s['stock_disponible'], errors='coerce').fillna(0).sum()
+            if 'Cobertura_Meses' in fila_s.columns and pd.notna(fila_s['Cobertura_Meses'].iloc[0]): cob = int(fila_s['Cobertura_Meses'].iloc[0])
+            if 'LT_Meses' in fila_s.columns and pd.notna(fila_s['LT_Meses'].iloc[0]): lt = int(fila_s['LT_Meses'].iloc[0])
+            
         serie_erp = pd.Series(0.0, index=df_rm['Date'])
-        for idx in df_rm['Date']: serie_erp[idx] = dict_cmp_erp.get((rm_cod, idx), 0.0)
+        for idx in df_rm['Date']: serie_erp[idx] = cmp_erp.get((rm_cod, idx), 0.0)
+        
         plan = calcular_necesidades_netas(df_rm.set_index('Date')['Necesidad_Bruta'], stk, cob, serie_erp)
         plan['Lanzamiento_Pedidos'] = plan['Entradas_Netas'].shift(-lt).fillna(0)
-        plan['rm cod'], plan['rm desc'], plan['LT_Meses'] = rm_cod, dict_rm_desc.get(rm_cod, rm_cod), lt
+        plan['rm cod'] = rm_cod
+        plan['rm desc'] = dict_rm_desc.get(rm_cod, rm_cod)
+        plan['LT_Meses'] = lt
         lista_compras_g.append(plan.reset_index())
-    return pd.concat(lista_compras_g)
+        
+    return pd.concat(lista_compras_g) if lista_compras_g else pd.DataFrame()
+
 
 # ==========================================
 # FUNCIONES AUXILIARES PARA ALIGERAR TABS 9 Y 10
