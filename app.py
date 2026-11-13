@@ -781,24 +781,31 @@ with tab_bom:
                         if rm_sel != "TODAS": 
                             df_viz = df_viz[df_viz['rm cod'] == rm_sel]
                             
-                        if df_viz.empty: 
+            if df_viz.empty: 
                             st.warning("No demand for the selected material.")
                         else:
                             df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc'].fillna('')
                             
+                            # Limitar el gráfico a las Top 9 MPs con mayor necesidad si se eligen "TODAS" para evitar el colapso de filas en Plotly
+                            top_mps = df_viz.groupby('MP_Visual')['Entradas_Netas'].sum().nlargest(9).index
+                            df_plot_rm = df_viz[df_viz['MP_Visual'].isin(top_mps)] if rm_sel == "TODAS" else df_viz
+                            
+                            titulo_graf = "Llegadas a Fábrica - Top 9 Materias Primas Críticas" if rm_sel == "TODAS" else f"Llegadas a Fábrica - {rm_sel}"
+                            
                             fig_rm = px.bar(
                                 pd.melt(
-                                    df_viz, 
+                                    df_plot_rm, 
                                     id_vars=['Date', 'MP_Visual'], 
                                     value_vars=['Recepciones_ERP', 'Entradas_Netas'], 
                                     var_name='Tipo', 
                                     value_name='Volumen'
                                 ).replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), 
                                 x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, 
-                                title="Llegadas a Fábrica (Materia Prima)", barmode='stack', 
+                                facet_row_spacing=0.08,
+                                title=titulo_graf, barmode='stack', 
                                 color_discrete_sequence=['#1E3E5B', '#88FFBB']
                             )
-                            fig_rm.update_layout(**LAYOUT_STYLE)
+                            fig_rm.update_layout(**LAYOUT_STYLE, height=650 if rm_sel == "TODAS" else 400)
                             st.plotly_chart(fig_rm, width="stretch")
                             
                             cols_mostrar = [c for c in ['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_viz.columns]
