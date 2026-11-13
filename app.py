@@ -287,7 +287,7 @@ if 'revenue' in df.columns and 'margin' in df.columns:
 # ==========================================
 # 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
 # ==========================================
-(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def calcular_abc_xyz_global(df_in):
     if df_in is None or df_in.empty or 'volume' not in df_in.columns: return pd.DataFrame()
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
