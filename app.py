@@ -415,6 +415,26 @@ def calcular_kpis_forecast(df_in, usar_outliers):
     
     return forecast_accuracy, bias, wape
 
+def estilo_doh(val):
+    if pd.isna(val): return ''
+    if val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
+    elif val > 60: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
+    else: return 'background-color: #e6ffe6; color: #006600;'
+
+def obtener_parametros_stock(codigo, cob_defecto=2):
+    stk, cob, lt = 0.0, cob_defecto, 0
+    df_s = globals().get('df_stock')
+    if df_s is not None and not df_s.empty and 'sku cod' in df_s.columns:
+        fila = df_s[df_s['sku cod'] == codigo]
+        if not fila.empty:
+            if 'stock_disponible' in fila.columns:
+                stk = float(pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum())
+            if 'Cobertura_Meses' in fila.columns and pd.notna(fila['Cobertura_Meses'].iloc[0]):
+                cob = int(fila['Cobertura_Meses'].iloc[0])
+            if 'LT_Meses' in fila.columns and pd.notna(fila['LT_Meses'].iloc[0]):
+                lt = int(fila['LT_Meses'].iloc[0])
+    return stk, cob, lt
+
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
     plan = pd.DataFrame(index=serie_salidas.index)
     plan['Salidas_Brutas'] = serie_salidas.fillna(0)
