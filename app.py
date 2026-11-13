@@ -774,22 +774,19 @@ with tab_bom:
                 with st.spinner("Processing BOM..."):
                     df_viz = generar_mrp_global(df, df_stock, df_bom, df_ajustes, horizonte, cobertura_fg, cobertura_rm, dict_prd_erp, dict_cmp_erp)
                     
-                    # Validación de seguridad por si el MRP está vacío o no tiene la columna
                     if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
                         st.warning("⚠️ No se han generado necesidades de compra (comprueba que el Stock y el BOM estén cargados correctamente).")
                     else:
                         if rm_sel != "TODAS": 
                             df_viz = df_viz[df_viz['rm cod'] == rm_sel]
                             
-            if df_viz.empty: 
+                        if df_viz.empty: 
                             st.warning("No demand for the selected material.")
                         else:
                             df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc'].fillna('')
                             
-                            # Limitar el gráfico a las Top 9 MPs con mayor necesidad si se eligen "TODAS" para evitar el colapso de filas en Plotly
                             top_mps = df_viz.groupby('MP_Visual')['Entradas_Netas'].sum().nlargest(9).index
                             df_plot_rm = df_viz[df_viz['MP_Visual'].isin(top_mps)] if rm_sel == "TODAS" else df_viz
-                            
                             titulo_graf = "Llegadas a Fábrica - Top 9 Materias Primas Críticas" if rm_sel == "TODAS" else f"Llegadas a Fábrica - {rm_sel}"
                             
                             fig_rm = px.bar(
