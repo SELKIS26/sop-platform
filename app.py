@@ -745,7 +745,7 @@ with tab_bom:
             
             if st.button("🚀 Execute BOM Explosion"):
                 with st.spinner("Processing BOM..."):
-                    df_viz = generar_mrp_global()
+                    df_viz = generar_mrp_global(df, df_stock, df_bom, df_ajustes, horizonte, cobertura_fg, cobertura_rm, dict_prd_erp, dict_cmp_erp)
                     
                     # Validación de seguridad por si el MRP está vacío o no tiene la columna
                     if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
