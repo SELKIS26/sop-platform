@@ -1152,7 +1152,12 @@ with tab_kpis:
                 else:
                     rev_12m_hist, mar_12m_hist = 0, 0
                 
-                vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(df_final, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, usar_limpieza_outliers)
+# Llamada corregida con el ancla temporal global
+vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(
+    df_final, dict_price, dict_margin, dict_currency, 
+    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, 
+    usar_limpieza_outliers, max_date_global, horiz=12
+)
                     
                 st.divider()
                 st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
