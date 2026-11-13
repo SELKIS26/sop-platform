@@ -406,7 +406,12 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
     stock_corriente = stock_inicial
     
     for i in range(len(plan)):
-        salida_futura = plan['Salidas_Brutas'].iloc[i+1 : min(i+1+cobertura_meses, len(plan))].sum() if i + 1 < len(plan) else plan['Salidas_Brutas'].iloc[i] * cobertura_meses 
+        # Mantener siempre 'cobertura_meses' completos para evitar caídas y saltos al final del horizonte
+        futuro_disponible = plan['Salidas_Brutas'].iloc[i+1 : i+1+cobertura_meses]
+        meses_faltantes = cobertura_meses - len(futuro_disponible)
+        media_base = plan['Salidas_Brutas'].iloc[max(0, i-2):i+1].mean()
+        salida_futura = futuro_disponible.sum() + (max(0, meses_faltantes) * media_base)
+        
         plan.iloc[i, plan.columns.get_loc('Stock_Inicial')] = stock_corriente
         plan.iloc[i, plan.columns.get_loc('Stock_Objetivo')] = salida_futura
         
@@ -482,13 +487,28 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     else:
         ajustes_agg = None
 
+    fecha_max_global = df_v['Date'].max().replace(day=1)
+    fecha_min_global = df_v['Date'].min().replace(day=1)
+    idx_historico_global = pd.date_range(start=fecha_min_global, end=fecha_max_global, freq="MS")
+
     for sku in df_v['sku cod'].unique():
-        serie_vol_bruta = df_v[df_v['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horiz)})
+        serie_vol_bruta = (
+            df_v[df_v['sku cod'] == sku]
+            .groupby('Date')['volume'].sum()
+            .resample("MS").sum()
+            .reindex(idx_historico_global, fill_value=0.0)
+        )
+        if serie_vol_bruta.tail(6).sum() == 0:
+            idx_futuro = pd.date_range(start=fecha_max_global + pd.DateOffset(months=1), periods=horiz, freq="MS")
+            df_fcst = pd.DataFrame({'Consenso': 0.0}, index=idx_futuro)
+        else:
+            df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horiz)})
+            
         if ajustes_agg is not None:
             aj_sku = ajustes_agg[ajustes_agg['sku cod'] == sku].set_index('Date')
             for f, r in aj_sku.iterrows():
-                if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
+                if f.replace(day=1) in df_fcst.index: 
+                    df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
         
         stk_inicial, cob_meses, lead_time = 0, cob_fg, 0
         if df_stk is not None and not df_stk.empty and 'sku cod' in df_stk.columns:
