@@ -487,17 +487,21 @@ def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, ho
     return pd.DataFrame(l_base), pd.DataFrame(l_wi)
 
 @st.cache_data(show_spinner=False)
-def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl):
-    v, r, m = 0, 0, 0
+def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, horiz=12):
+    v_total, r_total, m_total = 0, 0, 0
     for sku in df_f['sku cod'].unique():
         serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, 12)
-        vol = fcst.sum()
-        p, mg = dict_p.get(sku, 0), dict_m.get(sku, 0)
+        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, horiz)
+        
+        vol_sku = fcst.sum() # Suma los 12 meses del horizonte
+        p, mg = dict_p.get(sku, 0), dict_margin.get(sku, 0)
         mon = str(dict_c.get(sku, 'EUR')).strip().upper()
         t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
-        v += vol; r += vol * p * t; m += vol * mg * t
-    return v, r, m
+        
+        v_total += vol_sku
+        r_total += vol_sku * p * t
+        m_total += vol_sku * mg * t
+    return v_total, r_total, m_total
 
 # ==========================================
 # PREPARACIÓN DATOS BASE
@@ -844,6 +848,13 @@ with tab_fin:
                     rms_validos = df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique() if (df_bom is not None and not df_bom.empty and 'sku cod' in df_bom.columns) else []
                     df_wc_mp_filtrado = df_wc_mp[df_wc_mp['Elemento'].isin(rms_validos)] if not df_wc_mp.empty else pd.DataFrame()
                     df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado]) if not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty else pd.DataFrame()
+
+                    # Si no hay archivo de stock cargado, el Working Capital se anula limpiamente para evitar saltos raros
+                    if df_stock is None or df_stock.empty:
+                        df_plot_pl['WC_PT_GBP'] = 0
+                        df_plot_pl['WC_MP_GBP'] = 0
+                        df_plot_pl['WC_Total_GBP'] = 0
+                        df_wc_total = pd.DataFrame()
                     
                     if not df_wc_total.empty and not df_plot_pl.empty:
                         df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0)
