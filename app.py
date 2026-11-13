@@ -398,77 +398,41 @@ def calcular_kpis_forecast(df_in, usar_outliers):
 
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
     plan = pd.DataFrame(index=serie_salidas.index)
-    plan['Salidas_Brutas'] = serie_salidas
+    plan['Salidas_Brutas'] = serie_salidas.fillna(0)
     plan['Recepciones_ERP'] = serie_erp if serie_erp is not None else 0.0
     plan['Recepciones_ERP'] = plan['Recepciones_ERP'].fillna(0)
     
     plan['Stock_Inicial'], plan['Stock_Objetivo'], plan['Entradas_Netas'], plan['Stock_Final'] = 0.0, 0.0, 0.0, 0.0
-    stock_corriente = stock_inicial
+    stock_corriente = float(stock_inicial)
+    
+    # Media móvil suave para rellenar el borde final del horizonte sin saltos en el último mes
+    media_reciente = plan['Salidas_Brutas'].tail(3).mean() if len(plan) > 0 else 0.0
     
     for i in range(len(plan)):
-        # Mantener siempre 'cobertura_meses' completos para evitar caídas y saltos al final del horizonte
         futuro_disponible = plan['Salidas_Brutas'].iloc[i+1 : i+1+cobertura_meses]
-        meses_faltantes = cobertura_meses - len(futuro_disponible)
-        media_base = plan['Salidas_Brutas'].iloc[max(0, i-2):i+1].mean()
-        salida_futura = futuro_disponible.sum() + (max(0, meses_faltantes) * media_base)
+        meses_faltantes = max(0, cobertura_meses - len(futuro_disponible))
+        salida_futura = futuro_disponible.sum() + (meses_faltantes * media_reciente)
         
         plan.iloc[i, plan.columns.get_loc('Stock_Inicial')] = stock_corriente
         plan.iloc[i, plan.columns.get_loc('Stock_Objetivo')] = salida_futura
         
         rec_erp = plan['Recepciones_ERP'].iloc[i]
         necesidad_real = plan['Salidas_Brutas'].iloc[i] + salida_futura - stock_corriente - rec_erp
-        entradas_sugeridas = max(0, necesidad_real)
+        entradas_sugeridas = max(0.0, necesidad_real)
         
         plan.iloc[i, plan.columns.get_loc('Entradas_Netas')] = entradas_sugeridas
         stock_corriente = stock_corriente + entradas_sugeridas + rec_erp - plan['Salidas_Brutas'].iloc[i]
         plan.iloc[i, plan.columns.get_loc('Stock_Final')] = stock_corriente
         
     demanda_futura_media = plan['Salidas_Brutas'].rolling(window=3, min_periods=1).mean().shift(-1)
-    if len(plan) > 0: demanda_futura_media.iloc[-1] = plan['Salidas_Brutas'].iloc[-1]
+    if len(plan) > 0: 
+        demanda_futura_media.iloc[-1] = media_reciente
     plan['DOH'] = np.where(demanda_futura_media > 0, (plan['Stock_Final'] / demanda_futura_media) * 30, 0)
-    plan['DOH'] = np.where((demanda_futura_media <= 0) & (plan['Stock_Final'] > 0), 999, plan['DOH'])
     plan['DOH'] = plan['DOH'].fillna(0).round(0)
     return plan
 
-def estilo_doh(val):
-    if pd.isna(val): return ''
-    if val == 999 or val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
-    if val > 90: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
-    return 'background-color: #e6ffe6; color: #006600;'
-
-def aplicar_variacion_cliente(pais, cliente, porcentaje):
-    try:
-        df_aj = st.session_state['df_ajustes'].copy()
-        df_cli = df[(df['País'] == pais) & (df['customer cod'] == cliente)]
-        if df_cli.empty: return False, "No histórico."
-        factor = max(0.0, 1.0 + (porcentaje / 100.0))
-        skus_cliente = df_cli['sku cod'].unique()
-        nuevos_registros = []
-        for sku in skus_cliente:
-            serie_sku = df_cli[df_cli['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-            fcst_base = calcular_forecast(limpiar_anomalias(serie_sku) if usar_limpieza_outliers else serie_sku, horizonte)
-            for fecha, val_base in fcst_base.items(): nuevos_registros.append({'Date': fecha, 'País': pais, 'customer cod': cliente, 'sku cod': sku, 'override_value': round(val_base * factor, 2)})
-        df_aj = df_aj[~((df_aj['País'] == pais) & (df_aj['customer cod'] == cliente))]
-        st.session_state['df_ajustes'] = pd.concat([df_aj, pd.DataFrame(nuevos_registros)], ignore_index=True)
-        return True, "Factor aplicado."
-    except Exception as e: return False, str(e)
-
-# ==========================================
-# PIPELINES DEL ERP
-# ==========================================
-dict_prd_erp, dict_cmp_erp = {}, {}
-if df_produccion_erp is not None and not df_produccion_erp.empty:
-    df_prd_tmp = df_produccion_erp.copy()
-    df_prd_tmp['Date'] = pd.to_datetime(df_prd_tmp['Date']).apply(lambda x: x.replace(day=1) if pd.notnull(x) else x)
-    dict_prd_erp = df_prd_tmp.groupby(['sku cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
-
-if df_compras_erp is not None and not df_compras_erp.empty:
-    df_cmp_tmp = df_compras_erp.copy()
-    df_cmp_tmp['Date'] = pd.to_datetime(df_cmp_tmp['Date']).apply(lambda x: x.replace(day=1) if pd.notnull(x) else x)
-    dict_cmp_erp = df_cmp_tmp.groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
-
 @st.cache_data(show_spinner=False)
-def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None):
+def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None, _v_cache=2):
     if df_v is None: df_v = df
     if df_stk is None: df_stk = df_stock
     if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
@@ -477,8 +441,8 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     if prod_erp is None: prod_erp = dict_prd_erp
 
     mps_dict = {}
-    
-    # Validación segura de columnas en el archivo de ajustes
+    if df_v is None or df_v.empty: return mps_dict
+
     cols_req_aj = {'Date', 'sku cod', 'override_value'}
     if aj_df is not None and not aj_df.empty and cols_req_aj.issubset(aj_df.columns):
         ajustes_agg = aj_df.dropna(subset=['Date']).copy()
@@ -487,9 +451,11 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     else:
         ajustes_agg = None
 
-    fecha_max_global = df_v['Date'].max().replace(day=1)
-    fecha_min_global = df_v['Date'].min().replace(day=1)
+    # Calendario global estricto para que ningún SKU proyecte en 2024 o 2025
+    fecha_max_global = pd.to_datetime(df_v['Date']).max().replace(day=1)
+    fecha_min_global = pd.to_datetime(df_v['Date']).min().replace(day=1)
     idx_historico_global = pd.date_range(start=fecha_min_global, end=fecha_max_global, freq="MS")
+    idx_futuro_global = pd.date_range(start=fecha_max_global + pd.DateOffset(months=1), periods=horiz, freq="MS")
 
     for sku in df_v['sku cod'].unique():
         serie_vol_bruta = (
@@ -499,10 +465,10 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
             .reindex(idx_historico_global, fill_value=0.0)
         )
         if serie_vol_bruta.tail(6).sum() == 0:
-            idx_futuro = pd.date_range(start=fecha_max_global + pd.DateOffset(months=1), periods=horiz, freq="MS")
-            df_fcst = pd.DataFrame({'Consenso': 0.0}, index=idx_futuro)
+            df_fcst = pd.DataFrame({'Consenso': 0.0}, index=idx_futuro_global)
         else:
-            df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horiz)})
+            fcst_vals = calcular_forecast(limpiar_anomalias(serie_vol_bruta) if usar_limpieza_outliers else serie_vol_bruta, horiz)
+            df_fcst = pd.DataFrame({'Consenso': fcst_vals.values}, index=idx_futuro_global)
             
         if ajustes_agg is not None:
             aj_sku = ajustes_agg[ajustes_agg['sku cod'] == sku].set_index('Date')
@@ -527,7 +493,7 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     return mps_dict
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None):
+def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None, _v_cache=2):
     if df_v is None: df_v = df
     if df_stk is None: df_stk = df_stock
     if df_b is None: df_b = df_bom
@@ -538,8 +504,8 @@ def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None
     if prod_erp is None: prod_erp = dict_prd_erp
     if cmp_erp is None: cmp_erp = dict_cmp_erp
 
-    mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp)
-    if df_b is None or df_stk is None: return pd.DataFrame()
+    mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp, _v_cache=_v_cache)
+    if df_b is None or df_stk is None or not mps_g: return pd.DataFrame()
     
     lista_req = []
     for sku in mps_g:
