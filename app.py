@@ -465,10 +465,15 @@ if df_compras_erp is not None and not df_compras_erp.empty:
 @st.cache_data(show_spinner=False)
 def generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp):
     mps_dict = {}
-    ajustes_agg = aj_df.dropna(subset=['Date']).copy() if aj_df is not None and not aj_df.empty else None
-    if ajustes_agg is not None:
-        ajustes_agg['Date'] = pd.to_datetime(ajustes_agg['Date'], dayfirst=True)
-        ajustes_agg = ajustes_agg.groupby(['sku cod', 'Date'])['override_value'].sum().reset_index()
+    
+    # Validación segura de columnas en el archivo de ajustes
+    cols_req_aj = {'Date', 'sku cod', 'override_value'}
+    if aj_df is not None and not aj_df.empty and cols_req_aj.issubset(aj_df.columns):
+        ajustes_agg = aj_df.dropna(subset=['Date']).copy()
+        ajustes_agg['Date'] = pd.to_datetime(ajustes_agg['Date'], dayfirst=True, errors='coerce')
+        ajustes_agg = ajustes_agg.dropna(subset=['Date']).groupby(['sku cod', 'Date'])['override_value'].sum().reset_index()
+    else:
+        ajustes_agg = None
 
     for sku in df_v['sku cod'].unique():
         serie_vol_bruta = df_v[df_v['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
