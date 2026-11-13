@@ -1138,6 +1138,7 @@ with tab_kpis:
                 
                 max_date_global = df['Date'].max()
                 min_date_12m = max_date_global - pd.DateOffset(months=11)
+                
                 df_12m = df_final[(df_final['Date'] >= min_date_12m) & (df_final['Date'] <= max_date_global)].copy()
                 vol_12m_hist = df_12m['volume'].sum() if not df_12m.empty else 0
                 
@@ -1147,18 +1148,20 @@ with tab_kpis:
                     df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
                     df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
                     df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
+                    
                     rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
                     mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
                 else:
                     rev_12m_hist, mar_12m_hist = 0, 0
                 
-# Llamada corregida con el ancla temporal global
-vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(
-    df_final, dict_price, dict_margin, dict_currency, 
-    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, 
-    usar_limpieza_outliers, max_date_global, horiz=12
-)
-                    
+                # Llamada corregida con el ancla temporal global y sangría unificada
+                vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(
+                    df_final, dict_price, dict_margin, dict_currency, 
+                    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, 
+                    usar_limpieza_outliers, max_date_global, horiz=12
+                )
+                
+       
                 st.divider()
                 st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
                 col_h1, col_h2, col_h3 = st.columns(3)
