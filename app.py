@@ -332,6 +332,7 @@ df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'
 
 col_objetivo = 'volume'
 dict_sku_desc = dict(zip(df['sku cod'], df['sku desc']))
+# 1. Diccionario de descripciones de Materia Prima (BOM)
 if df_bom is not None and 'rm cod' in df_bom.columns:
     if 'rm desc' in df_bom.columns:
         dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc']))
@@ -339,6 +340,24 @@ if df_bom is not None and 'rm cod' in df_bom.columns:
         dict_rm_desc = {rm: dict_sku_desc.get(rm, str(rm)) for rm in df_bom['rm cod'].dropna().unique()}
 else:
     dict_rm_desc = {}
+
+# 2. Diccionario de Pedidos de Producción ERP (8_ERP_Produccion_PrdOrders.xlsx)
+dict_prd_erp = {}
+df_erp_p_src = globals().get('df_erp_prod', globals().get('df_prod_erp', globals().get('df_prd')))
+if df_erp_p_src is not None and not df_erp_p_src.empty and {'Date', 'sku cod'}.issubset(df_erp_p_src.columns):
+    df_p_tmp = df_erp_p_src.copy()
+    df_p_tmp['Date'] = pd.to_datetime(df_p_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+    col_qty_p = 'Cantidad_Kg' if 'Cantidad_Kg' in df_p_tmp.columns else df_p_tmp.columns[-1]
+    dict_prd_erp = df_p_tmp.groupby(['sku cod', 'Date'])[col_qty_p].sum().to_dict()
+
+# 3. Diccionario de Pedidos de Compra ERP (7_ERP_Compras_POs.xlsx)
+dict_cmp_erp = {}
+df_erp_c_src = globals().get('df_erp_compras', globals().get('df_compras_erp', globals().get('df_pos', globals().get('df_cmp'))))
+if df_erp_c_src is not None and not df_erp_c_src.empty and {'Date', 'rm cod'}.issubset(df_erp_c_src.columns):
+    df_c_tmp = df_erp_c_src.copy()
+    df_c_tmp['Date'] = pd.to_datetime(df_c_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+    col_qty_c = 'Cantidad_Kg' if 'Cantidad_Kg' in df_c_tmp.columns else df_c_tmp.columns[-1]
+    dict_cmp_erp = df_c_tmp.groupby(['rm cod', 'Date'])[col_qty_c].sum().to_dict()
 
 # ==========================================
 # 3. FUNCIONES CORE Y OPTIMIZACIÓN DE CACHÉ
