@@ -332,7 +332,13 @@ df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'
 
 col_objetivo = 'volume'
 dict_sku_desc = dict(zip(df['sku cod'], df['sku desc']))
-dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc'])) if (df_bom is not None and 'rm cod' in df_bom.columns) else {}
+if df_bom is not None and 'rm cod' in df_bom.columns:
+    if 'rm desc' in df_bom.columns:
+        dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc']))
+    else:
+        dict_rm_desc = {rm: dict_sku_desc.get(rm, str(rm)) for rm in df_bom['rm cod'].dropna().unique()}
+else:
+    dict_rm_desc = {}
 
 # ==========================================
 # 3. FUNCIONES CORE Y OPTIMIZACIÓN DE CACHÉ
