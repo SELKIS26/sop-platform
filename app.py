@@ -702,70 +702,55 @@ with tab_bom:
         st.warning("🔒 No tienes permisos para acceder al módulo de Compras (MRP).")
     else:
         st.subheader("MRP / Purchasing Plan")
-        if df_bom is None or df_stock is None: st.info("👈 Upload BOM & Stock files.")
+        if df_bom is None or df_stock is None: 
+            st.info("👈 Upload BOM & Stock files in the sidebar.")
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist()) if 'rm cod' in df_bom.columns else ["TODAS"]
             rm_sel = st.selectbox("🔍 Filter Material:", lista_rms)
+            
             if st.button("🚀 Execute BOM Explosion"):
                 with st.spinner("Processing BOM..."):
                     df_viz = generar_mrp_global()
-                    if rm_sel != "TODAS": df_viz = df_viz[df_viz['rm cod'] == rm_sel]
-                    if df_viz.empty: st.warning("No demand.")
+                    
+                    # Validación de seguridad por si el MRP está vacío o no tiene la columna
+                    if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
+                        st.warning("⚠️ No se han generado necesidades de compra (comprueba que el Stock y el BOM estén cargados correctamente).")
                     else:
-                        df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc']
-                        
-                        fig_rm = px.bar(pd.melt(df_viz, id_vars=['Date', 'MP_Visual'], value_vars=['Recepciones_ERP', 'Entradas_Netas'], var_name='Tipo', value_name='Volumen').replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, title="Llegadas a Fábrica (Firme + Teórico)", barmode='stack', color_discrete_sequence=['#1E3E5B', '#88FFBB'])
-                        fig_rm.update_layout(**LAYOUT_STYLE)
-                        st.plotly_chart(fig_rm, use_container_width=True)
-                        
-                        if rm_sel != "TODAS":
-                            st.markdown("### 🔍 Trazabilidad del Material (Pegging)")
-                            st.write(f"Desglose del origen de la demanda para **{rm_sel}** en todo el horizonte:")
+                        if rm_sel != "TODAS": 
+                            df_viz = df_viz[df_viz['rm cod'] == rm_sel]
                             
-                            mps_g = generar_mps_global()
-                            pegging_data = []
-                            for sku, plan in mps_g.items():
-                                bom_fila = df_bom[(df_bom['sku cod'] == sku) & (df_bom['rm cod'] == rm_sel)]
-                                if not bom_fila.empty:
-                                    qty = bom_fila['Cantidad'].values[0]
-                                    necesidad_total_rm = plan['Entradas_Netas'].sum() * qty
-                                    
-                                    if necesidad_total_rm > 0:
-                                        df_sku = df[df['sku cod'] == sku]
-                                        if not df_sku.empty:
-                                            mix_clientes = df_sku.groupby('customer cod')['volume'].sum()
-                                            total_vol = mix_clientes.sum()
-                                            for cli, vol in mix_clientes.items():
-                                                pct = vol / total_vol if total_vol > 0 else 0
-                                                pegging_data.append({
-                                                    'SKU (Producto)': sku,
-                                                    'Cliente': cli,
-                                                    'Kilos_MP': necesidad_total_rm * pct
-                                                })
-                                        else:
-                                            pegging_data.append({'SKU (Producto)': sku, 'Cliente': 'Desconocido', 'Kilos_MP': necesidad_total_rm})
+                        if df_viz.empty: 
+                            st.warning("No demand for the selected material.")
+                        else:
+                            df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc'].fillna('')
                             
-                            if pegging_data:
-                                df_peg = pd.DataFrame(pegging_data)
-                                col_p1, col_p2 = st.columns(2)
-                                
-                                with col_p1:
-                                    df_peg_sku = df_peg.groupby('SKU (Producto)')['Kilos_MP'].sum().reset_index()
-                                    fig_peg_sku = px.pie(df_peg_sku, values='Kilos_MP', names='SKU (Producto)', title="Consumo por Producto Terminado (SKU)", hole=0.4, color_discrete_sequence=px.colors.sequential.Blues_r)
-                                    fig_peg_sku.update_traces(textposition='inside', textinfo='percent+label')
-                                    fig_peg_sku.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_sku, use_container_width=True)
-                                    
-                                with col_p2:
-                                    df_peg_cli = df_peg.groupby('Cliente')['Kilos_MP'].sum().reset_index()
-                                    fig_peg_cli = px.pie(df_peg_cli, values='Kilos_MP', names='Cliente', title="Consumo por Cliente (Customer Cod)", hole=0.4, color_discrete_sequence=px.colors.sequential.Mint_r)
-                                    fig_peg_cli.update_traces(textposition='inside', textinfo='percent+label')
-                                    fig_peg_cli.update_layout(**LAYOUT_STYLE)
-                                    st.plotly_chart(fig_peg_cli, use_container_width=True)
-                        
-                        df_show = df_viz[['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']].copy()
-                        df_show['Date'] = df_show['Date'].dt.strftime('%Y-%m')
-                        st.dataframe(df_show.reset_index(drop=True).style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), width="stretch")
+                            fig_rm = px.bar(
+                                pd.melt(
+                                    df_viz, 
+                                    id_vars=['Date', 'MP_Visual'], 
+                                    value_vars=['Recepciones_ERP', 'Entradas_Netas'], 
+                                    var_name='Tipo', 
+                                    value_name='Volumen'
+                                ).replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), 
+                                x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, 
+                                title="Llegadas a Fábrica (Materia Prima)", barmode='stack', 
+                                color_discrete_sequence=['#1E3E5B', '#88FFBB']
+                            )
+                            fig_rm.update_layout(**LAYOUT_STYLE)
+                            st.plotly_chart(fig_rm, width="stretch")
+                            
+                            cols_mostrar = [c for c in ['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_viz.columns]
+                            df_show = df_viz[cols_mostrar].copy()
+                            df_show['Date'] = pd.to_datetime(df_show['Date']).dt.strftime('%Y-%m')
+                            
+                            st.dataframe(
+                                df_show.reset_index(drop=True).style.format(
+                                    "{:,.2f}", subset=[c for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_show.columns]
+                                ).format(
+                                    "{:.0f}", subset=[c for c in ['DOH'] if c in df_show.columns]
+                                ).map(estilo_doh, subset=[c for c in ['DOH'] if c in df_show.columns]), 
+                                width="stretch"
+                            )
 
 with tab_cap:
     if "tab4" not in modulos_permitidos:
