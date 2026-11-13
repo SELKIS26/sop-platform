@@ -432,14 +432,13 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
     return plan
 
 @st.cache_data(show_spinner=False)
-def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None, _v_cache=2):
-    if df_v is None: df_v = df
-    if df_stk is None: df_stk = df_stock
+def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None, _v_cache=3):
+    if df_v is None: df_v = globals().get('df')
+    if df_stk is None: df_stk = globals().get('df_stock')
     if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
-    if horiz is None: horiz = horizonte
-    if cob_fg is None: cob_fg = cobertura_fg
-    if prod_erp is None: prod_erp = dict_prd_erp
-
+    if horiz is None: horiz = globals().get('horizonte', 12)
+    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 2)
+    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', globals().get('dict_prod_erp', {}))
     mps_dict = {}
     if df_v is None or df_v.empty: return mps_dict
 
@@ -493,16 +492,16 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     return mps_dict
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None, _v_cache=2):
-    if df_v is None: df_v = df
-    if df_stk is None: df_stk = df_stock
-    if df_b is None: df_b = df_bom
+def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None, _v_cache=3):
+    if df_v is None: df_v = globals().get('df')
+    if df_stk is None: df_stk = globals().get('df_stock')
+    if df_b is None: df_b = globals().get('df_bom')
     if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
-    if horiz is None: horiz = horizonte
-    if cob_fg is None: cob_fg = cobertura_fg
-    if cob_rm is None: cob_rm = cobertura_rm
-    if prod_erp is None: prod_erp = dict_prd_erp
-    if cmp_erp is None: cmp_erp = dict_cmp_erp
+    if horiz is None: horiz = globals().get('horizonte', 12)
+    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 2)
+    if cob_rm is None: cob_rm = globals().get('cobertura_rm', 2)
+    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', globals().get('dict_prod_erp', {}))
+    if cmp_erp is None: cmp_erp = globals().get('dict_cmp_erp', globals().get('dict_compras_erp', {}))
 
     mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp, _v_cache=_v_cache)
     if df_b is None or df_stk is None or not mps_g: return pd.DataFrame()
@@ -758,7 +757,7 @@ with tab_bom:
             
             if st.button("🚀 Execute BOM Explosion"):
                 with st.spinner("Processing BOM..."):
-                    df_viz = generar_mrp_global(df, df_stock, df_bom, df_ajustes, horizonte, cobertura_fg, cobertura_rm, dict_prd_erp, dict_cmp_erp)
+                    df_viz = generar_mrp_global()
                     
                     if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
                         st.warning("⚠️ No se han generado necesidades de compra (comprueba que el Stock y el BOM estén cargados correctamente).")
