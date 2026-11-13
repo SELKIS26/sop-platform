@@ -287,7 +287,7 @@ if 'revenue' in df.columns and 'margin' in df.columns:
 # ==========================================
 # 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
 # ==========================================
-@st.cache_data(ttl=300, show_spinner=False)
+(ttl=300, show_spinner=False)
 def calcular_abc_xyz_global(df_in):
     if df_in is None or df_in.empty or 'volume' not in df_in.columns: return pd.DataFrame()
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
@@ -463,7 +463,14 @@ if df_compras_erp is not None and not df_compras_erp.empty:
     dict_cmp_erp = df_cmp_tmp.groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
 
 @st.cache_data(show_spinner=False)
-def generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp):
+def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None):
+    if df_v is None: df_v = df
+    if df_stk is None: df_stk = df_stock
+    if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
+    if horiz is None: horiz = horizonte
+    if cob_fg is None: cob_fg = cobertura_fg
+    if prod_erp is None: prod_erp = dict_prd_erp
+
     mps_dict = {}
     
     # Validación segura de columnas en el archivo de ajustes
@@ -483,7 +490,6 @@ def generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp):
             for f, r in aj_sku.iterrows():
                 if f.replace(day=1) in df_fcst.index: df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
         
-        # Parámetros stock
         stk_inicial, cob_meses, lead_time = 0, cob_fg, 0
         if df_stk is not None and not df_stk.empty and 'sku cod' in df_stk.columns:
             fila = df_stk[df_stk['sku cod'] == sku]
@@ -501,7 +507,17 @@ def generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp):
     return mps_dict
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(df_v, df_stk, df_b, aj_df, horiz, cob_fg, cob_rm, prod_erp, cmp_erp):
+def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None):
+    if df_v is None: df_v = df
+    if df_stk is None: df_stk = df_stock
+    if df_b is None: df_b = df_bom
+    if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
+    if horiz is None: horiz = horizonte
+    if cob_fg is None: cob_fg = cobertura_fg
+    if cob_rm is None: cob_rm = cobertura_rm
+    if prod_erp is None: prod_erp = dict_prd_erp
+    if cmp_erp is None: cmp_erp = dict_cmp_erp
+
     mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp)
     if df_b is None or df_stk is None: return pd.DataFrame()
     
