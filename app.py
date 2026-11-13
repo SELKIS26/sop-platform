@@ -362,6 +362,34 @@ def calcular_forecast(serie, steps):
     try: return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie)>=24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0, x))
     except: return pd.Series([serie.tail(6).mean()]*steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
 
+@st.cache_data(show_spinner=False)
+def calcular_kpis_forecast(df_in, usar_outliers):
+    if df_in is None or df_in.empty: return 0.0, 0.0, 0.0
+    df_eval = df_in.groupby('Date')['volume'].sum().resample("MS").sum().reset_index()
+    if len(df_eval) < 12: return 0.0, 0.0, 0.0
+    
+    serie = df_eval.set_index('Date')['volume']
+    serie_limpia = limpiar_anomalias(serie) if usar_outliers else serie
+    try:
+        modelo = ExponentialSmoothing(serie_limpia, trend="add", seasonal="add" if len(serie_limpia)>=24 else None, seasonal_periods=12).fit()
+        fitted_values = modelo.fittedvalues
+    except:
+        fitted_values = serie_limpia.shift(1).fillna(serie_limpia.mean())
+        
+    df_eval['Forecast'] = fitted_values.values
+    df_eval['Error'] = df_eval['volume'] - df_eval['Forecast']
+    df_eval['Abs_Error'] = df_eval['Error'].abs()
+    
+    sum_actual = df_eval['volume'].sum()
+    sum_abs_error = df_eval['Abs_Error'].sum()
+    sum_error = df_eval['Error'].sum()
+    
+    wape = (sum_abs_error / sum_actual) * 100 if sum_actual > 0 else 0.0
+    forecast_accuracy = max(0.0, 100.0 - wape)
+    bias = (sum_error / sum_actual) * 100 if sum_actual > 0 else 0.0
+    
+    return forecast_accuracy, bias, wape
+
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
     plan = pd.DataFrame(index=serie_salidas.index)
     plan['Salidas_Brutas'] = serie_salidas
@@ -1161,7 +1189,16 @@ with tab_kpis:
                     usar_limpieza_outliers, max_date_global, horiz=12
                 )
                 
-       
+# --- MÉTRICAS DE FORECAST PERFORMANCE (FA, BIAS, WAPE) ---
+                st.divider()
+                st.markdown("#### 🎯 Fiabilidad del Modelo de Demanda (Forecast Performance - L12M)")
+                fa_val, bias_val, wape_val = calcular_kpis_forecast(df_final, usar_limpieza_outliers)
+                
+                col_k1, col_k2, col_k3 = st.columns(3)
+                col_k1.metric("Forecast Accuracy (FA)", f"{fa_val:.1f}%", "Acierto global ponderado")
+                col_k2.metric("Forecast Bias", f"{bias_val:+.1f}%", "+ = Infrademanda / - = Sobredemanda")
+                col_k3.metric("WAPE (Error Absoluto)", f"{wape_val:.1f}%", "Desviación porcentual neta")
+                
                 st.divider()
                 st.markdown("#### 📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)")
                 col_h1, col_h2, col_h3 = st.columns(3)
