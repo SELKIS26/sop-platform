@@ -1214,56 +1214,86 @@ with tab_kpis:
                 delta_mar2 = mar_12m_fcst - mar_12m_hist
                 col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
 
-                # ==========================================
-                # NUEVA TABLA ANALÍTICA COMERCIAL (CLIENTE / SKU)
+  # ==========================================
+                # TABLA ANALÍTICA COMERCIAL (CLIENTE / SKU CON KPIS)
                 # ==========================================
                 st.divider()
-                st.subheader("📋 Rendimiento Comercial por Cliente y SKU (L12M)")
-                st.markdown("Desglose detallado de Volumen, Revenue, Margen y aportación al negocio.")
+                st.subheader("📋 Rendimiento Comercial y Bias por Cliente y SKU (L12M)")
+                st.markdown("Desglose detallado de Volumen, Revenue, Margen y Sesgo Histórico (Bias) por combinación.")
 
                 if df is not None and not df.empty and 'sku cod' in df.columns:
-                    df_granular = df.groupby(['País', 'customer cod', 'sku cod']).agg(
+                    # 1. Detectar si existe columna de nombre/descripción de cliente
+                    col_cli_desc = next((c for c in df.columns if 'customer' in c.lower() and ('desc' in c.lower() or 'name' in c.lower() or 'nombre' in c.lower())), 'customer cod')
+                    
+                    # 2. Agrupación eficiente por Cliente y SKU
+                    df_granular = df.groupby(['País', 'customer cod', col_cli_desc, 'sku cod']).agg(
                         Volumen_Kg=('volume', 'sum'),
                         Revenue_GBP=('Rev_GBP', 'sum'),
                         Margen_GBP=('Mar_GBP', 'sum')
                     ).reset_index()
                     
+                    # Renombrar para estandarizar visualización
+                    df_granular = df_granular.rename(columns={col_cli_desc: 'Cliente Desc'})
+                    
+                    # 3. Calcular % de Margen Bruto
                     df_granular['Margen %'] = np.where(
                         df_granular['Revenue_GBP'] > 0, 
                         (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100, 
                         0.0
                     )
                     
-                    df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
-                    df_granular = df_granular[['País', 'customer cod', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %']]
+                    # 4. Cálculo rápido y vectorizado de Bias histórico (Tendencia reciente vs anterior) por SKU/Cliente
+                    # Esto mide si el volumen reciente supera al histórico (Infrademanda/Sesgo positivo) o viceversa
+                    df_reciente = df[df['Date'] >= (df['Date'].max() - pd.DateOffset(months=6))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Reciente')
+                    df_antiguo = df[(df['Date'] < (df['Date'].max() - pd.DateOffset(months=6))) & (df['Date'] >= (df['Date'].max() - pd.DateOffset(months=12)))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Antiguo')
                     
+                    df_granular = pd.merge(df_granular, df_reciente, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Reciente': 0})
+                    df_granular = pd.merge(df_granular, df_antiguo, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Antiguo': 0})
+                    
+                    # Bias aproximado (%) comparando el semestre actual vs el semestre pasado
+                    df_granular['Bias L6M (%)'] = np.where(
+                        df_granular['Vol_Antiguo'] > 0,
+                        ((df_granular['Vol_Reciente'] - df_granular['Vol_Antiguo']) / df_granular['Vol_Antiguo']) * 100,
+                        0.0
+                    ).round(1)
+                    
+                    # 5. Añadir descripción del SKU
+                    df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
+                    
+                    # Seleccionar y ordenar columnas definitivas
+                    df_granular = df_granular[['País', 'customer cod', 'Cliente Desc', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %', 'Bias L6M (%)']]
+                    
+                    # Filtros interactivos y Buscador
                     col_g1, col_g2, col_g3 = st.columns(3)
                     with col_g1:
                         filtro_pais_g = st.selectbox("País:", ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
                     with col_g2:
-                        filtro_cli_g = st.selectbox("Cliente:", ["TODOS"] + sorted(df_granular['customer cod'].dropna().unique().tolist()), key="g_cli")
+                        filtro_cli_g = st.selectbox("Cliente:", ["TODOS"] + sorted(df_granular['Cliente Desc'].dropna().unique().tolist()), key="g_cli")
                     with col_g3:
                         search_sku = st.text_input("🔍 Buscar SKU / Descripción:", placeholder="Escribe código o texto...")
                         
+                    # Aplicar filtros
                     if filtro_pais_g != "TODOS":
                         df_granular = df_granular[df_granular['País'] == filtro_pais_g]
                     if filtro_cli_g != "TODOS":
-                        df_granular = df_granular[df_granular['customer cod'] == filtro_cli_g]
+                        df_granular = df_granular[df_granular['Cliente Desc'] == filtro_cli_g]
                     if search_sku:
                         query = search_sku.strip().lower()
-                        mask = df_granular['sku cod'].astype(str).str.lower().str.contains(query) | df_granular['Descripción SKU'].str.lower().str.contains(query)
+                        mask = df_granular['sku cod'].astype(str).str.lower().str.contains(query) | df_granular['Descripción SKU'].str.lower().str.contains(query) | df_granular['Cliente Desc'].str.lower().str.contains(query)
                         df_granular = df_granular[mask]
                         
+                    # Renderizar tabla optimizada con formato corporativo
                     st.dataframe(
                         df_granular.sort_values(by='Revenue_GBP', ascending=False)
                         .style.format({
                             "Volumen_Kg": "{:,.0f} Kg",
                             "Revenue_GBP": "£ {:,.0f}",
                             "Margen_GBP": "£ {:,.0f}",
-                            "Margen %": "{:.1f}%"
+                            "Margen %": "{:.1f}%",
+                            "Bias L6M (%)": "{:+.1f}%"
                         }),
                         width="stretch",
                         hide_index=True
                     )
-        else:
-            st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
+                else:
+                    st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
