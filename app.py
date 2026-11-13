@@ -793,7 +793,13 @@ with tab_bom:
                             cols_mostrar = [c for c in ['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_viz.columns]
                             df_show = df_viz[cols_mostrar].copy()
                             df_show['Date'] = pd.to_datetime(df_show['Date']).dt.strftime('%Y-%m')
-                            
+
+                            def estilo_doh(val):
+                                if pd.isna(val): return ''
+                                if val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
+                                elif val > 60: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
+                                else: return 'background-color: #e6ffe6; color: #006600;'
+
                             st.dataframe(
                                 df_show.reset_index(drop=True).style.format(
                                     "{:,.2f}", subset=[c for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_show.columns]
@@ -802,6 +808,7 @@ with tab_bom:
                                 ).map(estilo_doh, subset=[c for c in ['DOH'] if c in df_show.columns]), 
                                 width="stretch"
                             )
+                            
 
 with tab_cap:
     if "tab4" not in modulos_permitidos:
