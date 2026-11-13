@@ -1214,7 +1214,9 @@ with tab_kpis:
                 delta_mar2 = mar_12m_fcst - mar_12m_hist
                 col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
 
- # ==========================================
+
+
+                    # ==========================================
                     # TABLA ANALÍTICA COMERCIAL (CON SEMÁFORO DE BIAS)
                     # ==========================================
                     st.divider()
