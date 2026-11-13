@@ -1213,5 +1213,57 @@ with tab_kpis:
                 col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
                 delta_mar2 = mar_12m_fcst - mar_12m_hist
                 col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
+
+                # ==========================================
+                # NUEVA TABLA ANALÍTICA COMERCIAL (CLIENTE / SKU)
+                # ==========================================
+                st.divider()
+                st.subheader("📋 Rendimiento Comercial por Cliente y SKU (L12M)")
+                st.markdown("Desglose detallado de Volumen, Revenue, Margen y aportación al negocio.")
+
+                if df is not None and not df.empty and 'sku cod' in df.columns:
+                    df_granular = df.groupby(['País', 'customer cod', 'sku cod']).agg(
+                        Volumen_Kg=('volume', 'sum'),
+                        Revenue_GBP=('Rev_GBP', 'sum'),
+                        Margen_GBP=('Mar_GBP', 'sum')
+                    ).reset_index()
+                    
+                    df_granular['Margen %'] = np.where(
+                        df_granular['Revenue_GBP'] > 0, 
+                        (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100, 
+                        0.0
+                    )
+                    
+                    df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
+                    df_granular = df_granular[['País', 'customer cod', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %']]
+                    
+                    col_g1, col_g2, col_g3 = st.columns(3)
+                    with col_g1:
+                        filtro_pais_g = st.selectbox("País:", ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
+                    with col_g2:
+                        filtro_cli_g = st.selectbox("Cliente:", ["TODOS"] + sorted(df_granular['customer cod'].dropna().unique().tolist()), key="g_cli")
+                    with col_g3:
+                        search_sku = st.text_input("🔍 Buscar SKU / Descripción:", placeholder="Escribe código o texto...")
+                        
+                    if filtro_pais_g != "TODOS":
+                        df_granular = df_granular[df_granular['País'] == filtro_pais_g]
+                    if filtro_cli_g != "TODOS":
+                        df_granular = df_granular[df_granular['customer cod'] == filtro_cli_g]
+                    if search_sku:
+                        query = search_sku.strip().lower()
+                        mask = df_granular['sku cod'].astype(str).str.lower().str.contains(query) | df_granular['Descripción SKU'].str.lower().str.contains(query)
+                        df_granular = df_granular[mask]
+                        
+                    st.dataframe(
+                        df_granular.sort_values(by='Revenue_GBP', ascending=False)
+                        .style.format({
+                            "Volumen_Kg": "{:,.0f} Kg",
+                            "Revenue_GBP": "£ {:,.0f}",
+                            "Margen_GBP": "£ {:,.0f}",
+                            "Margen %": "{:.1f}%"
+                        }),
+                        width="stretch",
+                        hide_index=True
+                    )
         else:
             st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
