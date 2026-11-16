@@ -10,6 +10,150 @@ import warnings
 import streamlit_authenticator as stauth
 from fpdf import FPDF
 
+@st.cache_data
+def obtener_excels_demo_8_tablas():
+    """Genera en memoria RAM los 8 archivos Excel de Demo coherentes entre sí."""
+    np.random.seed(42)
+    fechas_hist = pd.date_range(start="2024-01-01", periods=34, freq="MS")
+    mes_m1 = pd.Timestamp.today().replace(day=1)
+    mes_m2 = mes_m1 + pd.DateOffset(months=1)
+
+    # 1. Histórico de Ventas
+    skus_info = [
+        ("PT-101", "Pienso Starter Broiler 25Kg", 42000),
+        ("PT-102", "Premezcla Vitamínica Porcino", 14000),
+        ("PT-103", "Corrector Mineral Vacuno Leche", 19000),
+        ("PT-104", "Pienso Engorde Pavos Alta Energía", 36000),
+        ("PT-105", "Suplemento Enzimático Avícola", 7500),
+        ("PT-106", "Núcleo Lactoiniciador Lechones", 12500),
+    ]
+    filas_ventas = []
+    for f in fechas_hist:
+        est = 1.20 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
+        for cod, desc, base_vol in skus_info:
+            kg = max(1200, int(np.random.normal(base_vol * est, base_vol * 0.12)))
+            filas_ventas.append({
+                "Date": f, "Fecha": f,
+                "sku cod": cod, "sku desc": desc,
+                "Kg": kg, "Cantidad": kg, "Ventas": kg
+            })
+    df_1_ventas = pd.DataFrame(filas_ventas)
+
+    # 2. BOM / Recetas
+    df_2_bom = pd.DataFrame([
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-01", "rm desc": "Maíz Nacional Granel", "Ratio": 0.55, "qty": 0.55},
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.35, "qty": 0.35},
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-03", "rm desc": "Fosfato Monocálcico", "Ratio": 0.10, "qty": 0.10},
+        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "rm cod": "MP-04", "rm desc": "Complejo Vitamina A-D3-E", "Ratio": 0.60, "qty": 0.60},
+        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.40, "qty": 0.40},
+        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "rm cod": "MP-03", "rm desc": "Fosfato Monocálcico", "Ratio": 0.50, "qty": 0.50},
+        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "rm cod": "MP-06", "rm desc": "Carbonato Cálcico Fino", "Ratio": 0.50, "qty": 0.50},
+        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "rm cod": "MP-01", "rm desc": "Maíz Nacional Granel", "Ratio": 0.60, "qty": 0.60},
+        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.40, "qty": 0.40},
+        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "rm cod": "MP-04", "rm desc": "Complejo Vitamina A-D3-E", "Ratio": 0.70, "qty": 0.70},
+        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.30, "qty": 0.30},
+        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.50, "qty": 0.50},
+        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.50, "qty": 0.50},
+    ])
+
+    # 3. Stock Inicial y Parámetros (Diseñado con casos de rotura y sobrestock para lucir en Excepciones y ERP)
+    df_3_stock = pd.DataFrame([
+        {"cod": "PT-101", "sku cod": "PT-101", "Item_Cod": "PT-101", "desc": "Pienso Starter Broiler 25Kg", "Stock_Inicial": 4500, "Stock": 4500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 5000},
+        {"cod": "PT-102", "sku cod": "PT-102", "Item_Cod": "PT-102", "desc": "Premezcla Vitamínica Porcino", "Stock_Inicial": 32000, "Stock": 32000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 0, "Lote_Minimo": 2000},
+        {"cod": "PT-103", "sku cod": "PT-103", "Item_Cod": "PT-103", "desc": "Corrector Mineral Vacuno Leche", "Stock_Inicial": 3500, "Stock": 3500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 3000},
+        {"cod": "PT-104", "sku cod": "PT-104", "Item_Cod": "PT-104", "desc": "Pienso Engorde Pavos Alta Energía", "Stock_Inicial": 5200, "Stock": 5200, "Cobertura_Meses": 0.4, "Lead_Time_Meses": 0, "Lote_Minimo": 5000},
+        {"cod": "PT-105", "sku cod": "PT-105", "Item_Cod": "PT-105", "desc": "Suplemento Enzimático Avícola", "Stock_Inicial": 22000, "Stock": 22000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 0, "Lote_Minimo": 1000},
+        {"cod": "PT-106", "sku cod": "PT-106", "Item_Cod": "PT-106", "desc": "Núcleo Lactoiniciador Lechones", "Stock_Inicial": 2100, "Stock": 2100, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 2500},
+        {"cod": "MP-01", "rm cod": "MP-01", "Item_Cod": "MP-01", "desc": "Maíz Nacional Granel", "Stock_Inicial": 9000, "Stock": 9000, "Cobertura_Meses": 0.6, "Lead_Time_Meses": 1, "Lote_Minimo": 25000},
+        {"cod": "MP-02", "rm cod": "MP-02", "Item_Cod": "MP-02", "desc": "Harina de Soja 47%", "Stock_Inicial": 8500, "Stock": 8500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 20000},
+        {"cod": "MP-03", "rm cod": "MP-03", "Item_Cod": "MP-03", "desc": "Fosfato Monocálcico", "Stock_Inicial": 36000, "Stock": 36000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 1, "Lote_Minimo": 5000},
+        {"cod": "MP-04", "rm cod": "MP-04", "Item_Cod": "MP-04", "desc": "Complejo Vitamina A-D3-E", "Stock_Inicial": 1200, "Stock": 1200, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 2, "Lote_Minimo": 2000},
+        {"cod": "MP-05", "rm cod": "MP-05", "Item_Cod": "MP-05", "desc": "L-Lisina HCL 99%", "Stock_Inicial": 1900, "Stock": 1900, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 3000},
+        {"cod": "MP-06", "rm cod": "MP-06", "Item_Cod": "MP-06", "desc": "Carbonato Cálcico Fino", "Stock_Inicial": 28000, "Stock": 28000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 1, "Lote_Minimo": 10000},
+    ])
+
+    # 4. Capacidad y Líneas de Producción (RCCP)
+    df_4_lineas = pd.DataFrame([
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Linea": "Línea Granulado 1", "Tasa_Kg_Hora": 4500, "Kg_Hora": 4500, "Horas_Disponibles_Mes": 160, "Capacidad_Max_Horas": 160},
+        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "Linea": "Línea Granulado 1", "Tasa_Kg_Hora": 4200, "Kg_Hora": 4200, "Horas_Disponibles_Mes": 160, "Capacidad_Max_Horas": 160},
+        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Linea": "Línea Premezclas", "Tasa_Kg_Hora": 1200, "Kg_Hora": 1200, "Horas_Disponibles_Mes": 140, "Capacidad_Max_Horas": 140},
+        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "Linea": "Línea Premezclas", "Tasa_Kg_Hora": 1000, "Kg_Hora": 1000, "Horas_Disponibles_Mes": 140, "Capacidad_Max_Horas": 140},
+        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "Linea": "Línea Harinas", "Tasa_Kg_Hora": 2500, "Kg_Hora": 2500, "Horas_Disponibles_Mes": 150, "Capacidad_Max_Horas": 150},
+        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "Linea": "Línea Harinas", "Tasa_Kg_Hora": 2200, "Kg_Hora": 2200, "Horas_Disponibles_Mes": 150, "Capacidad_Max_Horas": 150},
+    ])
+
+    # 5. Costes Unitarios (MP y PT)
+    df_5_costes = pd.DataFrame([
+        {"cod": "PT-101", "sku cod": "PT-101", "Coste_Unitario": 0.49, "Coste": 0.49},
+        {"cod": "PT-102", "sku cod": "PT-102", "Coste_Unitario": 1.65, "Coste": 1.65},
+        {"cod": "PT-103", "sku cod": "PT-103", "Coste_Unitario": 0.82, "Coste": 0.82},
+        {"cod": "PT-104", "sku cod": "PT-104", "Coste_Unitario": 0.55, "Coste": 0.55},
+        {"cod": "PT-105", "sku cod": "PT-105", "Coste_Unitario": 2.80, "Coste": 2.80},
+        {"cod": "PT-106", "sku cod": "PT-106", "Coste_Unitario": 1.30, "Coste": 1.30},
+        {"cod": "MP-01", "rm cod": "MP-01", "Coste_Unitario": 0.24, "Coste": 0.24},
+        {"cod": "MP-02", "rm cod": "MP-02", "Coste_Unitario": 0.42, "Coste": 0.42},
+        {"cod": "MP-03", "rm cod": "MP-03", "Coste_Unitario": 0.85, "Coste": 0.85},
+        {"cod": "MP-04", "rm cod": "MP-04", "Coste_Unitario": 1.95, "Coste": 1.95},
+        {"cod": "MP-05", "rm cod": "MP-05", "Coste_Unitario": 1.45, "Coste": 1.45},
+        {"cod": "MP-06", "rm cod": "MP-06", "Coste_Unitario": 0.12, "Coste": 0.12},
+    ])
+
+    # 6. Precios de Venta (PT)
+    df_6_precios = pd.DataFrame([
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Precio_Venta": 0.68, "Precio": 0.68},
+        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Precio_Venta": 2.45, "Precio": 2.45},
+        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "Precio_Venta": 1.15, "Precio": 1.15},
+        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "Precio_Venta": 0.74, "Precio": 0.74},
+        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "Precio_Venta": 4.20, "Precio": 4.20},
+        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "Precio_Venta": 1.85, "Precio": 1.85},
+    ])
+
+    # 7. Pedidos Abiertos ERP (Recepciones en firme de Fab y Compras)
+    df_7_erp = pd.DataFrame([
+        {"cod": "PT-101", "sku cod": "PT-101", "Item_Cod": "PT-101", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 10000, "Cantidad": 10000},
+        {"cod": "PT-102", "sku cod": "PT-102", "Item_Cod": "PT-102", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 18000, "Cantidad": 18000},
+        {"cod": "MP-01", "rm cod": "MP-01", "Item_Cod": "MP-01", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 15000, "Cantidad": 15000},
+        {"cod": "MP-02", "rm cod": "MP-02", "Item_Cod": "MP-02", "Date": mes_m2, "Fecha": mes_m2, "Recepciones_ERP": 16000, "Cantidad": 16000},
+        {"cod": "MP-03", "rm cod": "MP-03", "Item_Cod": "MP-03", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 20000, "Cantidad": 20000},
+    ])
+
+    # 8. Forecast Anterior (Para KPIs de Precisión WAPE y Bias)
+    filas_fcst = []
+    for f in fechas_hist[-6:]:
+        for cod, desc, base_vol in skus_info:
+            fcst_val = int(base_vol * np.random.uniform(0.92, 1.08))
+            filas_fcst.append({
+                "Date": f, "Fecha": f,
+                "sku cod": cod, "sku desc": desc,
+                "Forecast_Anterior": fcst_val, "Forecast": fcst_val, "Kg_Forecast": fcst_val
+            })
+    df_8_fcst = pd.DataFrame(filas_fcst)
+
+    # Empaquetar los 8 DataFrames como objetos Excel en memoria (.xlsx) compatibles con pd.read_excel()
+    tablas = {
+        "ventas": df_1_ventas,
+        "bom": df_2_bom,
+        "stock": df_3_stock,
+        "lineas": df_4_lineas,
+        "costes": df_5_costes,
+        "precios": df_6_precios,
+        "erp": df_7_erp,
+        "fcst": df_8_fcst
+    }
+    
+    archivos_memoria = {}
+    for clave, df in tablas.items():
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False)
+        buf.seek(0)
+        buf.name = f"demo_{clave}.xlsx"
+        archivos_memoria[clave] = buf
+
+    return archivos_memoria
+
+
+
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="auto")
@@ -194,6 +338,23 @@ with st.sidebar:
 t = TEXTS[st.session_state['lang']]
 st.title(t["title"])
 
+st.markdown("### 🧪 Modo Demostración (1-Clic)")
+    if "modo_demo_8" not in st.session_state:
+        st.session_state["modo_demo_8"] = False
+
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("🚀 Cargar 8 Tablas", use_container_width=True, type="primary"):
+            st.session_state["modo_demo_8"] = True
+            st.rerun()
+    with col_btn2:
+        if st.button("🗑️ Limpiar Demo", use_container_width=True):
+            st.session_state["modo_demo_8"] = False
+            st.rerun()
+
+    if st.session_state["modo_demo_8"]:
+        st.success("✅ 8 Tablas Demo cargadas. Si arrastras un Excel abajo, sustituirá a esa tabla Demo.")
+
 # ==========================================
 # 1. CONFIGURACIÓN Y CARGA DE ARCHIVOS
 # ==========================================
@@ -210,6 +371,19 @@ with st.sidebar:
     st.header("🚀 2. ERP Pipeline (Execution)")
     file_compras_erp = st.file_uploader("7. ERP Compras / POs", type=['xlsx', 'csv'])
     file_produccion_erp = st.file_uploader("8. ERP Producción / Prd. Orders", type=['xlsx', 'csv'])
+
+# --- INYECCIÓN AUTOMÁTICA: ARCHIVO REAL ARRASTRADO > ARCHIVO DEMO ---
+    if st.session_state.get("modo_demo_8", False):
+        demos = obtener_excels_demo_8_tablas()
+        # Sustituye los nombres de variable de la izquierda si alguno en tu código se llama distinto:
+        if uploaded_file is None:   uploaded_file   = demos["ventas"]
+        if uploaded_bom is None:    uploaded_bom    = demos["bom"]
+        if uploaded_stock is None:  uploaded_stock  = demos["stock"]
+        if uploaded_lineas is None: uploaded_lineas = demos["lineas"]
+        if uploaded_costes is None: uploaded_costes = demos["costes"]
+        if uploaded_precios is None: uploaded_precios = demos["precios"]
+        if uploaded_erp is None:    uploaded_erp    = demos["erp"]
+        if uploaded_fcst is None:   uploaded_fcst   = demos["fcst"]
     
     st.divider()
     st.header("📅 3. Parameters")
