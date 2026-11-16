@@ -1136,7 +1136,7 @@ with tab_cap:
         if df_rutas is None or df_cal is None:
             st.info("👈 Upload Rutas & Calendario.")
         else:
-            # Detectar si la columna se llama 'Maquina', 'Linea' o 'work_center'
+            # Detectar si la columna se llama 'Maquina', 'Linea', 'work_center' o 'Planta'
             col_maq = next((c for c in ['Maquina', 'Linea', 'work_center', 'Planta'] if c in df_rutas.columns), 'Linea')
             
             lista_maquinas = ["TODOS"] + sorted(df_rutas[col_maq].dropna().unique().tolist()) if col_maq in df_rutas.columns else ["TODOS"]
@@ -1173,6 +1173,15 @@ with tab_cap:
                             else:
                                 df_req[col_maq] = 'Línea Genérica'
 
+                        # --- BLINDAJE 3: ASEGURAR COLUMNA DE FECHA EN DF_REQ ---
+                        if 'Date' not in df_req.columns:
+                            for col_f in ['Fecha', 'date', 'fecha', 'Periodo', 'Mes']:
+                                if col_f in df_req.columns:
+                                    df_req = df_req.rename(columns={col_f: 'Date'})
+                                    break
+                            else:
+                                df_req['Date'] = pd.Timestamp.today().replace(day=1)
+
                         # Sincronizar columna de máquina/línea en el calendario si difiere
                         if col_maq not in df_cal.columns:
                             for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
@@ -1182,8 +1191,8 @@ with tab_cap:
                         if col_maq not in df_cal.columns:
                             df_cal[col_maq] = col_maq # Valor por defecto si no existe en calendario
 
-                        df_cal['Date'] = pd.to_datetime(df_cal['Date'], dayfirst=True)
-                        df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True)
+                        df_cal['Date'] = pd.to_datetime(df_cal['Date'], errors='coerce', dayfirst=True)
+                        df_req['Date'] = pd.to_datetime(df_req['Date'], errors='coerce', dayfirst=True)
                         
                         if maq_sel == "TODOS":
                             df_capacidad = pd.merge(
@@ -1233,7 +1242,6 @@ with tab_cap:
                                 st.plotly_chart(fig_cap, use_container_width=True)
                             else:
                                 st.warning(f"No hay demanda asignada para la línea: {maq_sel}")
-
 with tab_fin:
     if "tab5" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
