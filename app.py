@@ -530,19 +530,40 @@ if 'revenue' in df.columns and 'margin' in df.columns:
 def calcular_abc_xyz_global(df_in):
     if df_in is None or df_in.empty or 'volume' not in df_in.columns:
         return pd.DataFrame()
+    
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
     if df_vol['volume'].sum() == 0:
         return pd.DataFrame()
+        
     df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
     df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
+    
     df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
     df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
-    df_cv['CV'] = df_cv['std'] / df_cv['mean'].replace(0, 1)
+    df_cv['CV'] = (df_cv['std'] / df_cv['mean'].replace(0, 1)).fillna(0)
     df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
+    
     df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
     df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
-    return df_res
 
+    # --- Añadir 'sku desc' y 'Margen Unitario' para que la Pestaña 7 nunca falle ---
+    if 'sku desc' in df_in.columns:
+        mapa_desc = df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
+        df_res['sku desc'] = df_res['sku cod'].map(mapa_desc).fillna(df_res['sku cod'])
+    else:
+        df_res['sku desc'] = df_res['sku cod']
+
+    if 'Margen Unitario' in df_in.columns:
+        mapa_mg = df_in.groupby('sku cod')['Margen Unitario'].mean().to_dict()
+        df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).fillna(0.25)
+    elif 'Precio_Venta' in df_in.columns and 'Coste_Unitario' in df_in.columns:
+        df_tmp = df_in.assign(_mg=pd.to_numeric(df_in['Precio_Venta'], errors='coerce') - pd.to_numeric(df_in['Coste_Unitario'], errors='coerce'))
+        mapa_mg = df_tmp.groupby('sku cod')['_mg'].mean().to_dict()
+        df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).fillna(0.25)
+    else:
+        df_res['Margen Unitario'] = 0.25
+
+    return df_res
 # --- 1. PROTECCIÓN SI AÚN NO SE HA CARGADO HISTÓRICO NI PULSADO DEMO ---
 if df is None or df.empty:
     st.info("👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube el archivo **1. Histórico Ventas**.")
@@ -1414,6 +1435,10 @@ with tab_abc:
                 filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
                 df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
                 st.dataframe(
+                    if 'sku desc' not in df_show_abc.columns:
+                    df_show_abc['sku desc'] = df_show_abc['sku cod']
+                    if 'Margen Unitario' not in df_show_abc.columns:
+                    df_show_abc['Margen Unitario'] = 0.25
                     df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
                     .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
                     .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
