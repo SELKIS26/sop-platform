@@ -1,13 +1,3 @@
-# 1. Asegurar las columnas ANTES de llamar a st.dataframe
-        if 'sku desc' not in df_show_abc.columns:
-            df_show_abc['sku desc'] = df_show_abc['sku cod']
-        if 'Margen Unitario' not in df_show_abc.columns:
-            df_show_abc['Margen Unitario'] = 0.25
-
-        # 2. Y ahora sí, llamar a st.dataframe normal
-        st.dataframe(
-            df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
-            # ... el resto de tu código .style.format(...) que ya tenías ahí ...import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
