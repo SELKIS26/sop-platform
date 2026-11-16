@@ -91,7 +91,7 @@ elif st.session_state["authentication_status"]:
     usuario_actual = st.session_state["username"]
     
     PERMISOS = {
-        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"], 
+        "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "", "tab7", "tab8", "tab9", "tab10"], 
         "borja": ["tab0", "tab2"] 
     }
     modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
@@ -1012,7 +1012,8 @@ with tab_fin:
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
                         st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
 
-if "tab6" not in modulos_permitidos:
+with tab_exec:  # (mantén aquí el nombre exacto de tu pestaña, p. ej. with tab6:)
+    if "tab6" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
     else:
         st.subheader("🚀 Plan de Ejecución Inmediata (Lanzamientos al ERP)")
