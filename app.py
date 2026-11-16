@@ -1023,7 +1023,8 @@ with tab_ejec:
         if not mps_exec:
             st.warning("⚠️ Carga primero el histórico de ventas para calcular el plan de ejecución.")
         else:
-            df_mps_all = pd.concat(mps_exec.values()).reset_index()
+            df_mps_all = pd.concat(mps_exec.values()).rename_axis('Date').reset_index()
+            df_mps_all['Date'] = pd.to_datetime(df_mps_all['Date'])
             fechas_disp = sorted(df_mps_all['Date'].unique())
             hoy_mes = pd.Timestamp.today().replace(day=1)
             mes_objetivo = hoy_mes if hoy_mes in fechas_disp else fechas_disp[0]
