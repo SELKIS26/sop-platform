@@ -1,4 +1,13 @@
-import streamlit as st
+# 1. Asegurar las columnas ANTES de llamar a st.dataframe
+        if 'sku desc' not in df_show_abc.columns:
+            df_show_abc['sku desc'] = df_show_abc['sku cod']
+        if 'Margen Unitario' not in df_show_abc.columns:
+            df_show_abc['Margen Unitario'] = 0.25
+
+        # 2. Y ahora sí, llamar a st.dataframe normal
+        st.dataframe(
+            df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
+            # ... el resto de tu código .style.format(...) que ya tenías ahí ...import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -1434,11 +1443,12 @@ with tab_abc:
                 st.markdown("#### Detalle de Clasificación")
                 filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
                 df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
+
+                if 'sku desc' not in df_show_abc.columns:
+                df_show_abc['sku desc'] = df_show_abc['sku cod']
+                if 'Margen Unitario' not in df_show_abc.columns:
+                df_show_abc['Margen Unitario'] = 0.25
                 st.dataframe(
-                    if 'sku desc' not in df_show_abc.columns:
-                    df_show_abc['sku desc'] = df_show_abc['sku cod']
-                    if 'Margen Unitario' not in df_show_abc.columns:
-                    df_show_abc['Margen Unitario'] = 0.25
                     df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
                     .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
                     .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
