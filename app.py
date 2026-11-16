@@ -1028,16 +1028,31 @@ with tab_ejec:
             fechas_disp = sorted(df_mps_all['Date'].unique())
             hoy_mes = pd.Timestamp.today().replace(day=1)
             mes_objetivo = hoy_mes if hoy_mes in fechas_disp else fechas_disp[0]
+            base_date = pd.to_datetime(mes_objetivo)
 
-            st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {pd.to_datetime(mes_objetivo).strftime('%Y-%m')}")
+            st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {base_date.strftime('%Y-%m')}")
 
+            # 1. NUEVAS Órdenes de Fabricación a lanzar en el ERP (PT)
             st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
             df_fab_lanzar = df_mps_all[(df_mps_all['Date'] == mes_objetivo) & (df_mps_all['Entradas_Netas'] > 0)].copy()
 
             if df_fab_lanzar.empty:
                 st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
             else:
-                df_fab_lanzar = df_fab_lanzar[['sku cod', 'sku desc', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']].sort_values(by='Entradas_Netas', ascending=False).reset_index(drop=True)
+                # Cálculo del día estimado de lanzamiento según cobertura del stock inicial + ERP
+                dias_autonomia_pt = np.where(
+                    df_fab_lanzar['Salidas_Brutas'] > 0,
+                    ((df_fab_lanzar['Stock_Inicial'] + df_fab_lanzar['Recepciones_ERP']) / df_fab_lanzar['Salidas_Brutas']) * 30,
+                    0
+                )
+                offset_dias_pt = np.clip(np.floor(dias_autonomia_pt) - 5, 0, 27).astype(int)
+                df_fab_lanzar['Fecha_Lanzamiento'] = [
+                    (base_date + pd.Timedelta(days=int(d))).strftime('%Y-%m-%d') for d in offset_dias_pt
+                ]
+
+                cols_fab = ['sku cod', 'sku desc', 'Fecha_Lanzamiento', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']
+                df_fab_lanzar = df_fab_lanzar[cols_fab].sort_values(by=['Fecha_Lanzamiento', 'Entradas_Netas'], ascending=[True, False]).reset_index(drop=True)
+                
                 st.dataframe(
                     df_fab_lanzar.style.format({
                         'Salidas_Brutas': '{:,.0f} Kg',
@@ -1051,6 +1066,7 @@ with tab_ejec:
                     hide_index=True
                 )
 
+            # 2. NUEVOS Pedidos de Compra a lanzar a Proveedores (MP)
             st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
             if mrp_exec is None or mrp_exec.empty:
                 st.info("👈 Carga el archivo de BOM para calcular los lanzamientos de compra.")
@@ -1061,8 +1077,19 @@ with tab_ejec:
                 if df_cmp_lanzar.empty:
                     st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
                 else:
-                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
-                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False).reset_index(drop=True)
+                    # Cálculo del día estimado de emisión del PO según autonomía de stock disponible
+                    dias_autonomia_rm = np.where(
+                        df_cmp_lanzar['Salidas_Brutas'] > 0,
+                        ((df_cmp_lanzar['Stock_Inicial'] + df_cmp_lanzar['Recepciones_ERP']) / df_cmp_lanzar['Salidas_Brutas']) * 30,
+                        0
+                    )
+                    offset_dias_rm = np.clip(np.floor(dias_autonomia_rm) - 7, 0, 27).astype(int)
+                    df_cmp_lanzar['Fecha_Lanzamiento'] = [
+                        (base_date + pd.Timedelta(days=int(d))).strftime('%Y-%m-%d') for d in offset_dias_rm
+                    ]
+
+                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'Fecha_Lanzamiento', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
+                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=['Fecha_Lanzamiento', col_lanz], ascending=[True, False]).reset_index(drop=True)
                     
                     fmt_dict = {c: '{:,.0f} Kg' for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_cmp_lanzar.columns}
                     if 'DOH' in df_cmp_lanzar.columns:
