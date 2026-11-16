@@ -123,7 +123,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Idioma / Language",
         "tab0": "📖 0. Guía", "tab1": "📊 1. Demanda", "tab2": "🏭 2. Producción", 
-        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "tab6": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
+        "tab3": "🧩 3. Compras", "tab4": "⚙️ 4. Capacidad", "tab5": "💷 5. Finanzas", "": "🚀 6. Ejecución ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Excepciones", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa",
@@ -139,7 +139,7 @@ TEXTS = {
         "title": "S&OP Execution & Planning Platform",
         "sidebar_lang": "🌐 Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Demand", "tab2": "🏭 2. Production", 
-        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "tab6": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
+        "tab3": "🧩 3. Purchasing", "tab4": "⚙️ 4. Capacity", "tab5": "💷 5. Finance", "": "🚀 6. ERP Execution","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform",
@@ -155,7 +155,7 @@ TEXTS = {
         "title": "Platforma S&OP i Planowania",
         "sidebar_lang": "🌐 Język / Language",
         "tab0": "📖 0. Przewodnik", "tab1": "📊 1. Popyt", "tab2": "🏭 2. Produkcja", 
-        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "tab6": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
+        "tab3": "🧩 3. Zakupy", "tab4": "⚙️ 4. Zdolności", "tab5": "💷 5. Finanse", "": "🚀 6. Realizacja ERP","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik",
@@ -171,7 +171,7 @@ TEXTS = {
         "title": "S&OP Eksekveringsplatform",
         "sidebar_lang": "🌐 Sprog / Language",
         "tab0": "📖 0. Guide", "tab1": "📊 1. Efterspørgsel", "tab2": "🏭 2. Produktion", 
-        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "tab6": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
+        "tab3": "🧩 3. Indkøb", "tab4": "⚙️ 4. Kapacitet", "tab5": "💷 5. Økonomi", "": "🚀 6. ERP Udførelse","tab7": "🔠 7. ABC/XYZ", "tab8": "🚨 8. Exceptions", "tab9": "🔀 9. What-If","tab10": "📊 10. Dashboard",
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide",
@@ -651,7 +651,7 @@ LAYOUT_STYLE = dict(
 # PESTAÑAS (TABS) DEFINIDAS UNA SOLA VEZ
 # ==========================================
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If"), t.get("tab10", "📊 10. Dashboard")
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t[""], t.get("tab7", "🔠 7. ABC/XYZ"), t.get("tab8", "🚨 8. Excepciones"), t.get("tab9", "🔀 9. What-If"), t.get("tab10", "📊 10. Dashboard")
 ])
 
 # ==========================================
@@ -1012,46 +1012,68 @@ with tab_fin:
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
                         st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
 
-with tab_ejec:
-    if "tab6" not in modulos_permitidos:
+if "tab6" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
     else:
-        st.subheader("Action Plan: S&OP Month 1 Execution")
-        col_ej1, col_ej2 = st.columns(2)
-        with col_ej1:
-            st.markdown("#### 🛒 Pedidos Compra (Firme en ERP)")
-            if df_compras_erp is not None and not df_compras_erp.empty: st.dataframe(df_compras_erp, width="stretch")
-        with col_ej2:
-            st.markdown("#### 🏭 Órdenes Producción (Firme en ERP)")
-            if df_produccion_erp is not None and not df_produccion_erp.empty: st.dataframe(df_produccion_erp, width="stretch")
-                
-        st.divider()
-        mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-        st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {mes_1_fecha.strftime('%Y-%m')}")
-        
-        mps_g = generar_mps_global()
-        df_sug_fab = pd.DataFrame()
-        if mps_g:
-            df_sug_fab = pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})
-            df_sug_fab = df_sug_fab[(df_sug_fab['Date'] == mes_1_fecha) & (df_sug_fab['Entradas_Netas'] > 0)][['Date', 'sku cod', 'sku desc', 'Entradas_Netas']]
-        
-        df_mrp = generar_mrp_global()
-        df_sug_comp = pd.DataFrame()
-        if not df_mrp.empty:
-            df_sug_comp = df_mrp[(df_mrp['Date'] == mes_1_fecha) & (df_mrp['Lanzamiento_Pedidos'] > 0)][['Date', 'rm cod', 'rm desc', 'Lanzamiento_Pedidos']]
+        st.subheader("🚀 Plan de Ejecución Inmediata (Lanzamientos al ERP)")
+        mps_exec = generar_mps_global()
+        mrp_exec = generar_mrp_global()
 
-        st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
-        if not df_sug_fab.empty: 
-            df_sug_fab['Date'] = df_sug_fab['Date'].dt.strftime('%Y-%m')
-            st.dataframe(df_sug_fab.rename(columns={'Entradas_Netas': 'Volumen a Lanzar (Kg)'}).style.format({"Volumen a Lanzar (Kg)": "{:,.0f}"}), width="stretch")
-        else: st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
-        
-        st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
-        if not df_sug_comp.empty: 
-            df_sug_comp['Date'] = df_sug_comp['Date'].dt.strftime('%Y-%m')
-            st.dataframe(df_sug_comp.rename(columns={'Lanzamiento_Pedidos': 'Volumen a Pedir (Kg)'}).style.format({"Volumen a Pedir (Kg)": "{:,.0f}"}), width="stretch")
-        else: st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+        if not mps_exec:
+            st.warning("⚠️ Carga primero el histórico de ventas para calcular el plan de ejecución.")
+        else:
+            df_mps_all = pd.concat(mps_exec.values()).reset_index()
+            fechas_disp = sorted(df_mps_all['Date'].unique())
+            hoy_mes = pd.Timestamp.today().replace(day=1)
+            mes_objetivo = hoy_mes if hoy_mes in fechas_disp else fechas_disp[0]
 
+            st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {pd.to_datetime(mes_objetivo).strftime('%Y-%m')}")
+
+            st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
+            df_fab_lanzar = df_mps_all[(df_mps_all['Date'] == mes_objetivo) & (df_mps_all['Entradas_Netas'] > 0)].copy()
+
+            if df_fab_lanzar.empty:
+                st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
+            else:
+                df_fab_lanzar = df_fab_lanzar[['sku cod', 'sku desc', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']].sort_values(by='Entradas_Netas', ascending=False)
+                st.dataframe(
+                    df_fab_lanzar.style.format({
+                        'Salidas_Brutas': '{:,.0f} Kg',
+                        'Stock_Inicial': '{:,.0f} Kg',
+                        'Recepciones_ERP': '{:,.0f} Kg',
+                        'Entradas_Netas': '{:,.0f} Kg',
+                        'Stock_Final': '{:,.0f} Kg',
+                        'DOH': '{:.0f}'
+                    }).map(estilo_doh, subset=['DOH']),
+                    width="stretch",
+                    hide_index=True
+                )
+
+            st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
+            if mrp_exec is None or mrp_exec.empty:
+                st.info("👈 Carga el archivo de BOM para calcular los lanzamientos de compra.")
+            else:
+                col_lanz = 'Lanzamiento_Pedidos' if 'Lanzamiento_Pedidos' in mrp_exec.columns else 'Entradas_Netas'
+                df_cmp_lanzar = mrp_exec[(mrp_exec['Date'] == mes_objetivo) & (mrp_exec[col_lanz] > 0)].copy()
+
+                if df_cmp_lanzar.empty:
+                    st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+                else:
+                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
+                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False)
+                    st.dataframe(
+                        df_cmp_lanzar.style.format({
+                            'Salidas_Brutas': '{:,.0f} Kg',
+                            'Stock_Inicial': '{:,.0f} Kg',
+                            'Recepciones_ERP': '{:,.0f} Kg',
+                            'Entradas_Netas': '{:,.0f} Kg',
+                            'Lanzamiento_Pedidos': '{:,.0f} Kg',
+                            'Stock_Final': '{:,.0f} Kg',
+                            'DOH': '{:.0f}'
+                        }).map(estilo_doh, subset=['DOH']),
+                        width="stretch",
+                        hide_index=True
+                    )
 with tab_abc:
     if "tab7" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
