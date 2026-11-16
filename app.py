@@ -23,129 +23,97 @@ except ImportError:
     FPDF = None
 
 
+@st.cache_data
 def obtener_excels_demo_8_tablas():
-    """Genera los 8 DataFrames de Demo con todas las columnas requeridas por los módulos S&OP."""
+    """Genera los 8 DataFrames de Demo con la denominación robusta oficial de AB Agri."""
     np.random.seed(42)
-    fechas_hist = pd.date_range(start="2024-01-01", periods=34, freq="MS")
+    fechas_hist = pd.date_range(start="2024-01-01", periods=28, freq="MS")
     mes_m1 = pd.Timestamp.today().replace(day=1)
     mes_m2 = mes_m1 + pd.DateOffset(months=1)
     fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
 
-    skus_info = [
-        ("PT-101", "Pienso Starter Broiler 25Kg", 42000, 0.68, 0.49, "Línea Granulado 1", "España", "CLI-01", "Grupo Avícola Levante", "EUR"),
-        ("PT-102", "Premezcla Vitamínica Porcino", 14000, 2.45, 1.65, "Línea Premezclas", "UK", "CLI-02", "Midlands Pig Farms Ltd", "GBP"),
-        ("PT-103", "Corrector Mineral Vacuno Leche", 19000, 1.15, 0.82, "Línea Harinas", "Polonia", "CLI-03", "AgroPol Dairy Sp", "PLN"),
-        ("PT-104", "Pienso Engorde Pavos Alta Energía", 36000, 0.74, 0.55, "Línea Granulado 1", "España", "CLI-04", "Integraciones Sur S.A.", "EUR"),
-        ("PT-105", "Suplemento Enzimático Avícola", 7500, 4.20, 2.80, "Línea Premezclas", "UK", "CLI-02", "Midlands Pig Farms Ltd", "GBP"),
-        ("PT-106", "Núcleo Lactoiniciador Lechones", 12500, 1.85, 1.30, "Línea Harinas", "Dinamarca", "CLI-05", "Nordic Pork Dan", "DKK"),
+    skus_demo = [
+        ("A10800V3", "ADICARE EVOLUTION H", 35000, 2.85, 9.60, 2.91, "Linea_3_Pellet"),
+        ("M02031BB", "CEBADA EXTRUSIONADA Z1", 12000, 2.28, 4.50, 1.35, "Linea_1_Extrusion"),
+        ("N54700BB", "NUCLEO PORCINO CRECIMIENTO", 18000, 4.10, 8.20, 2.40, "Linea_2_Mezcla"),
+        ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 1.15, 0.38, "Linea_3_Pellet"),
+        ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 24.00, 7.50, "Linea_4_Premix"),
     ]
 
-    # 1. Histórico Ventas (file_hist)
+    # 1. Histórico Ventas
     filas_ventas = []
     for f in fechas_hist:
-        est = 1.20 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
-        for cod, desc, base_vol, precio, coste, linea, pais, c_cod, c_desc, mon in skus_info:
-            kg = max(1200, int(np.random.normal(base_vol * est, base_vol * 0.12)))
+        est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
+        for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _ in skus_demo:
+            vol = max(1000, int(np.random.normal(base_vol * est, base_vol * 0.10)))
             filas_ventas.append({
-                "Date": f, "Fecha": f,
-                "País": pais, "Pais": pais, "Country": pais,
-                "customer cod": c_cod, "customer desc": c_desc, "Cliente": c_desc,
-                "sku cod": cod, "sku desc": desc,
-                "Kg": kg, "Cantidad": kg, "Ventas": kg, "Volume": kg,
-                "Precio_Venta": precio, "Precio": precio, "Price": precio, "Unit Price": precio,
-                "Coste_Unitario": coste, "Coste": coste, "Cost": coste, "Unit Cost": coste,
-                "Moneda": mon, "Currency": mon,
-                "Linea": linea, "Planta": f"Planta {pais}"
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
+                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
+                "sku cod": sku_cod,
+                "sku desc": sku_desc,
+                "volume": vol,
+                "revenue": round(vol * precio_u, 2),
+                "margin": round(vol * margen_u, 2),
+                "currency": "EUR"
             })
     df_1_hist = pd.DataFrame(filas_ventas)
 
-    # 2. Ajustes Consenso (file_ajustes)
+    # 2. Ajustes Consenso
     filas_ajustes = []
     for f in fechas_fut[:6]:
-        for cod, desc, base_vol, precio, coste, linea, pais, c_cod, c_desc, mon in skus_info:
-            fcst_val = int(base_vol * np.random.uniform(0.95, 1.12))
+        for sku_cod, _, base_vol, _, _, _, _ in skus_demo:
+            override = int(base_vol * np.random.uniform(0.95, 1.10))
             filas_ajustes.append({
-                "Date": f, "Fecha": f,
-                "País": pais, "Pais": pais,
-                "customer cod": c_cod, "customer desc": c_desc,
-                "sku cod": cod, "sku desc": desc,
-                "override_value": fcst_val,
-                "Ajuste_Consenso": fcst_val, "Consenso": fcst_val,
-                "Forecast_Anterior": int(base_vol * 0.98), "Forecast": fcst_val, "Kg": fcst_val
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
+                "sku cod": sku_cod,
+                "override_value": override
             })
     df_2_ajustes = pd.DataFrame(filas_ajustes)
 
-    # 3. Stock Actual (file_stock)
+    # 3. Stock Actual
     df_3_stock = pd.DataFrame([
-        {"cod": "PT-101", "sku cod": "PT-101", "Item_Cod": "PT-101", "desc": "Pienso Starter Broiler 25Kg", "sku desc": "Pienso Starter Broiler 25Kg", "Tipo": "PT", "País": "España", "Stock_Inicial": 4500, "Stock": 4500, "Stock_Actual": 4500, "stock": 4500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 5000, "MOQ": 5000, "Precio_Venta": 0.68, "Coste_Unitario": 0.49, "Coste": 0.49, "Moneda": "EUR"},
-        {"cod": "PT-102", "sku cod": "PT-102", "Item_Cod": "PT-102", "desc": "Premezcla Vitamínica Porcino", "sku desc": "Premezcla Vitamínica Porcino", "Tipo": "PT", "País": "UK", "Stock_Inicial": 32000, "Stock": 32000, "Stock_Actual": 32000, "stock": 32000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 2000, "MOQ": 2000, "Precio_Venta": 2.45, "Coste_Unitario": 1.65, "Coste": 1.65, "Moneda": "GBP"},
-        {"cod": "PT-103", "sku cod": "PT-103", "Item_Cod": "PT-103", "desc": "Corrector Mineral Vacuno Leche", "sku desc": "Corrector Mineral Vacuno Leche", "Tipo": "PT", "País": "Polonia", "Stock_Inicial": 3500, "Stock": 3500, "Stock_Actual": 3500, "stock": 3500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 3000, "MOQ": 3000, "Precio_Venta": 1.15, "Coste_Unitario": 0.82, "Coste": 0.82, "Moneda": "PLN"},
-        {"cod": "PT-104", "sku cod": "PT-104", "Item_Cod": "PT-104", "desc": "Pienso Engorde Pavos Alta Energía", "sku desc": "Pienso Engorde Pavos Alta Energía", "Tipo": "PT", "País": "España", "Stock_Inicial": 5200, "Stock": 5200, "Stock_Actual": 5200, "stock": 5200, "Cobertura_Meses": 0.4, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 5000, "MOQ": 5000, "Precio_Venta": 0.74, "Coste_Unitario": 0.55, "Coste": 0.55, "Moneda": "EUR"},
-        {"cod": "PT-105", "sku cod": "PT-105", "Item_Cod": "PT-105", "desc": "Suplemento Enzimático Avícola", "sku desc": "Suplemento Enzimático Avícola", "Tipo": "PT", "País": "UK", "Stock_Inicial": 22000, "Stock": 22000, "Stock_Actual": 22000, "stock": 22000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 1000, "MOQ": 1000, "Precio_Venta": 4.20, "Coste_Unitario": 2.80, "Coste": 2.80, "Moneda": "GBP"},
-        {"cod": "PT-106", "sku cod": "PT-106", "Item_Cod": "PT-106", "desc": "Núcleo Lactoiniciador Lechones", "sku desc": "Núcleo Lactoiniciador Lechones", "Tipo": "PT", "País": "Dinamarca", "Stock_Inicial": 2100, "Stock": 2100, "Stock_Actual": 2100, "stock": 2100, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lead_Time": 0, "Lote_Minimo": 2500, "MOQ": 2500, "Precio_Venta": 1.85, "Coste_Unitario": 1.30, "Coste": 1.30, "Moneda": "DKK"},
-        {"cod": "MP-01", "rm cod": "MP-01", "sku cod": "MP-01", "Item_Cod": "MP-01", "desc": "Maíz Nacional Granel", "rm desc": "Maíz Nacional Granel", "Tipo": "MP", "País": "España", "Stock_Inicial": 9000, "Stock": 9000, "Stock_Actual": 9000, "stock": 9000, "Cobertura_Meses": 0.6, "Lead_Time_Meses": 1, "Lead_Time": 1, "Lote_Minimo": 25000, "MOQ": 25000, "Coste_Unitario": 0.24, "Coste": 0.24, "Moneda": "EUR"},
-        {"cod": "MP-02", "rm cod": "MP-02", "sku cod": "MP-02", "Item_Cod": "MP-02", "desc": "Harina de Soja 47%", "rm desc": "Harina de Soja 47%", "Tipo": "MP", "País": "España", "Stock_Inicial": 8500, "Stock": 8500, "Stock_Actual": 8500, "stock": 8500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lead_Time": 1, "Lote_Minimo": 20000, "MOQ": 20000, "Coste_Unitario": 0.42, "Coste": 0.42, "Moneda": "EUR"},
-        {"cod": "MP-03", "rm cod": "MP-03", "sku cod": "MP-03", "Item_Cod": "MP-03", "desc": "Fosfato Monocálcico", "rm desc": "Fosfato Monocálcico", "Tipo": "MP", "País": "Polonia", "Stock_Inicial": 36000, "Stock": 36000, "Stock_Actual": 36000, "stock": 36000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 1, "Lead_Time": 1, "Lote_Minimo": 5000, "MOQ": 5000, "Coste_Unitario": 0.85, "Coste": 0.85, "Moneda": "EUR"},
-        {"cod": "MP-04", "rm cod": "MP-04", "sku cod": "MP-04", "Item_Cod": "MP-04", "desc": "Complejo Vitamina A-D3-E", "rm desc": "Complejo Vitamina A-D3-E", "Tipo": "MP", "País": "UK", "Stock_Inicial": 1200, "Stock": 1200, "Stock_Actual": 1200, "stock": 1200, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 2, "Lead_Time": 2, "Lote_Minimo": 2000, "MOQ": 2000, "Coste_Unitario": 1.95, "Coste": 1.95, "Moneda": "GBP"},
-        {"cod": "MP-05", "rm cod": "MP-05", "sku cod": "MP-05", "Item_Cod": "MP-05", "desc": "L-Lisina HCL 99%", "rm desc": "L-Lisina HCL 99%", "Tipo": "MP", "País": "Dinamarca", "Stock_Inicial": 1900, "Stock": 1900, "Stock_Actual": 1900, "stock": 1900, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lead_Time": 1, "Lote_Minimo": 3000, "MOQ": 3000, "Coste_Unitario": 1.45, "Coste": 1.45, "Moneda": "EUR"},
-        {"cod": "MP-06", "rm cod": "MP-06", "sku cod": "MP-06", "Item_Cod": "MP-06", "desc": "Carbonato Cálcico Fino", "rm desc": "Carbonato Cálcico Fino", "Tipo": "MP", "País": "Polonia", "Stock_Inicial": 28000, "Stock": 28000, "Stock_Actual": 28000, "stock": 28000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 1, "Lead_Time": 1, "Lote_Minimo": 10000, "MOQ": 10000, "Coste_Unitario": 0.12, "Coste": 0.12, "Moneda": "EUR"},
+        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.4), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": cost}
+        for sku, desc, vol, cost, _, _, _ in skus_demo
     ])
 
-    # 4. BOM (file_bom)
+    # 4. BOM
     df_4_bom = pd.DataFrame([
-        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-01", "rm desc": "Maíz Nacional Granel", "Ratio": 0.55, "qty": 0.55, "Cantidad": 0.55, "Porcentaje": 55.0, "Coste_MP": 0.24},
-        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.35, "qty": 0.35, "Cantidad": 0.35, "Porcentaje": 35.0, "Coste_MP": 0.42},
-        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "rm cod": "MP-03", "rm desc": "Fosfato Monocálcico", "Ratio": 0.10, "qty": 0.10, "Cantidad": 0.10, "Porcentaje": 10.0, "Coste_MP": 0.85},
-        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "rm cod": "MP-04", "rm desc": "Complejo Vitamina A-D3-E", "Ratio": 0.60, "qty": 0.60, "Cantidad": 0.60, "Porcentaje": 60.0, "Coste_MP": 1.95},
-        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.40, "qty": 0.40, "Cantidad": 0.40, "Porcentaje": 40.0, "Coste_MP": 1.45},
-        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "rm cod": "MP-03", "rm desc": "Fosfato Monocálcico", "Ratio": 0.50, "qty": 0.50, "Cantidad": 0.50, "Porcentaje": 50.0, "Coste_MP": 0.85},
-        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "rm cod": "MP-06", "rm desc": "Carbonato Cálcico Fino", "Ratio": 0.50, "qty": 0.50, "Cantidad": 0.50, "Porcentaje": 50.0, "Coste_MP": 0.12},
-        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "rm cod": "MP-01", "rm desc": "Maíz Nacional Granel", "Ratio": 0.60, "qty": 0.60, "Cantidad": 0.60, "Porcentaje": 60.0, "Coste_MP": 0.24},
-        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.40, "qty": 0.40, "Cantidad": 0.40, "Porcentaje": 40.0, "Coste_MP": 0.42},
-        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "rm cod": "MP-04", "rm desc": "Complejo Vitamina A-D3-E", "Ratio": 0.70, "qty": 0.70, "Cantidad": 0.70, "Porcentaje": 70.0, "Coste_MP": 1.95},
-        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.30, "qty": 0.30, "Cantidad": 0.30, "Porcentaje": 30.0, "Coste_MP": 1.45},
-        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "rm cod": "MP-02", "rm desc": "Harina de Soja 47%", "Ratio": 0.50, "qty": 0.50, "Cantidad": 0.50, "Porcentaje": 50.0, "Coste_MP": 0.42},
-        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "rm cod": "MP-05", "rm desc": "L-Lisina HCL 99%", "Ratio": 0.50, "qty": 0.50, "Cantidad": 0.50, "Porcentaje": 50.0, "Coste_MP": 1.45},
+        {"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.65}
+        for sku, _, _, _, _, _, _ in skus_demo
     ])
 
-    # 5. Rutas / Routing (file_rutas)
-
+    # 5. Rutas / Routing
     df_5_rutas = pd.DataFrame([
-        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Kilos_por_Hora": 4500, "Tasa_Kg_Hora": 4500, "Kg_Hora": 4500, "Horas_Ton": 0.22},
-        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Kilos_por_Hora": 4200, "Tasa_Kg_Hora": 4200, "Kg_Hora": 4200, "Horas_Ton": 0.24},
-        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Kilos_por_Hora": 1200, "Tasa_Kg_Hora": 1200, "Kg_Hora": 1200, "Horas_Ton": 0.83},
-        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Kilos_por_Hora": 1000, "Tasa_Kg_Hora": 1000, "Kg_Hora": 1000, "Horas_Ton": 1.00},
-        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Polonia", "País": "Polonia", "Kilos_por_Hora": 2500, "Tasa_Kg_Hora": 2500, "Kg_Hora": 2500, "Horas_Ton": 0.40},
-        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Dinamarca", "País": "Dinamarca", "Kilos_por_Hora": 2200, "Tasa_Kg_Hora": 2200, "Kg_Hora": 2200, "Horas_Ton": 0.45},
+        {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": 3500}
+        for sku, _, _, _, _, _, maquina in skus_demo
     ])
 
-    # 6. Calendario de Planta (file_cal)
+    # 6. Calendario
+    maquinas_unicas = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
     filas_cal = []
     for f in fechas_fut:
-        for linea, planta, pais, h_disp in [
-            ("Línea Granulado 1", "Planta España", "España", 160),
-            ("Línea Premezclas", "Planta UK", "UK", 140),
-            ("Línea Harinas", "Planta Polonia", "Polonia", 150)
-        ]:
+        for maq in maquinas_unicas:
             filas_cal.append({
-                "Date": f, "Fecha": f,
-                "Linea": linea, "work_center": linea,
-                "Planta": planta, "País": pais,
-                "Horas_Disponibles": h_disp, "Horas_Disponibles_Mes": h_disp, "Capacidad_Max_Horas": h_disp, "available_hours": h_disp
+                "Date": f,
+                "Maquina": maq,
+                "Horas_Disponibles": 740
             })
     df_6_cal = pd.DataFrame(filas_cal)
 
-    # 7. ERP Compras / POs (file_compras_erp)
-    df_7_compras_erp = pd.DataFrame([
-        {"rm cod": "MP-01", "cod": "MP-01", "Item_Cod": "MP-01", "rm desc": "Maíz Nacional Granel", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 15000, "Cantidad": 15000, "Kg": 15000, "qty": 15000},
-        {"rm cod": "MP-02", "cod": "MP-02", "Item_Cod": "MP-02", "rm desc": "Harina de Soja 47%", "Date": mes_m2, "Fecha": mes_m2, "Recepciones_ERP": 16000, "Cantidad": 16000, "Kg": 16000, "qty": 16000},
-        {"rm cod": "MP-03", "cod": "MP-03", "Item_Cod": "MP-03", "rm desc": "Fosfato Monocálcico", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 20000, "Cantidad": 20000, "Kg": 20000, "qty": 20000},
+    # 7. ERP Compras POs
+    df_7_compras = pd.DataFrame([
+        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 15000},
+        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 18000},
     ])
 
-    # 8. ERP Producción / Prd. Orders (file_produccion_erp)
-    df_8_prod_erp = pd.DataFrame([
-        {"sku cod": "PT-101", "cod": "PT-101", "Item_Cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 10000, "Cantidad": 10000, "Kg": 10000, "qty": 10000},
-        {"sku cod": "PT-102", "cod": "PT-102", "Item_Cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 18000, "Cantidad": 18000, "Kg": 18000, "qty": 18000},
+    # 8. ERP Producción
+    df_8_prod = pd.DataFrame([
+        {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 25000},
+        {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 45000},
     ])
 
     return {
@@ -155,11 +123,9 @@ def obtener_excels_demo_8_tablas():
         "bom": df_4_bom,
         "rutas": df_5_rutas,
         "cal": df_6_cal,
-        "compras_erp": df_7_compras_erp,
-        "produccion_erp": df_8_prod_erp
+        "compras_erp": df_7_compras,
+        "produccion_erp": df_8_prod,
     }
-
-
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="auto")
