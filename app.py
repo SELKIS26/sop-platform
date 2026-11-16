@@ -109,13 +109,14 @@ def obtener_excels_demo_8_tablas():
     ])
 
     # 5. Rutas / Routing (file_rutas)
+
     df_5_rutas = pd.DataFrame([
-        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Tasa_Kg_Hora": 4500, "Kg_Hora": 4500, "kg_per_hour": 4500, "rate": 4500, "Horas_Ton": 0.22},
-        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Tasa_Kg_Hora": 4200, "Kg_Hora": 4200, "kg_per_hour": 4200, "rate": 4200, "Horas_Ton": 0.24},
-        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Tasa_Kg_Hora": 1200, "Kg_Hora": 1200, "kg_per_hour": 1200, "rate": 1200, "Horas_Ton": 0.83},
-        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Tasa_Kg_Hora": 1000, "Kg_Hora": 1000, "kg_per_hour": 1000, "rate": 1000, "Horas_Ton": 1.00},
-        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Polonia", "País": "Polonia", "Tasa_Kg_Hora": 2500, "Kg_Hora": 2500, "kg_per_hour": 2500, "rate": 2500, "Horas_Ton": 0.40},
-        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Dinamarca", "País": "Dinamarca", "Tasa_Kg_Hora": 2200, "Kg_Hora": 2200, "kg_per_hour": 2200, "rate": 2200, "Horas_Ton": 0.45},
+        {"sku cod": "PT-101", "sku desc": "Pienso Starter Broiler 25Kg", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Kilos_por_Hora": 4500, "Tasa_Kg_Hora": 4500, "Kg_Hora": 4500, "Horas_Ton": 0.22},
+        {"sku cod": "PT-104", "sku desc": "Pienso Engorde Pavos Alta Energía", "Linea": "Línea Granulado 1", "work_center": "Línea Granulado 1", "Planta": "Planta España", "País": "España", "Kilos_por_Hora": 4200, "Tasa_Kg_Hora": 4200, "Kg_Hora": 4200, "Horas_Ton": 0.24},
+        {"sku cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Kilos_por_Hora": 1200, "Tasa_Kg_Hora": 1200, "Kg_Hora": 1200, "Horas_Ton": 0.83},
+        {"sku cod": "PT-105", "sku desc": "Suplemento Enzimático Avícola", "Linea": "Línea Premezclas", "work_center": "Línea Premezclas", "Planta": "Planta UK", "País": "UK", "Kilos_por_Hora": 1000, "Tasa_Kg_Hora": 1000, "Kg_Hora": 1000, "Horas_Ton": 1.00},
+        {"sku cod": "PT-103", "sku desc": "Corrector Mineral Vacuno Leche", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Polonia", "País": "Polonia", "Kilos_por_Hora": 2500, "Tasa_Kg_Hora": 2500, "Kg_Hora": 2500, "Horas_Ton": 0.40},
+        {"sku cod": "PT-106", "sku desc": "Núcleo Lactoiniciador Lechones", "Linea": "Línea Harinas", "work_center": "Línea Harinas", "Planta": "Planta Dinamarca", "País": "Dinamarca", "Kilos_por_Hora": 2200, "Tasa_Kg_Hora": 2200, "Kg_Hora": 2200, "Horas_Ton": 0.45},
     ])
 
     # 6. Calendario de Planta (file_cal)
@@ -1132,32 +1133,94 @@ with tab_cap:
         st.warning("🔒 No tienes permisos para acceder al módulo de Capacidad.")
     else:
         st.subheader("Capacity Planning (RCCP)")
-        if df_rutas is None or df_cal is None: st.info("👈 Upload Rutas & Calendario.")
+        if df_rutas is None or df_cal is None:
+            st.info("👈 Upload Rutas & Calendario.")
         else:
-            lista_maquinas = ["TODAS"] + sorted(df_rutas['Maquina'].dropna().unique().tolist()) if 'Maquina' in df_rutas.columns else ["TODAS"]
+            # Detectar si la columna se llama 'Maquina', 'Linea' o 'work_center'
+            col_maq = next((c for c in ['Maquina', 'Linea', 'work_center', 'Planta'] if c in df_rutas.columns), 'Linea')
+            
+            lista_maquinas = ["TODOS"] + sorted(df_rutas[col_maq].dropna().unique().tolist()) if col_maq in df_rutas.columns else ["TODOS"]
             maq_sel = st.selectbox("⚙️ Filter Line / Línea:", lista_maquinas)
+            
             if st.button("⚖️ Calculate Saturation"):
                 with st.spinner("Processing..."):
                     mps_g = generar_mps_global()
                     if mps_g:
-                        df_req = pd.merge(pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})[lambda x: x['Entradas_Netas'] > 0], df_rutas, on='sku cod', how='inner')
+                        df_req = pd.merge(
+                            pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})[lambda x: x['Entradas_Netas'] > 0], 
+                            df_rutas, 
+                            on='sku cod', 
+                            how='inner'
+                        )
+                        
+                        # --- BLINDAJE 1: KILOS POR HORA ---
+                        if 'Kilos_por_Hora' not in df_req.columns:
+                            for col_alt in ['Tasa_Kg_Hora', 'Kg_Hora', 'kg_per_hour', 'rate', 'Kilos_Hora']:
+                                if col_alt in df_req.columns:
+                                    df_req['Kilos_por_Hora'] = df_req[col_alt]
+                                    break
+                            else:
+                                df_req['Kilos_por_Hora'] = 3000 # Valor por defecto seguro
+                                
                         df_req['Horas_Necesarias'] = df_req['Entradas_Netas'] / df_req['Kilos_por_Hora'].replace(0, 1)
+                        
+                        # Sincronizar columna de máquina/línea en el calendario si difiere
+                        if col_maq not in df_cal.columns:
+                            for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
+                                if alt_c in df_cal.columns:
+                                    df_cal = df_cal.rename(columns={alt_c: col_maq})
+                                    break
+
                         df_cal['Date'] = pd.to_datetime(df_cal['Date'], dayfirst=True)
-                        if maq_sel == "TODAS":
-                            df_capacidad = pd.merge(df_req.groupby(['Date', 'Maquina'])['Horas_Necesarias'].sum().reset_index(), df_cal, on=['Date', 'Maquina'], how='left').fillna({'Horas_Disponibles': 1})
+                        
+                        if maq_sel == "TODOS":
+                            df_capacidad = pd.merge(
+                                df_req.groupby(['Date', col_maq])['Horas_Necesarias'].sum().reset_index(), 
+                                df_cal, 
+                                on=['Date', col_maq], 
+                                how='left'
+                            ).fillna({'Horas_Disponibles': 1})
+                            
                             df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
-                            df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
+                            df_pivot = df_capacidad.pivot(index=col_maq, columns='Date', values='Utilizacion').fillna(0)
                             df_pivot.columns = df_pivot.columns.strftime('%Y-%m')
+                            
                             st.markdown("#### % Utilización / Utilization")
-                            try: st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), width="stretch")
-                            except: st.dataframe(df_pivot.style.format("{:.0f}%"), width="stretch")
+                            try:
+                                st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), width="stretch")
+                            except:
+                                st.dataframe(df_pivot.style.format("{:.0f}%"), width="stretch")
                         else:
-                            df_req_maq = df_req[df_req['Maquina'] == maq_sel]
+                            df_req_maq = df_req[df_req[col_maq] == maq_sel]
                             if not df_req_maq.empty:
-                                fig_cap = px.bar(df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), x='Date', y='Horas_Necesarias', color='sku desc', title=f"Carga vs Capacidad: {maq_sel}")
-                                fig_cap.add_trace(go.Scatter(x=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Date'], y=pd.merge(df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), df_cal[df_cal['Maquina'] == maq_sel], on='Date', how='left').fillna({'Horas_Disponibles': 0})['Horas_Disponibles'], mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')))
-                                fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
+                                fig_cap = px.bar(
+                                    df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), 
+                                    x='Date', 
+                                    y='Horas_Necesarias', 
+                                    color='sku desc', 
+                                    title=f"Carga vs Capacidad: {maq_sel}"
+                                )
+                                
+                                df_cal_maq = df_cal[df_cal[col_maq] == maq_sel] if col_maq in df_cal.columns else df_cal
+                                merged_line = pd.merge(
+                                    df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), 
+                                    df_cal_maq, 
+                                    on='Date', 
+                                    how='left'
+                                ).fillna({'Horas_Disponibles': 0})
+                                
+                                fig_cap.add_trace(go.Scatter(
+                                    x=merged_line['Date'], 
+                                    y=merged_line['Horas_Disponibles'], 
+                                    mode='lines', 
+                                    name='Max Hours', 
+                                    line=dict(color='red', width=3, dash='dash')
+                                ))
+                                
+                                fig_cap.update_layout(yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
                                 st.plotly_chart(fig_cap, use_container_width=True)
+                            else:
+                                st.warning(f"No hay demanda asignada para la línea: {maq_sel}")
 
 with tab_fin:
     if "tab5" not in modulos_permitidos:
