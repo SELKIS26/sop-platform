@@ -1037,7 +1037,7 @@ with tab_ejec:
             if df_fab_lanzar.empty:
                 st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
             else:
-                df_fab_lanzar = df_fab_lanzar[['sku cod', 'sku desc', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']].sort_values(by='Entradas_Netas', ascending=False)
+                df_fab_lanzar = df_fab_lanzar[['sku cod', 'sku desc', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']].sort_values(by='Entradas_Netas', ascending=False).reset_index(drop=True)
                 st.dataframe(
                     df_fab_lanzar.style.format({
                         'Salidas_Brutas': '{:,.0f} Kg',
@@ -1062,7 +1062,7 @@ with tab_ejec:
                     st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
                 else:
                     cols_cmp = [c for c in ['rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
-                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False)
+                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False).reset_index(drop=True)
                     
                     fmt_dict = {c: '{:,.0f} Kg' for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_cmp_lanzar.columns}
                     if 'DOH' in df_cmp_lanzar.columns:
