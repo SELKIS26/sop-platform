@@ -1063,19 +1063,16 @@ with tab_ejec:
                 else:
                     cols_cmp = [c for c in ['rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
                     df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False)
-                    st.dataframe(
-                        df_cmp_lanzar.style.format({
-                            'Salidas_Brutas': '{:,.0f} Kg',
-                            'Stock_Inicial': '{:,.0f} Kg',
-                            'Recepciones_ERP': '{:,.0f} Kg',
-                            'Entradas_Netas': '{:,.0f} Kg',
-                            'Lanzamiento_Pedidos': '{:,.0f} Kg',
-                            'Stock_Final': '{:,.0f} Kg',
-                            'DOH': '{:.0f}'
-                        }).map(estilo_doh, subset=['DOH']),
-                        width="stretch",
-                        hide_index=True
-                    )
+                    
+                    fmt_dict = {c: '{:,.0f} Kg' for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_cmp_lanzar.columns}
+                    if 'DOH' in df_cmp_lanzar.columns:
+                        fmt_dict['DOH'] = '{:.0f}'
+                    
+                    styler_cmp = df_cmp_lanzar.style.format(fmt_dict)
+                    if 'DOH' in df_cmp_lanzar.columns:
+                        styler_cmp = styler_cmp.map(estilo_doh, subset=['DOH'])
+                        
+                    st.dataframe(styler_cmp, width="stretch", hide_index=True)
 
             st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
             if mrp_exec is None or mrp_exec.empty:
