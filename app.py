@@ -1164,14 +1164,26 @@ with tab_cap:
                                 
                         df_req['Horas_Necesarias'] = df_req['Entradas_Netas'] / df_req['Kilos_por_Hora'].replace(0, 1)
                         
+                        # --- BLINDAJE 2: ASEGURAR QUE COL_MAQ EXISTA EN DF_REQ ---
+                        if col_maq not in df_req.columns:
+                            for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
+                                if alt_c in df_req.columns:
+                                    col_maq = alt_c
+                                    break
+                            else:
+                                df_req[col_maq] = 'Línea Genérica'
+
                         # Sincronizar columna de máquina/línea en el calendario si difiere
                         if col_maq not in df_cal.columns:
                             for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
                                 if alt_c in df_cal.columns:
                                     df_cal = df_cal.rename(columns={alt_c: col_maq})
                                     break
+                        if col_maq not in df_cal.columns:
+                            df_cal[col_maq] = col_maq # Valor por defecto si no existe en calendario
 
                         df_cal['Date'] = pd.to_datetime(df_cal['Date'], dayfirst=True)
+                        df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True)
                         
                         if maq_sel == "TODOS":
                             df_capacidad = pd.merge(
