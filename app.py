@@ -528,9 +528,11 @@ if 'revenue' in df.columns and 'margin' in df.columns:
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def calcular_abc_xyz_global(df_in):
-    if df_in is None or df_in.empty or 'volume' not in df_in.columns: return pd.DataFrame()
+    if df_in is None or df_in.empty or 'volume' not in df_in.columns:
+        return pd.DataFrame()
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
-    if df_vol['volume'].sum() == 0: return pd.DataFrame()
+    if df_vol['volume'].sum() == 0:
+        return pd.DataFrame()
     df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
     df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
     df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
@@ -541,14 +543,41 @@ def calcular_abc_xyz_global(df_in):
     df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
     return df_res
 
+# --- 1. PROTECCIÓN SI AÚN NO SE HA CARGADO HISTÓRICO NI PULSADO DEMO ---
+if df is None or df.empty:
+    st.info("👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube el archivo **1. Histórico Ventas**.")
+    st.stop()
+
+# --- 2. NORMALIZACIÓN AUTOMÁTICA DE COLUMNAS CLAVE EN DF ---
+for col in list(df.columns):
+    c_low = str(col).strip().lower()
+    if c_low in ['pais', 'país', 'country', 'planta', 'site'] and 'País' not in df.columns:
+        df['País'] = df[col]
+    elif c_low in ['volume', 'volumen', 'kg', 'kilos', 'cantidad', 'ventas'] and 'volume' not in df.columns:
+        df['volume'] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    elif c_low in ['date', 'fecha', 'mes', 'period'] and 'Date' not in df.columns:
+        df['Date'] = pd.to_datetime(df[col], errors='coerce')
+
+if 'Date' in df.columns:
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+if 'País' not in df.columns:
+    df['País'] = 'España'
+if 'volume' not in df.columns and 'Kg' in df.columns:
+    df['volume'] = pd.to_numeric(df['Kg'], errors='coerce').fillna(0)
+if 'Kg' not in df.columns and 'volume' in df.columns:
+    df['Kg'] = df['volume']
+if 'customer cod' not in df.columns:
+    df['customer cod'] = 'CLI-01'
+if 'customer desc' not in df.columns:
+    df['customer desc'] = df['customer cod'].astype(str)
+
 df_abcxyz_global = calcular_abc_xyz_global(df)
 
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
-    lista_paises = ["TODOS"] + sorted(df['País'].dropna().unique().tolist())
+    lista_paises = ["TODOS"] + sorted(df['País'].dropna().astype(str).unique().tolist())
     pais_sel = st.selectbox("1. Country / País:", lista_paises)
-df_filtro1 = df if pais_sel == "TODOS" else df[df['País'] == pais_sel]
-
+df_filtro1 = df if pais_sel == "TODOS" else df[df['País'].astype(str) == pais_sel]
 with col_f2:
     lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().unique().tolist())
     cliente_sel = st.selectbox("2. Customer / Cliente:", lista_clientes)
