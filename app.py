@@ -153,7 +153,6 @@ def obtener_excels_demo_8_tablas():
         with pd.ExcelWriter(buf, engine="openpyxl") as writer:
             df.to_excel(writer, index=False)
         buf.seek(0)
-        buf.name = f"demo_{clave}.xlsx"
         archivos_memoria[clave] = buf
 
     return archivos_memoria
@@ -408,18 +407,18 @@ with st.sidebar:
     file_compras_erp = st.file_uploader("7. ERP Compras / POs", type=['xlsx', 'csv'])
     file_produccion_erp = st.file_uploader("8. ERP Producción / Prd. Orders", type=['xlsx', 'csv'])
 
-# --- INYECCIÓN AUTOMÁTICA: ARCHIVO REAL ARRASTRADO > ARCHIVO DEMO ---
-if st.session_state.get("modo_demo_8", False):
-    demos = obtener_excels_demo_8_tablas()
-    if file_hist is None:           file_hist           = demos["hist"]
-    if file_ajustes is None:        file_ajustes        = demos["ajustes"]
-    if file_stock is None:          file_stock          = demos["stock"]
-    if file_bom is None:            file_bom            = demos["bom"]
-    if file_rutas is None:          file_rutas          = demos["rutas"]
-    if file_cal is None:            file_cal            = demos["cal"]
-    if file_compras_erp is None:    file_compras_erp    = demos["compras_erp"]
-    if file_produccion_erp is None: file_produccion_erp = demos["produccion_erp"]
-    
+    # --- INYECCIÓN AUTOMÁTICA (INDENTADA A 4 ESPACIOS DENTRO DE ST.SIDEBAR) ---
+    if st.session_state.get("modo_demo_8", False):
+        demos = obtener_excels_demo_8_tablas()
+        if file_hist is None:           file_hist           = demos["hist"]
+        if file_ajustes is None:        file_ajustes        = demos["ajustes"]
+        if file_stock is None:          file_stock          = demos["stock"]
+        if file_bom is None:            file_bom            = demos["bom"]
+        if file_rutas is None:          file_rutas          = demos["rutas"]
+        if file_cal is None:            file_cal            = demos["cal"]
+        if file_compras_erp is None:    file_compras_erp    = demos["compras_erp"]
+        if file_produccion_erp is None: file_produccion_erp = demos["produccion_erp"]
+
     st.divider()
     st.header("📅 3. Parameters")
     horizonte = st.slider("Horizon (Months):", 1, 24, 12)
