@@ -446,13 +446,35 @@ def cargar_datos(uploaded_file):
     except Exception:
         return None
 
-if 'df_ajustes' not in st.session_state: st.session_state['df_ajustes'] = pd.DataFrame(columns=['Date', 'País', 'customer cod', 'sku cod', 'override_value'])
-if 'last_ajuste_file' not in st.session_state: st.session_state['last_ajuste_file'] = None
+COLS_AJUSTES_BASE = ['Date', 'País', 'customer cod', 'sku cod', 'override_value']
+
+if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_ajustes'], pd.DataFrame):
+    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+if 'last_ajuste_file' not in st.session_state:
+    st.session_state['last_ajuste_file'] = None
 
 df = cargar_datos(file_hist)
-if file_ajustes is not None and file_ajustes != st.session_state['last_ajuste_file']:
-    st.session_state['df_ajustes'] = cargar_datos(file_ajustes)
-    st.session_state['last_ajuste_file'] = file_ajustes
+
+# Identificador de texto seguro para evitar el TypeError de Pandas al comparar con !=
+id_ajuste_actual = "DEMO_AJUSTES" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
+
+if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
+    df_aj_cargado = cargar_datos(file_ajustes)
+    if isinstance(df_aj_cargado, pd.DataFrame):
+        # Garantizar las columnas requeridas si viene del botón Demo
+        if 'País' not in df_aj_cargado.columns:
+            df_aj_cargado['País'] = 'España'
+        if 'customer cod' not in df_aj_cargado.columns:
+            df_aj_cargado['customer cod'] = 'CLI-01'
+        if 'override_value' not in df_aj_cargado.columns:
+            df_aj_cargado['override_value'] = df_aj_cargado.get('Ajuste_Consenso', 0)
+        st.session_state['df_ajustes'] = df_aj_cargado
+    else:
+        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+    st.session_state['last_ajuste_file'] = id_ajuste_actual
+elif file_ajustes is None and st.session_state['last_ajuste_file'] is not None:
+    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+    st.session_state['last_ajuste_file'] = None
 
 df_ajustes = st.session_state['df_ajustes']
 df_stock, df_bom, df_rutas, df_cal = cargar_datos(file_stock), cargar_datos(file_bom), cargar_datos(file_rutas), cargar_datos(file_cal)
