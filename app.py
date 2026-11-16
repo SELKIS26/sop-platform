@@ -1013,7 +1013,7 @@ with tab_fin:
                         st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
 
 with tab_ejec:
-    if "tab6" not in modulos_permitidos:
+    if "tab_ejec" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
     else:
         st.subheader("🚀 Plan de Ejecución Inmediata (Lanzamientos al ERP)")
@@ -1049,6 +1049,32 @@ with tab_ejec:
                     width="stretch",
                     hide_index=True
                 )
+
+            st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
+            if mrp_exec is None or mrp_exec.empty:
+                st.info("👈 Carga el archivo de BOM para calcular los lanzamientos de compra.")
+            else:
+                col_lanz = 'Lanzamiento_Pedidos' if 'Lanzamiento_Pedidos' in mrp_exec.columns else 'Entradas_Netas'
+                df_cmp_lanzar = mrp_exec[(mrp_exec['Date'] == mes_objetivo) & (mrp_exec[col_lanz] > 0)].copy()
+
+                if df_cmp_lanzar.empty:
+                    st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
+                else:
+                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
+                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=col_lanz, ascending=False)
+                    st.dataframe(
+                        df_cmp_lanzar.style.format({
+                            'Salidas_Brutas': '{:,.0f} Kg',
+                            'Stock_Inicial': '{:,.0f} Kg',
+                            'Recepciones_ERP': '{:,.0f} Kg',
+                            'Entradas_Netas': '{:,.0f} Kg',
+                            'Lanzamiento_Pedidos': '{:,.0f} Kg',
+                            'Stock_Final': '{:,.0f} Kg',
+                            'DOH': '{:.0f}'
+                        }).map(estilo_doh, subset=['DOH']),
+                        width="stretch",
+                        hide_index=True
+                    )
 
             st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
             if mrp_exec is None or mrp_exec.empty:
