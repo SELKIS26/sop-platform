@@ -1182,6 +1182,15 @@ with tab_cap:
                             else:
                                 df_req['Date'] = pd.Timestamp.today().replace(day=1)
 
+                        # --- BLINDAJE 4: NORMALIZAR COLUMNAS DE DISPONIBILIDAD EN DF_CAL ---
+                        if df_cal is not None and not df_cal.empty:
+                            for col_hd in ['Horas_Disponibles', 'Horas_Disponibles_Mes', 'Capacidad_Max_Horas', 'available_hours', 'Horas', 'Capacidad']:
+                                if col_hd in df_cal.columns and 'Horas_Disponibles' not in df_cal.columns:
+                                    df_cal = df_cal.rename(columns={col_hd: 'Horas_Disponibles'})
+                                    break
+                            if 'Horas_Disponibles' not in df_cal.columns:
+                                df_cal['Horas_Disponibles'] = 160  # Valor estándar por defecto
+
                         # Sincronizar columna de máquina/línea en el calendario si difiere
                         if col_maq not in df_cal.columns:
                             for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
@@ -1200,7 +1209,7 @@ with tab_cap:
                                 df_cal, 
                                 on=['Date', col_maq], 
                                 how='left'
-                            ).fillna({'Horas_Disponibles': 1})
+                            ).fillna({'Horas_Disponibles': 160})
                             
                             df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
                             df_pivot = df_capacidad.pivot(index=col_maq, columns='Date', values='Utilizacion').fillna(0)
