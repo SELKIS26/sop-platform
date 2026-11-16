@@ -24,7 +24,7 @@ except ImportError:
 
 
 def obtener_excels_demo_8_tablas():
-    """Genera en memoria RAM los 8 archivos Excel de Demo coherentes con las 8 entradas de la app."""
+    """Genera los 8 DataFrames de Demo coherentes con las 8 entradas de la app."""
     np.random.seed(42)
     fechas_hist = pd.date_range(start="2024-01-01", periods=34, freq="MS")
     mes_m1 = pd.Timestamp.today().replace(day=1)
@@ -52,7 +52,7 @@ def obtener_excels_demo_8_tablas():
                 "Kg": kg, "Cantidad": kg, "Ventas": kg,
                 "Precio_Venta": precio, "Precio": precio,
                 "Coste_Unitario": coste, "Coste": coste,
-                "Linea": linea
+                "Linea": linea, "Moneda": "EUR"
             })
     df_1_hist = pd.DataFrame(filas_ventas)
 
@@ -71,18 +71,18 @@ def obtener_excels_demo_8_tablas():
 
     # 3. Stock Actual (file_stock)
     df_3_stock = pd.DataFrame([
-        {"cod": "PT-101", "sku cod": "PT-101", "Item_Cod": "PT-101", "desc": "Pienso Starter Broiler 25Kg", "sku desc": "Pienso Starter Broiler 25Kg", "Stock_Inicial": 4500, "Stock": 4500, "Stock_Actual": 4500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 5000, "Precio_Venta": 0.68, "Coste_Unitario": 0.49},
-        {"cod": "PT-102", "sku cod": "PT-102", "Item_Cod": "PT-102", "desc": "Premezcla Vitamínica Porcino", "sku desc": "Premezcla Vitamínica Porcino", "Stock_Inicial": 32000, "Stock": 32000, "Stock_Actual": 32000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 0, "Lote_Minimo": 2000, "Precio_Venta": 2.45, "Coste_Unitario": 1.65},
-        {"cod": "PT-103", "sku cod": "PT-103", "Item_Cod": "PT-103", "desc": "Corrector Mineral Vacuno Leche", "sku desc": "Corrector Mineral Vacuno Leche", "Stock_Inicial": 3500, "Stock": 3500, "Stock_Actual": 3500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 3000, "Precio_Venta": 1.15, "Coste_Unitario": 0.82},
-        {"cod": "PT-104", "sku cod": "PT-104", "Item_Cod": "PT-104", "desc": "Pienso Engorde Pavos Alta Energía", "sku desc": "Pienso Engorde Pavos Alta Energía", "Stock_Inicial": 5200, "Stock": 5200, "Stock_Actual": 5200, "Cobertura_Meses": 0.4, "Lead_Time_Meses": 0, "Lote_Minimo": 5000, "Precio_Venta": 0.74, "Coste_Unitario": 0.55},
-        {"cod": "PT-105", "sku cod": "PT-105", "Item_Cod": "PT-105", "desc": "Suplemento Enzimático Avícola", "sku desc": "Suplemento Enzimático Avícola", "Stock_Inicial": 22000, "Stock": 22000, "Stock_Actual": 22000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 0, "Lote_Minimo": 1000, "Precio_Venta": 4.20, "Coste_Unitario": 2.80},
-        {"cod": "PT-106", "sku cod": "PT-106", "Item_Cod": "PT-106", "desc": "Núcleo Lactoiniciador Lechones", "sku desc": "Núcleo Lactoiniciador Lechones", "Stock_Inicial": 2100, "Stock": 2100, "Stock_Actual": 2100, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 2500, "Precio_Venta": 1.85, "Coste_Unitario": 1.30},
-        {"cod": "MP-01", "rm cod": "MP-01", "Item_Cod": "MP-01", "desc": "Maíz Nacional Granel", "rm desc": "Maíz Nacional Granel", "Stock_Inicial": 9000, "Stock": 9000, "Stock_Actual": 9000, "Cobertura_Meses": 0.6, "Lead_Time_Meses": 1, "Lote_Minimo": 25000, "Coste_Unitario": 0.24},
-        {"cod": "MP-02", "rm cod": "MP-02", "Item_Cod": "MP-02", "desc": "Harina de Soja 47%", "rm desc": "Harina de Soja 47%", "Stock_Inicial": 8500, "Stock": 8500, "Stock_Actual": 8500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 20000, "Coste_Unitario": 0.42},
-        {"cod": "MP-03", "rm cod": "MP-03", "Item_Cod": "MP-03", "desc": "Fosfato Monocálcico", "rm desc": "Fosfato Monocálcico", "Stock_Inicial": 36000, "Stock": 36000, "Stock_Actual": 36000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 1, "Lote_Minimo": 5000, "Coste_Unitario": 0.85},
-        {"cod": "MP-04", "rm cod": "MP-04", "Item_Cod": "MP-04", "desc": "Complejo Vitamina A-D3-E", "rm desc": "Complejo Vitamina A-D3-E", "Stock_Inicial": 1200, "Stock": 1200, "Stock_Actual": 1200, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 2, "Lote_Minimo": 2000, "Coste_Unitario": 1.95},
-        {"cod": "MP-05", "rm cod": "MP-05", "Item_Cod": "MP-05", "desc": "L-Lisina HCL 99%", "rm desc": "L-Lisina HCL 99%", "Stock_Inicial": 1900, "Stock": 1900, "Stock_Actual": 1900, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 3000, "Coste_Unitario": 1.45},
-        {"cod": "MP-06", "rm cod": "MP-06", "Item_Cod": "MP-06", "desc": "Carbonato Cálcico Fino", "rm desc": "Carbonato Cálcico Fino", "Stock_Inicial": 28000, "Stock": 28000, "Stock_Actual": 28000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 1, "Lote_Minimo": 10000, "Coste_Unitario": 0.12},
+        {"cod": "PT-101", "sku cod": "PT-101", "Item_Cod": "PT-101", "desc": "Pienso Starter Broiler 25Kg", "sku desc": "Pienso Starter Broiler 25Kg", "Stock_Inicial": 4500, "Stock": 4500, "Stock_Actual": 4500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 5000, "Precio_Venta": 0.68, "Coste_Unitario": 0.49, "Moneda": "EUR"},
+        {"cod": "PT-102", "sku cod": "PT-102", "Item_Cod": "PT-102", "desc": "Premezcla Vitamínica Porcino", "sku desc": "Premezcla Vitamínica Porcino", "Stock_Inicial": 32000, "Stock": 32000, "Stock_Actual": 32000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 0, "Lote_Minimo": 2000, "Precio_Venta": 2.45, "Coste_Unitario": 1.65, "Moneda": "EUR"},
+        {"cod": "PT-103", "sku cod": "PT-103", "Item_Cod": "PT-103", "desc": "Corrector Mineral Vacuno Leche", "sku desc": "Corrector Mineral Vacuno Leche", "Stock_Inicial": 3500, "Stock": 3500, "Stock_Actual": 3500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 3000, "Precio_Venta": 1.15, "Coste_Unitario": 0.82, "Moneda": "EUR"},
+        {"cod": "PT-104", "sku cod": "PT-104", "Item_Cod": "PT-104", "desc": "Pienso Engorde Pavos Alta Energía", "sku desc": "Pienso Engorde Pavos Alta Energía", "Stock_Inicial": 5200, "Stock": 5200, "Stock_Actual": 5200, "Cobertura_Meses": 0.4, "Lead_Time_Meses": 0, "Lote_Minimo": 5000, "Precio_Venta": 0.74, "Coste_Unitario": 0.55, "Moneda": "EUR"},
+        {"cod": "PT-105", "sku cod": "PT-105", "Item_Cod": "PT-105", "desc": "Suplemento Enzimático Avícola", "sku desc": "Suplemento Enzimático Avícola", "Stock_Inicial": 22000, "Stock": 22000, "Stock_Actual": 22000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 0, "Lote_Minimo": 1000, "Precio_Venta": 4.20, "Coste_Unitario": 2.80, "Moneda": "EUR"},
+        {"cod": "PT-106", "sku cod": "PT-106", "Item_Cod": "PT-106", "desc": "Núcleo Lactoiniciador Lechones", "sku desc": "Núcleo Lactoiniciador Lechones", "Stock_Inicial": 2100, "Stock": 2100, "Stock_Actual": 2100, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 0, "Lote_Minimo": 2500, "Precio_Venta": 1.85, "Coste_Unitario": 1.30, "Moneda": "EUR"},
+        {"cod": "MP-01", "rm cod": "MP-01", "Item_Cod": "MP-01", "desc": "Maíz Nacional Granel", "rm desc": "Maíz Nacional Granel", "Stock_Inicial": 9000, "Stock": 9000, "Stock_Actual": 9000, "Cobertura_Meses": 0.6, "Lead_Time_Meses": 1, "Lote_Minimo": 25000, "Coste_Unitario": 0.24, "Moneda": "EUR"},
+        {"cod": "MP-02", "rm cod": "MP-02", "Item_Cod": "MP-02", "desc": "Harina de Soja 47%", "rm desc": "Harina de Soja 47%", "Stock_Inicial": 8500, "Stock": 8500, "Stock_Actual": 8500, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 20000, "Coste_Unitario": 0.42, "Moneda": "EUR"},
+        {"cod": "MP-03", "rm cod": "MP-03", "Item_Cod": "MP-03", "desc": "Fosfato Monocálcico", "rm desc": "Fosfato Monocálcico", "Stock_Inicial": 36000, "Stock": 36000, "Stock_Actual": 36000, "Cobertura_Meses": 0.8, "Lead_Time_Meses": 1, "Lote_Minimo": 5000, "Coste_Unitario": 0.85, "Moneda": "EUR"},
+        {"cod": "MP-04", "rm cod": "MP-04", "Item_Cod": "MP-04", "desc": "Complejo Vitamina A-D3-E", "rm desc": "Complejo Vitamina A-D3-E", "Stock_Inicial": 1200, "Stock": 1200, "Stock_Actual": 1200, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 2, "Lote_Minimo": 2000, "Coste_Unitario": 1.95, "Moneda": "EUR"},
+        {"cod": "MP-05", "rm cod": "MP-05", "Item_Cod": "MP-05", "desc": "L-Lisina HCL 99%", "rm desc": "L-Lisina HCL 99%", "Stock_Inicial": 1900, "Stock": 1900, "Stock_Actual": 1900, "Cobertura_Meses": 0.5, "Lead_Time_Meses": 1, "Lote_Minimo": 3000, "Coste_Unitario": 1.45, "Moneda": "EUR"},
+        {"cod": "MP-06", "rm cod": "MP-06", "Item_Cod": "MP-06", "desc": "Carbonato Cálcico Fino", "rm desc": "Carbonato Cálcico Fino", "Stock_Inicial": 28000, "Stock": 28000, "Stock_Actual": 28000, "Cobertura_Meses": 0.7, "Lead_Time_Meses": 1, "Lote_Minimo": 10000, "Coste_Unitario": 0.12, "Moneda": "EUR"},
     ])
 
     # 4. BOM (file_bom)
@@ -136,7 +136,7 @@ def obtener_excels_demo_8_tablas():
         {"sku cod": "PT-102", "cod": "PT-102", "Item_Cod": "PT-102", "sku desc": "Premezcla Vitamínica Porcino", "Date": mes_m1, "Fecha": mes_m1, "Recepciones_ERP": 18000, "Cantidad": 18000, "Kg": 18000},
     ])
 
-    tablas = {
+    return {
         "hist": df_1_hist,
         "ajustes": df_2_ajustes,
         "stock": df_3_stock,
@@ -146,16 +146,6 @@ def obtener_excels_demo_8_tablas():
         "compras_erp": df_7_compras_erp,
         "produccion_erp": df_8_prod_erp
     }
-
-    archivos_memoria = {}
-    for clave, df in tablas.items():
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False)
-        buf.seek(0)
-        archivos_memoria[clave] = buf
-
-    return archivos_memoria
 
 
 warnings.filterwarnings("ignore")
@@ -407,7 +397,7 @@ with st.sidebar:
     file_compras_erp = st.file_uploader("7. ERP Compras / POs", type=['xlsx', 'csv'])
     file_produccion_erp = st.file_uploader("8. ERP Producción / Prd. Orders", type=['xlsx', 'csv'])
 
-    # --- INYECCIÓN AUTOMÁTICA (INDENTADA A 4 ESPACIOS DENTRO DE ST.SIDEBAR) ---
+    # --- INYECCIÓN AUTOMÁTICA DENTRO DE ST.SIDEBAR (4 ESPACIOS) ---
     if st.session_state.get("modo_demo_8", False):
         demos = obtener_excels_demo_8_tablas()
         if file_hist is None:           file_hist           = demos["hist"]
@@ -418,7 +408,6 @@ with st.sidebar:
         if file_cal is None:            file_cal            = demos["cal"]
         if file_compras_erp is None:    file_compras_erp    = demos["compras_erp"]
         if file_produccion_erp is None: file_produccion_erp = demos["produccion_erp"]
-
     st.divider()
     st.header("📅 3. Parameters")
     horizonte = st.slider("Horizon (Months):", 1, 24, 12)
@@ -437,16 +426,25 @@ with st.sidebar:
     st.divider()
     usar_limpieza_outliers = st.checkbox("🧹 Clean Outliers", value=True)
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(hash_funcs={pd.DataFrame: lambda _: None})
 def cargar_datos(uploaded_file):
-    if uploaded_file is None: return None
+    if uploaded_file is None:
+        return None
+    if isinstance(uploaded_file, pd.DataFrame):
+        d = uploaded_file.copy()
+        d.columns = d.columns.str.strip()
+        return d
     try:
         uploaded_file.seek(0)
-        if uploaded_file.name.endswith('.csv'): d = pd.read_csv(uploaded_file)
-        else: d = pd.read_excel(uploaded_file)
-        if d is not None and not d.empty: d.columns = d.columns.str.strip()
+        if getattr(uploaded_file, 'name', '').endswith('.csv'):
+            d = pd.read_csv(uploaded_file)
+        else:
+            d = pd.read_excel(uploaded_file)
+        if d is not None and not d.empty:
+            d.columns = d.columns.str.strip()
         return d
-    except Exception: return None
+    except Exception:
+        return None
 
 if 'df_ajustes' not in st.session_state: st.session_state['df_ajustes'] = pd.DataFrame(columns=['Date', 'País', 'customer cod', 'sku cod', 'override_value'])
 if 'last_ajuste_file' not in st.session_state: st.session_state['last_ajuste_file'] = None
@@ -839,7 +837,7 @@ serie_modelo = limpiar_anomalias(serie_real) if usar_limpieza_outliers else seri
 df_comparativo = pd.DataFrame({"Estadistico": calcular_forecast(serie_modelo, horizonte), "Consenso": calcular_forecast(serie_modelo, horizonte)})
 df_comparativo.index.name = 'Date'
 
-ajustes_activos = st.session_state['df_ajustes'].copy()
+ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
 if not ajustes_activos.empty and sku_sel != "TODOS":
     if 'País' in ajustes_activos.columns and pais_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
     if 'customer cod' in ajustes_activos.columns and cliente_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
