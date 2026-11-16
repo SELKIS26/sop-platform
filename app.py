@@ -1152,51 +1152,98 @@ with tab_abc:
                     width="stretch"
                 )
 
-with tab_exc:
-    if "tab8" not in modulos_permitidos:
+with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de Excepciones)
+    if "tab8" not in modulos_permitidos and "8. Excepciones" not in modulos_permitidos and "tab_exc" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
     else:
         st.subheader("🚨 Panel de Excepciones (Management by Exception)")
-        st.markdown("Radar automático de **roturas inminentes** y **excesos de inventario** para el próximo ciclo.")
-        
-        mes_1_fecha = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=1, freq="MS")[0]
-        mps_g = generar_mps_global()
-        mrp_g = generar_mrp_global()
-        
-        alertas_pt, alertas_mp = [], []
-        
-        if mps_g:
-            for sku, plan in mps_g.items():
-                if mes_1_fecha in plan.index:
-                    datos_m1 = plan.loc[mes_1_fecha]
-                    if datos_m1['Stock_Final'] <= 0 or datos_m1['DOH'] < 15:
-                        alertas_pt.append({'SKU': sku, 'Alerta': '🔴 RIESGO ROTURA', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
-                    elif datos_m1['DOH'] > 90 and datos_m1['DOH'] != 999:
-                        alertas_pt.append({'SKU': sku, 'Alerta': '🟡 EXCESO INVENTARIO', 'DOH': datos_m1['DOH'], 'Stock Proyectado': datos_m1['Stock_Final']})
+        st.caption("Radar automático de **roturas inminentes** (DOH < 15 días) y **excesos de inventario / reprogramaciones ERP** (DOH > 60 días) para el próximo ciclo.")
 
-        if not mrp_g.empty:
-            mrp_m1 = mrp_g[mrp_g['Date'] == mes_1_fecha]
-            for _, row in mrp_m1.iterrows():
-                if row['Stock_Final'] <= 0 or row['DOH'] < 15:
-                    alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🔴 RIESGO ROTURA MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
-                elif row['DOH'] > 90 and row['DOH'] != 999:
-                    alertas_mp.append({'Material': row['rm cod'], 'Alerta': '🟡 EXCESO STOCK MP', 'DOH': row['DOH'], 'Stock Proyectado': row['Stock_Final']})
+        mps_exc = generar_mps_global()
+        mrp_exc = generar_mrp_global()
 
-        col_ex1, col_ex2 = st.columns(2)
-        with col_ex1:
-            st.markdown("#### 📦 Producto Terminado")
-            if alertas_pt:
-                df_al_pt = pd.DataFrame(alertas_pt)
-                st.dataframe(df_al_pt.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), width="stretch")
-            else: st.success("✅ Sin alertas para M1.")
-                
-        with col_ex2:
-            st.markdown("#### 🧩 Materias Primas")
-            if alertas_mp:
-                df_al_mp = pd.DataFrame(alertas_mp)
-                st.dataframe(df_al_mp.style.applymap(lambda x: 'background-color: #ffcccc; color: darkred; font-weight: bold;' if 'ROTURA' in str(x) else 'background-color: #ffe6cc; color: #b35900; font-weight: bold;', subset=['Alerta']).format({"Stock Proyectado": "{:,.0f}"}), width="stretch")
-            else: st.success("✅ Sin alertas para M1.")
+        if not mps_exc:
+            st.warning("⚠️ Carga primero el histórico de ventas.")
+        else:
+            df_mps_all = pd.concat(mps_exc.values()).rename_axis('Date').reset_index()
+            df_mps_all['Date'] = pd.to_datetime(df_mps_all['Date'])
+            fechas_disp = sorted(df_mps_all['Date'].unique())
+            hoy_mes = pd.Timestamp.today().replace(day=1)
+            mes_m1 = hoy_mes if hoy_mes in fechas_disp else fechas_disp[0]
 
+            col_pt, col_mp = st.columns(2)
+
+            # 1. Columna Producto Terminado (PT)
+            with col_pt:
+                st.markdown("### 📦 Producto Terminado")
+                df_pt_m1 = df_mps_all[
+                    (df_mps_all['Date'] == mes_m1) & 
+                    ((df_mps_all['DOH'] < 15) | (df_mps_all['DOH'] > 60))
+                ].copy()
+
+                if df_pt_m1.empty:
+                    st.success("✅ Sin alertas para M1.")
+                else:
+                    df_pt_m1['Tipo_Alerta'] = np.where(
+                        df_pt_m1['DOH'] < 15, 
+                        '🔴 Riesgo Rotura (<15d)', 
+                        '🟠 Sobrestock / Exceso ERP (>60d)'
+                    )
+                    df_pt_m1['Accion_Sugerida'] = np.where(
+                        df_pt_m1['DOH'] < 15,
+                        '⚡ Priorizar / Subir Cobertura',
+                        np.where(df_pt_m1['Recepciones_ERP'] > df_pt_m1['Salidas_Brutas'], '✂️ Posponer Orden ERP', '📉 Drenar Stock')
+                    )
+                    cols_show_pt = ['sku cod', 'sku desc', 'Tipo_Alerta', 'DOH', 'Stock_Final', 'Recepciones_ERP', 'Accion_Sugerida']
+                    df_pt_m1 = df_pt_m1[cols_show_pt].sort_values(by='DOH', ascending=True).reset_index(drop=True)
+
+                    st.dataframe(
+                        df_pt_m1.style.format({
+                            'DOH': '{:.0f} d',
+                            'Stock_Final': '{:,.0f} Kg',
+                            'Recepciones_ERP': '{:,.0f} Kg'
+                        }).map(estilo_doh, subset=['DOH']),
+                        width="stretch",
+                        hide_index=True
+                    )
+
+            # 2. Columna Materias Primas (MP)
+            with col_mp:
+                st.markdown("### 🧩 Materias Primas")
+                if mrp_exc is None or mrp_exc.empty:
+                    st.info("👈 Carga el BOM para evaluar alertas de MP.")
+                else:
+                    mrp_exc['Date'] = pd.to_datetime(mrp_exc['Date'])
+                    df_mp_m1 = mrp_exc[
+                        (mrp_exc['Date'] == mes_m1) & 
+                        ((mrp_exc['DOH'] < 15) | (mrp_exc['DOH'] > 60))
+                    ].copy()
+
+                    if df_mp_m1.empty:
+                        st.success("✅ Sin alertas para M1.")
+                    else:
+                        df_mp_m1['Tipo_Alerta'] = np.where(
+                            df_mp_m1['DOH'] < 15, 
+                            '🔴 Riesgo Rotura (<15d)', 
+                            '🟠 Exceso PO / Sobrestock (>60d)'
+                        )
+                        df_mp_m1['Accion_Sugerida'] = np.where(
+                            df_mp_m1['DOH'] < 15,
+                            '⚡ Urgencia a Proveedor',
+                            np.where(df_mp_m1['Recepciones_ERP'] > df_mp_m1['Salidas_Brutas'], '✂️ Reprogramar PO ERP', '📉 Reducir Lote')
+                        )
+                        cols_show_mp = ['rm cod', 'rm desc', 'Tipo_Alerta', 'DOH', 'Stock_Final', 'Recepciones_ERP', 'Accion_Sugerida']
+                        df_mp_m1 = df_mp_m1[cols_show_mp].sort_values(by='DOH', ascending=True).reset_index(drop=True)
+
+                        st.dataframe(
+                            df_mp_m1.style.format({
+                                'DOH': '{:.0f} d',
+                                'Stock_Final': '{:,.0f} Kg',
+                                'Recepciones_ERP': '{:,.0f} Kg'
+                            }).map(estilo_doh, subset=['DOH']),
+                            width="stretch",
+                            hide_index=True
+                        )
 with tab_whatif:
     if "tab9" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Simulador What-If.")
