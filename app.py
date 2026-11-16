@@ -1433,16 +1433,14 @@ with tab_abc:
                 st.markdown("#### Detalle de Clasificación")
                 filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
                 df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
+                df_show_abc['sku desc'] = df_show_abc.get('sku desc', df_show_abc['sku cod'])
+                df_show_abc['Margen Unitario'] = df_show_abc.get('Margen Unitario', 0.25)
 
-                if 'sku desc' not in df_show_abc.columns:
-                df_show_abc['sku desc'] = df_show_abc['sku cod']
-                if 'Margen Unitario' not in df_show_abc.columns:
-                df_show_abc['Margen Unitario'] = 0.25
                 st.dataframe(
                     df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
                     .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
                     .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
-                    width="stretch"
+                    use_container_width=True
                 )
 
 with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de Excepciones)
