@@ -1012,7 +1012,7 @@ with tab_fin:
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
                         st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
 
-with tab6:  
+with tab_ejec  
     if "tab6" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
     else:
