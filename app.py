@@ -86,19 +86,20 @@ def obtener_excels_demo_8_tablas():
     fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
 
     skus_demo = [
-        ("A10800V3", "ADICARE EVOLUTION H", 35000, 2.85, 4.80, 1.45, "Linea_3_Pellet", 3536),
-        ("M02031BB", "CEBADA EXTRUSIONADA Z1", 12000, 2.28, 3.10, 0.70, "Linea_1_Extrusion", 4200),
-        ("N54700BB", "NUCLEO PORCINO CRECIMIENTO", 18000, 4.10, 6.20, 1.85, "Linea_2_Mezcla", 4134),
-        ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 0.95, 0.28, "Linea_3_Pellet", 5000),
-        ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200),
+        ("A10800V3", "ADICARE EVOLUTION H", 35000, 2.85, 4.80, 1.45, "Linea_3_Pellet", 3536, "MTS"),
+        ("M02031BB", "CEBADA EXTRUSIONADA Z1", 12000, 2.28, 3.10, 0.70, "Linea_1_Extrusion", 4200, "MTS"),
+        ("N54700BB", "NUCLEO PORCINO CRECIMIENTO", 18000, 4.10, 6.20, 1.85, "Linea_2_Mezcla", 4134, "MTS"),
+        ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 0.95, 0.28, "Linea_3_Pellet", 5000, "MTS"),
+        ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200, "MTS"),
     ]
 
     # 1. Histórico Ventas
     filas_ventas = []
     for f in fechas_hist:
         est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
-        for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _, _ in skus_demo:
-            vol = max(1000, int(np.random.normal(base_vol * est, base_vol * 0.12)))
+        for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _, _, _ in skus_demo:
+            ruido = 0.65 if sku_cod == "PR01299X" else 0.12
+            vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
@@ -116,7 +117,7 @@ def obtener_excels_demo_8_tablas():
     # 2. Ajustes Consenso
     filas_ajustes = []
     for f in fechas_fut[:6]:
-        for sku_cod, _, base_vol, _, _, _, _, _ in skus_demo:
+        for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
             override = int(base_vol * np.random.uniform(0.95, 1.10))
             filas_ajustes.append({
                 "Date": f,
@@ -129,8 +130,8 @@ def obtener_excels_demo_8_tablas():
 
     # 3. Stock Actual (incluye PTs y MPs con las columnas oficiales exactas)
     filas_stock = [
-        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": cost}
-        for sku, desc, vol, cost, _, _, _, _ in skus_demo
+        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": cat, "Coste_Unitario": cost}
+        for sku, desc, vol, cost, _, _, _, _, cat in skus_demo
     ] + [
         {"sku cod": "M12250SS", "sku desc": "FORMIATO DE CALCIO", "stock_disponible": 14000, "Cobertura_Meses": 2, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": 0.85},
         {"sku cod": "M09522E3", "sku desc": "PIGLET BOOZT (25 L) Z2", "stock_disponible": 4500, "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": 3.40},
@@ -139,7 +140,7 @@ def obtener_excels_demo_8_tablas():
 
     # 4. BOM
     filas_bom = []
-    for sku, _, _, _, _, _, _, _ in skus_demo:
+    for sku, _, _, _, _, _, _, _, _ in skus_demo:
         filas_bom.append({"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.6961})
         filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
     df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
@@ -147,7 +148,7 @@ def obtener_excels_demo_8_tablas():
     # 5. Rutas / Routing
     df_5_rutas = pd.DataFrame([
         {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
-        for sku, _, _, _, _, _, maquina, kph in skus_demo
+        for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
     ])[COLS_RUTAS]
 
     # 6. Calendario
@@ -185,6 +186,27 @@ def obtener_excels_demo_8_tablas():
         "compras_erp": df_7_compras,
         "produccion_erp": df_8_prod,
     }
+
+
+@st.cache_data
+def generar_plantillas_oficiales_excel():
+    """Genera un único libro Excel con las 8 pestillas oficiales y ejemplos de cabecera."""
+    buf_tpl = io.BytesIO()
+    demos_tpl = obtener_excels_demo_8_tablas()
+    mapa_hojas = [
+        ("1_Historico_Ventas", demos_tpl["hist"].head(5)),
+        ("2_Ajustes_Consenso", demos_tpl["ajustes"].head(2)),
+        ("3_Stock_Actual", demos_tpl["stock"].head(5)),
+        ("4_BOM", demos_tpl["bom"].head(5)),
+        ("5_Rutas_Routing", demos_tpl["rutas"].head(5)),
+        ("6_Calendario", demos_tpl["cal"].head(5)),
+        ("7_ERP_Compras_POs", demos_tpl["compras_erp"].head(2)),
+        ("8_ERP_Produccion", demos_tpl["produccion_erp"].head(2)),
+    ]
+    with pd.ExcelWriter(buf_tpl, engine="openpyxl") as writer:
+        for nombre_hoja, df_ejemplo in mapa_hojas:
+            df_ejemplo.to_excel(writer, index=False, sheet_name=nombre_hoja)
+    return buf_tpl.getvalue()
 
 
 # ==========================================
@@ -381,6 +403,14 @@ with st.sidebar:
 
     if st.session_state["modo_demo_8"]:
         st.success("✅ 8 Tablas Demo activas. Si arrastras un Excel abajo, sustituirá a esa tabla Demo.")
+
+    st.download_button(
+        label="📥 Descargar 8 Plantillas Oficiales (.xlsx)",
+        data=generar_plantillas_oficiales_excel(),
+        file_name="Plantillas_Oficiales_SOP_8_Tablas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
 
     st.header("📂 1. S&OP Master Data")
     file_hist = st.file_uploader("1. Histórico Ventas", type=['xlsx', 'csv'])
@@ -947,7 +977,7 @@ with tab_guia:
     st.markdown(f"**{t['g_cap_t']}**: {t['g_cap_d']}")
     st.markdown(f"**{t['g_fin_t']}**: {t['g_fin_d']}")
     st.markdown(f"**{t['g_erp_t']}**: {t['g_erp_d']}")
-    st.markdown("**🔠 7. ABC/XYZ**: Segmentación estratégica cruzando volumen (ABC) y volatilidad (XYZ).")
+    st.markdown("**🔠 7. ABC/XYZ**: Segmentación estratégica cruzando volumen (ABC), volatilidad (XYZ) y racionalización MTS/MTO con ahorro de Working Capital.")
     st.markdown("**🚨 8. Excepciones**: Radar automático para riesgo de roturas (DOH < 15) y excesos (DOH > 60).")
     st.markdown("**🔀 9. What-If**: Simulador financiero interactivo. Estresa volúmenes, precios y costes para evaluar impacto en margen.")
 
@@ -1080,7 +1110,7 @@ with tab_prod:
             )
 
 # ==========================================
-# MODULO 3: COMPRAS (MRP)
+# MODULO 3: COMPRAS (MRP) + PEGGING INTERACTIVO
 # ==========================================
 with tab_bom:
     if "tab3" not in modulos_permitidos:
@@ -1140,6 +1170,63 @@ with tab_bom:
                                 ).map(estilo_doh, subset=['DOH']),
                                 use_container_width=True
                             )
+
+            st.divider()
+            st.markdown("### 🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)")
+            st.caption("Selecciona cualquier Materia Prima para identificar qué SKUs dependen de ella, qué clientes los compran y cuánto Revenue/Margen Bruto en GBP está expuesto.")
+
+            lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
+            rm_peg_sel = st.selectbox("🧬 Seleccionar Materia Prima para Pegging:", lista_rm_pegging, key="sel_pegging_rm")
+
+            if rm_peg_sel:
+                mps_peg = generar_mps_global()
+                sub_bom_peg = df_bom[df_bom['rm cod'].astype(str).str.strip() == str(rm_peg_sel).strip()].copy()
+
+                filas_peg = []
+                for _, r_b in sub_bom_peg.iterrows():
+                    sku_p = str(r_b['sku cod']).strip()
+                    dosaje = float(pd.to_numeric(r_b['Cantidad'], errors='coerce')) if pd.notna(r_b['Cantidad']) else 0.0
+                    if sku_p in mps_peg and dosaje > 0:
+                        df_p_sku = mps_peg[sku_p]
+                        fab_total_pt = float((df_p_sku['Entradas_Netas'] + df_p_sku['Recepciones_ERP']).sum())
+                        consumo_mp_kg = fab_total_pt * dosaje
+                        rev_riesgo_gbp = fab_total_pt * dict_price.get(sku_p, 0.0)
+                        mar_riesgo_gbp = fab_total_pt * dict_margin.get(sku_p, 0.0)
+
+                        sub_cli = df[df['sku cod'].astype(str).str.strip() == sku_p]
+                        top_clientes = ", ".join(sub_cli['customer desc'].dropna().astype(str).unique()[:3]) if not sub_cli.empty else "Sin histórico"
+
+                        filas_peg.append({
+                            "sku cod (PT)": sku_p,
+                            "Descripción PT": dict_sku_desc.get(sku_p, sku_p),
+                            "Dosificación BOM": dosaje,
+                            "Plan Fabricación PT (Kg)": fab_total_pt,
+                            "Consumo MP Requerido (Kg)": consumo_mp_kg,
+                            "Revenue Expuesto (£)": rev_riesgo_gbp,
+                            "Margen Bruto en Riesgo (£)": mar_riesgo_gbp,
+                            "Clientes Afectados (Top 3)": top_clientes
+                        })
+
+                if not filas_peg:
+                    st.info("No hay órdenes de fabricación proyectadas que consuman esta materia prima en el horizonte actual.")
+                else:
+                    df_pegging = pd.DataFrame(filas_peg).sort_values(by="Margen Bruto en Riesgo (£)", ascending=False).reset_index(drop=True)
+                    kp1, kp2, kp3 = st.columns(3)
+                    kp1.metric("PTs Dependientes", f"{len(df_pegging)} SKUs")
+                    kp2.metric("Consumo Total MP (Horizonte)", f"{df_pegging['Consumo MP Requerido (Kg)'].sum():,.0f} Kg")
+                    kp3.metric("Margen Bruto Protegido (£)", f"£ {df_pegging['Margen Bruto en Riesgo (£)'].sum():,.0f}")
+
+                    st.dataframe(
+                        df_pegging.style.format({
+                            "Dosificación BOM": "{:.4f}",
+                            "Plan Fabricación PT (Kg)": "{:,.0f} Kg",
+                            "Consumo MP Requerido (Kg)": "{:,.0f} Kg",
+                            "Revenue Expuesto (£)": "£ {:,.0f}",
+                            "Margen Bruto en Riesgo (£)": "£ {:,.0f}"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
 # ==========================================
 # MODULO 4: CAPACIDAD (RCCP)
@@ -1398,7 +1485,7 @@ with tab_fin:
                         )
 
 # ==========================================
-# MODULO 6: EJECUCIÓN ERP
+# MODULO 6: EJECUCIÓN ERP + MASTER PACK EXCEL
 # ==========================================
 with tab_ejec:
     if "tab6" not in modulos_permitidos:
@@ -1453,6 +1540,7 @@ with tab_ejec:
                 )
 
             st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
+            df_cmp_lanzar = pd.DataFrame()
             if mrp_exec is None or mrp_exec.empty:
                 st.info("👈 Carga el archivo de BOM y Stock para calcular los lanzamientos de compra.")
             else:
@@ -1485,8 +1573,41 @@ with tab_ejec:
                         
                     st.dataframe(styler_cmp, use_container_width=True, hide_index=True)
 
+            st.divider()
+            st.markdown("### 📦 Exportar Master Pack S&OP Corporativo (Multi-Pestaña)")
+            st.caption("Descarga en un único libro Excel el Plan Maestro de Producción (MPS), el Plan de Compras (MRP), las Órdenes a Lanzar en M1 y la Segmentación ABC/XYZ.")
+
+            buf_master = io.BytesIO()
+            with pd.ExcelWriter(buf_master, engine="openpyxl") as writer:
+                df_mps_export = df_mps_all.copy()
+                df_mps_export['Date'] = pd.to_datetime(df_mps_export['Date']).dt.strftime('%Y-%m')
+                df_mps_export.to_excel(writer, index=False, sheet_name="1_MPS_Produccion")
+
+                if mrp_exec is not None and not mrp_exec.empty:
+                    df_mrp_export = mrp_exec.copy()
+                    df_mrp_export['Date'] = pd.to_datetime(df_mrp_export['Date']).dt.strftime('%Y-%m')
+                    df_mrp_export.to_excel(writer, index=False, sheet_name="2_MRP_Compras")
+
+                if not df_fab_lanzar.empty:
+                    df_fab_lanzar.to_excel(writer, index=False, sheet_name="3_Lanzar_ERP_PT_M1")
+
+                if not df_cmp_lanzar.empty:
+                    df_cmp_lanzar.to_excel(writer, index=False, sheet_name="4_Lanzar_PO_MP_M1")
+
+                if df_abcxyz_global is not None and not df_abcxyz_global.empty:
+                    df_abcxyz_global.to_excel(writer, index=False, sheet_name="5_Segmentacion_ABC_XYZ")
+
+            st.download_button(
+                label="📥 Descargar Master Pack S&OP Completo (.xlsx)",
+                data=buf_master.getvalue(),
+                file_name=f"Master_Pack_SOP_{base_date.strftime('%Y_%m')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+
 # ==========================================
-# MODULO 7: ABC / XYZ
+# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS
 # ==========================================
 with tab_abc:
     if "tab7" not in modulos_permitidos:
@@ -1496,6 +1617,8 @@ with tab_abc:
         
         if df_abcxyz_global is not None and not df_abcxyz_global.empty:
             df_abcxyz_show = df_abcxyz_global.copy()
+            if 'sku desc' not in df_abcxyz_show.columns:
+                df_abcxyz_show['sku desc'] = df_abcxyz_show['sku cod'].map(dict_sku_desc).fillna(df_abcxyz_show['sku cod'].astype(str))
             
             if dict_margin:
                 st.markdown("### 🫧 Matriz de Riesgo vs Rentabilidad")
@@ -1545,6 +1668,84 @@ with tab_abc:
                     .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}),
                     use_container_width=True
                 )
+
+            st.divider()
+            st.markdown("### 💡 Optimizador Estratégico de Inventario (Racionalización MTS vs. MTO)")
+            st.caption("Cruza la volatilidad/volumen (ABC/XYZ) con tu archivo '3. Stock Actual' para detectar SKUs erráticos (CZ, BZ, CY) configurados como MTS y cuantificar cuánta caja (£) liberarías pasándolos a Make-to-Order (MTO).")
+
+            if df_stock is None or df_stock.empty:
+                st.info("👈 Sube el archivo '3. Stock Actual' para auditar la política MTO/MTS y cuantificar el ahorro de Working Capital.")
+            else:
+                df_audit = pd.merge(
+                    df_abcxyz_show[['sku cod', 'sku desc', 'ABC', 'XYZ', 'Clase', 'volume', 'CV', 'Margen Unitario']],
+                    df_stock[['sku cod', 'stock_disponible', 'Cobertura_Meses', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
+                    on='sku cod',
+                    how='inner'
+                )
+
+                if df_audit.empty:
+                    st.info("No hay cruce entre los SKUs del histórico de ventas y la tabla de Stock Actual.")
+                else:
+                    df_audit['Categoria_Actual'] = df_audit['Categoria'].astype(str).str.strip().str.upper()
+                    df_audit['Coste_Unitario'] = pd.to_numeric(df_audit['Coste_Unitario'], errors='coerce').fillna(0.0)
+                    df_audit['stock_disponible'] = pd.to_numeric(df_audit['stock_disponible'], errors='coerce').fillna(0.0)
+                    df_audit['Cobertura_Meses'] = pd.to_numeric(df_audit['Cobertura_Meses'], errors='coerce').fillna(0.0)
+
+                    condiciones_pol = [
+                        df_audit['Clase'].isin(['AX', 'AY', 'BX']),
+                        df_audit['Clase'].isin(['CZ', 'BZ', 'CY', 'CX'])
+                    ]
+                    opciones_pol = ['MTS', 'MTO']
+                    df_audit['Politica_Recomendada'] = np.select(condiciones_pol, opciones_pol, default='MTS (Cobertura Mínima)')
+
+                    df_audit['Estado_Auditoria'] = np.where(
+                        (df_audit['Politica_Recomendada'] == 'MTO') & (df_audit['Categoria_Actual'] == 'MTS'),
+                        '🔴 Cambiar MTS → MTO (Liberar Caja)',
+                        np.where(
+                            (df_audit['Politica_Recomendada'] == 'MTS') & (df_audit['Categoria_Actual'] == 'MTO'),
+                            '🟠 Pasar MTO → MTS (Proteger Servicio)',
+                            '🟢 Alineado'
+                        )
+                    )
+
+                    df_audit['WC_Actual_GBP'] = df_audit['stock_disponible'] * df_audit['Coste_Unitario'] * fx_eur_gbp
+                    df_audit['WC_Liberable_GBP'] = np.where(
+                        df_audit['Estado_Auditoria'] == '🔴 Cambiar MTS → MTO (Liberar Caja)',
+                        df_audit['WC_Actual_GBP'],
+                        0.0
+                    )
+
+                    df_desalineados = df_audit[df_audit['Estado_Auditoria'] != '🟢 Alineado'].sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
+
+                    ca1, ca2, ca3 = st.columns(3)
+                    ca1.metric("SKUs Auditados en Stock", f"{len(df_audit)}")
+                    ca2.metric("SKUs Desalineados (MTS/MTO)", f"{len(df_desalineados)}")
+                    ca3.metric("Working Capital Liberable (£)", f"£ {df_audit['WC_Liberable_GBP'].sum():,.0f}")
+
+                    solo_alertas = st.checkbox("🔍 Mostrar solo SKUs con recomendación de cambio (MTS ↔ MTO)", value=True)
+                    df_mostrar_audit = df_desalineados if solo_alertas else df_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
+
+                    st.dataframe(
+                        df_mostrar_audit[[
+                            'sku cod', 'sku desc', 'Clase', 'CV', 'Categoria_Actual',
+                            'Politica_Recomendada', 'Estado_Auditoria', 'stock_disponible',
+                            'WC_Actual_GBP', 'WC_Liberable_GBP'
+                        ]].rename(columns={
+                            'Categoria_Actual': 'Política Actual',
+                            'Politica_Recomendada': 'Política Sugerida',
+                            'Estado_Auditoria': 'Diagnóstico S&OP',
+                            'stock_disponible': 'Stock Actual (Kg)',
+                            'WC_Actual_GBP': 'WC Actual (£)',
+                            'WC_Liberable_GBP': 'Ahorro WC Potencial (£)'
+                        }).style.format({
+                            'CV': '{:.2f}',
+                            'Stock Actual (Kg)': '{:,.0f} Kg',
+                            'WC Actual (£)': '£ {:,.0f}',
+                            'Ahorro WC Potencial (£)': '£ {:,.0f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
 # ==========================================
 # MODULO 8: EXCEPCIONES
