@@ -22,110 +22,6 @@ try:
 except ImportError:
     FPDF = None
 
-
-@st.cache_data
-def obtener_excels_demo_8_tablas():
-    """Genera los 8 DataFrames de Demo con la denominación robusta oficial de AB Agri."""
-    np.random.seed(42)
-    fechas_hist = pd.date_range(start="2024-01-01", periods=28, freq="MS")
-    mes_m1 = pd.Timestamp.today().replace(day=1)
-    mes_m2 = mes_m1 + pd.DateOffset(months=1)
-    fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
-
-    skus_demo = [
-        ("A10800V3", "ADICARE EVOLUTION H", 35000, 2.85, 9.60, 2.91, "Linea_3_Pellet"),
-        ("M02031BB", "CEBADA EXTRUSIONADA Z1", 12000, 2.28, 4.50, 1.35, "Linea_1_Extrusion"),
-        ("N54700BB", "NUCLEO PORCINO CRECIMIENTO", 18000, 4.10, 8.20, 2.40, "Linea_2_Mezcla"),
-        ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 1.15, 0.38, "Linea_3_Pellet"),
-        ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 24.00, 7.50, "Linea_4_Premix"),
-    ]
-
-    # 1. Histórico Ventas
-    filas_ventas = []
-    for f in fechas_hist:
-        est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
-        for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _ in skus_demo:
-            vol = max(1000, int(np.random.normal(base_vol * est, base_vol * 0.10)))
-            filas_ventas.append({
-                "Date": f,
-                "País": "España",
-                "customer cod": "000007SCAAS",
-                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
-                "sku cod": sku_cod,
-                "sku desc": sku_desc,
-                "volume": vol,
-                "revenue": round(vol * precio_u, 2),
-                "margin": round(vol * margen_u, 2),
-                "currency": "EUR"
-            })
-    df_1_hist = pd.DataFrame(filas_ventas)
-
-    # 2. Ajustes Consenso
-    filas_ajustes = []
-    for f in fechas_fut[:6]:
-        for sku_cod, _, base_vol, _, _, _, _ in skus_demo:
-            override = int(base_vol * np.random.uniform(0.95, 1.10))
-            filas_ajustes.append({
-                "Date": f,
-                "País": "España",
-                "customer cod": "000007SCAAS",
-                "sku cod": sku_cod,
-                "override_value": override
-            })
-    df_2_ajustes = pd.DataFrame(filas_ajustes)
-
-    # 3. Stock Actual
-    df_3_stock = pd.DataFrame([
-        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.4), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": cost}
-        for sku, desc, vol, cost, _, _, _ in skus_demo
-    ])
-
-    # 4. BOM
-    df_4_bom = pd.DataFrame([
-        {"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.65}
-        for sku, _, _, _, _, _, _ in skus_demo
-    ])
-
-    # 5. Rutas / Routing
-    df_5_rutas = pd.DataFrame([
-        {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": 3500}
-        for sku, _, _, _, _, _, maquina in skus_demo
-    ])
-
-    # 6. Calendario
-    maquinas_unicas = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
-    filas_cal = []
-    for f in fechas_fut:
-        for maq in maquinas_unicas:
-            filas_cal.append({
-                "Date": f,
-                "Maquina": maq,
-                "Horas_Disponibles": 740
-            })
-    df_6_cal = pd.DataFrame(filas_cal)
-
-    # 7. ERP Compras POs
-    df_7_compras = pd.DataFrame([
-        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 15000},
-        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 18000},
-    ])
-
-    # 8. ERP Producción
-    df_8_prod = pd.DataFrame([
-        {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 25000},
-        {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 45000},
-    ])
-
-    return {
-        "hist": df_1_hist,
-        "ajustes": df_2_ajustes,
-        "stock": df_3_stock,
-        "bom": df_4_bom,
-        "rutas": df_5_rutas,
-        "cal": df_6_cal,
-        "compras_erp": df_7_compras,
-        "produccion_erp": df_8_prod,
-    }
 warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="S&OP Corporate Platform", layout="wide", initial_sidebar_state="auto")
@@ -166,6 +62,130 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
+
+# ==========================================
+# ESQUEMA OFICIAL ESTRICTO DE LAS 8 TABLAS
+# ==========================================
+COLS_HIST = ['Date', 'País', 'customer cod', 'customer desc', 'sku cod', 'sku desc', 'volume', 'revenue', 'margin', 'currency']
+COLS_AJUSTES = ['Date', 'País', 'customer cod', 'sku cod', 'override_value']
+COLS_STOCK = ['sku cod', 'sku desc', 'stock_disponible', 'Cobertura_Meses', 'LT_Meses', 'Categoria', 'Coste_Unitario']
+COLS_BOM = ['sku cod', 'rm cod', 'rm desc', 'Cantidad']
+COLS_RUTAS = ['sku cod', 'Maquina', 'Kilos_por_Hora']
+COLS_CAL = ['Date', 'Maquina', 'Horas_Disponibles']
+COLS_COMPRAS = ['Date', 'rm cod', 'Cantidad_Kg']
+COLS_PROD = ['Date', 'sku cod', 'Cantidad_Kg']
+
+
+@st.cache_data
+def obtener_excels_demo_8_tablas():
+    """Genera los 8 DataFrames de Demo con las columnas exactas oficiales."""
+    np.random.seed(42)
+    fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
+    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)  # 2026-09-01
+    mes_m2 = mes_m1 + pd.DateOffset(months=1)          # 2026-10-01
+    fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
+
+    skus_demo = [
+        ("A10800V3", "ADICARE EVOLUTION H", 35000, 2.85, 4.80, 1.45, "Linea_3_Pellet", 3536),
+        ("M02031BB", "CEBADA EXTRUSIONADA Z1", 12000, 2.28, 3.10, 0.70, "Linea_1_Extrusion", 4200),
+        ("N54700BB", "NUCLEO PORCINO CRECIMIENTO", 18000, 4.10, 6.20, 1.85, "Linea_2_Mezcla", 4134),
+        ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 0.95, 0.28, "Linea_3_Pellet", 5000),
+        ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200),
+    ]
+
+    # 1. Histórico Ventas
+    filas_ventas = []
+    for f in fechas_hist:
+        est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
+        for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _, _ in skus_demo:
+            vol = max(1000, int(np.random.normal(base_vol * est, base_vol * 0.12)))
+            filas_ventas.append({
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
+                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
+                "sku cod": sku_cod,
+                "sku desc": sku_desc,
+                "volume": vol,
+                "revenue": round(vol * precio_u, 2),
+                "margin": round(vol * margen_u, 2),
+                "currency": "EUR"
+            })
+    df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
+
+    # 2. Ajustes Consenso
+    filas_ajustes = []
+    for f in fechas_fut[:6]:
+        for sku_cod, _, base_vol, _, _, _, _, _ in skus_demo:
+            override = int(base_vol * np.random.uniform(0.95, 1.10))
+            filas_ajustes.append({
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
+                "sku cod": sku_cod,
+                "override_value": override
+            })
+    df_2_ajustes = pd.DataFrame(filas_ajustes)[COLS_AJUSTES]
+
+    # 3. Stock Actual (incluye PTs y MPs con las columnas oficiales exactas)
+    filas_stock = [
+        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": cost}
+        for sku, desc, vol, cost, _, _, _, _ in skus_demo
+    ] + [
+        {"sku cod": "M12250SS", "sku desc": "FORMIATO DE CALCIO", "stock_disponible": 14000, "Cobertura_Meses": 2, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": 0.85},
+        {"sku cod": "M09522E3", "sku desc": "PIGLET BOOZT (25 L) Z2", "stock_disponible": 4500, "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": 3.40},
+    ]
+    df_3_stock = pd.DataFrame(filas_stock)[COLS_STOCK]
+
+    # 4. BOM
+    filas_bom = []
+    for sku, _, _, _, _, _, _, _ in skus_demo:
+        filas_bom.append({"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.6961})
+        filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
+    df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
+
+    # 5. Rutas / Routing
+    df_5_rutas = pd.DataFrame([
+        {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
+        for sku, _, _, _, _, _, maquina, kph in skus_demo
+    ])[COLS_RUTAS]
+
+    # 6. Calendario
+    maquinas_unicas = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
+    filas_cal = []
+    for f in pd.date_range(start="2024-05-01", periods=48, freq="MS"):
+        for maq in maquinas_unicas:
+            filas_cal.append({
+                "Date": f,
+                "Maquina": maq,
+                "Horas_Disponibles": 740
+            })
+    df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
+
+    # 7. ERP Compras POs
+    df_7_compras = pd.DataFrame([
+        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
+        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
+    ])[COLS_COMPRAS]
+
+    # 8. ERP Producción
+    df_8_prod = pd.DataFrame([
+        {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
+        {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
+        {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 40000},
+    ])[COLS_PROD]
+
+    return {
+        "hist": df_1_hist,
+        "ajustes": df_2_ajustes,
+        "stock": df_3_stock,
+        "bom": df_4_bom,
+        "rutas": df_5_rutas,
+        "cal": df_6_cal,
+        "compras_erp": df_7_compras,
+        "produccion_erp": df_8_prod,
+    }
+
 
 # ==========================================
 # 0. CONTROL DE ACCESO Y ROLES (LOGIN)
@@ -269,7 +289,7 @@ TEXTS = {
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa",
-        "guide_desc": "El simulador cuenta ahora con un motor MRP integrado. Módulos:",
+        "guide_desc": "El simulador cuenta con un motor MRP integrado y validación estricta de columnas:",
         "g_dem_t": "1. Demanda", "g_dem_d": "Holt-Winters sobre histórico. Prioriza Ajustes Consenso.",
         "g_pro_t": "2. Producción (MPS)", "g_pro_d": "Absorbe órdenes del ERP. `Nuevas Órdenes = Demanda + Stock Obj - Stock Inic - Órdenes ERP`.",
         "g_com_t": "3. Compras (MRP)", "g_com_d": "Explosiona las Nuevas Órdenes de Producción. Absorbe Pedidos de Compra del ERP. Incluye Trazabilidad (Pegging).",
@@ -285,7 +305,7 @@ TEXTS = {
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform",
-        "guide_desc": "The simulator now runs a full integrated MRP engine. Modules:",
+        "guide_desc": "The simulator runs a full integrated MRP engine with strict column validation:",
         "g_dem_t": "1. Demand", "g_dem_d": "Holt-Winters on history. Consensus Adjustments take priority.",
         "g_pro_t": "2. Production (MPS)", "g_pro_d": "Absorbs ERP orders. `New Orders = Demand + Target Stock - Init Stock - ERP Orders`.",
         "g_com_t": "3. Purchasing (MRP)", "g_com_d": "Explodes New Production Orders. Absorbs ERP Purchase Orders. Includes Pegging.",
@@ -301,7 +321,7 @@ TEXTS = {
         "kpi_rev": "Przychody", "kpi_mar": "Marża Brutto", "kpi_wc": "Śr. Kapitał Obrotowy",
         "kpi_fab": "Wolumen do Produkcji", "kpi_doh": "Średnie Pokrycie",
         "guide_title": "📖 Przewodnik",
-        "guide_desc": "Symulator posiada pełny silnik MRP. Moduły:",
+        "guide_desc": "Symulator posiada pełny silnik MRP:",
         "g_dem_t": "1. Popyt", "g_dem_d": "Algorytm Holt-Winters na danych historycznych. Korekty ręczne mają priorytet.",
         "g_pro_t": "2. Produkcja (MPS)", "g_pro_d": "Absorbuje zlecenia ERP. `Nowe Zlecenia = Popyt + Zapas Doc. - Zapas Pocz. - Zlecenia ERP`.",
         "g_com_t": "3. Zakupy (MRP)", "g_com_d": "Rozbija nowe zlecenia produkcji. Absorbuje zlecenia zakupu z ERP. Zawiera Pegging.",
@@ -317,7 +337,7 @@ TEXTS = {
         "kpi_rev": "Omsætning", "kpi_mar": "Bruttomargin", "kpi_wc": "Gns. Arbejdskapital",
         "kpi_fab": "Produktionsvolumen", "kpi_doh": "Gns. Dækning",
         "guide_title": "📖 Værktøjsguide",
-        "guide_desc": "Simulatoren kører en fuld integreret MRP. Moduler:",
+        "guide_desc": "Simulatoren kører en fuld integreret MRP:",
         "g_dem_t": "1. Efterspørgsel", "g_dem_d": "Holt-Winters. Manuelle justeringer prioriteres.",
         "g_pro_t": "2. Produktion (MPS)", "g_pro_d": "Absorberer ERP-ordrer. `Nye Ordrer = Behov + Mållager - Startlager - ERP-ordrer`.",
         "g_com_t": "3. Indkøb (MRP)", "g_com_d": "Eksploderer nye produktionsordrer. Absorberer ERP indkøbsordrer. Inkluderer Pegging.",
@@ -375,17 +395,17 @@ with st.sidebar:
     file_compras_erp = st.file_uploader("7. ERP Compras / POs", type=['xlsx', 'csv'])
     file_produccion_erp = st.file_uploader("8. ERP Producción / Prd. Orders", type=['xlsx', 'csv'])
 
-    # --- INYECCIÓN AUTOMÁTICA DENTRO DE ST.SIDEBAR (4 ESPACIOS) ---
     if st.session_state.get("modo_demo_8", False):
         demos = obtener_excels_demo_8_tablas()
-        if file_hist is None:           file_hist           = demos["hist"]
-        if file_ajustes is None:        file_ajustes        = demos["ajustes"]
-        if file_stock is None:          file_stock          = demos["stock"]
-        if file_bom is None:            file_bom            = demos["bom"]
-        if file_rutas is None:          file_rutas          = demos["rutas"]
-        if file_cal is None:            file_cal            = demos["cal"]
-        if file_compras_erp is None:    file_compras_erp    = demos["compras_erp"]
-        if file_produccion_erp is None: file_produccion_erp = demos["produccion_erp"]
+        if file_hist is None:            file_hist            = demos["hist"]
+        if file_ajustes is None:         file_ajustes         = demos["ajustes"]
+        if file_stock is None:           file_stock           = demos["stock"]
+        if file_bom is None:             file_bom             = demos["bom"]
+        if file_rutas is None:           file_rutas           = demos["rutas"]
+        if file_cal is None:             file_cal             = demos["cal"]
+        if file_compras_erp is None:     file_compras_erp     = demos["compras_erp"]
+        if file_produccion_erp is None:  file_produccion_erp  = demos["produccion_erp"]
+
     st.divider()
     st.header("📅 3. Parameters")
     horizonte = st.slider("Horizon (Months):", 1, 24, 12)
@@ -404,98 +424,112 @@ with st.sidebar:
     st.divider()
     usar_limpieza_outliers = st.checkbox("🧹 Clean Outliers", value=True)
 
-@st.cache_data(hash_funcs={pd.DataFrame: lambda _: None})
-def cargar_datos(uploaded_file):
+
+def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, permitir_vacio=False):
+    """Carga el archivo y valida estrictamente que contenga las columnas oficiales exactas."""
     if uploaded_file is None:
         return None
+        
     if isinstance(uploaded_file, pd.DataFrame):
         d = uploaded_file.copy()
-        d.columns = d.columns.str.strip()
-        return d
-    try:
-        uploaded_file.seek(0)
-        if getattr(uploaded_file, 'name', '').endswith('.csv'):
-            d = pd.read_csv(uploaded_file)
-        else:
-            d = pd.read_excel(uploaded_file)
-        if d is not None and not d.empty:
-            d.columns = d.columns.str.strip()
-        return d
-    except Exception:
+    else:
+        try:
+            uploaded_file.seek(0)
+            if getattr(uploaded_file, 'name', '').endswith('.csv'):
+                d = pd.read_csv(uploaded_file)
+            else:
+                d = pd.read_excel(uploaded_file)
+        except Exception as e:
+            st.error(f"❌ Error al leer el archivo para **{nombre_tabla}**: {e}")
+            return None
+
+    if d is None:
+        st.error(f"❌ No se pudo procesar el archivo de **{nombre_tabla}**.")
         return None
 
-COLS_AJUSTES_BASE = ['Date', 'País', 'customer cod', 'sku cod', 'override_value']
+    d.columns = d.columns.astype(str).str.strip()
 
+    columnas_faltantes = [col for col in columnas_obligatorias if col not in d.columns]
+    if columnas_faltantes:
+        st.error(
+            f"🚨 **Nombre de columna incorrecto en [{nombre_tabla}]**\n\n"
+            f"Faltan las siguientes columnas obligatorias exactas: `{columnas_faltantes}`\n\n"
+            f"Columnas esperadas: `{columnas_obligatorias}`\n\n"
+            f"Columnas detectadas en tu archivo: `{d.columns.tolist()}`"
+        )
+        return None
+
+    if d.empty and not permitir_vacio:
+        st.warning(f"⚠️ El archivo **{nombre_tabla}** tiene las columnas correctas pero no contiene filas de datos.")
+        return None
+
+    return d
+
+
+# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS ---
 if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_ajustes'], pd.DataFrame):
-    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
 if 'last_ajuste_file' not in st.session_state:
     st.session_state['last_ajuste_file'] = None
 
-df = cargar_datos(file_hist)
+df = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
 
-# Identificador de texto seguro para evitar el TypeError de Pandas al comparar con !=
 id_ajuste_actual = "DEMO_AJUSTES" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
-
 if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
-    df_aj_cargado = cargar_datos(file_ajustes)
+    df_aj_cargado = validar_y_cargar_tabla(file_ajustes, COLS_AJUSTES, "2. Ajustes Consenso", permitir_vacio=True)
     if isinstance(df_aj_cargado, pd.DataFrame):
-        # Garantizar las columnas requeridas si viene del botón Demo
-        if 'País' not in df_aj_cargado.columns:
-            df_aj_cargado['País'] = 'España'
-        if 'customer cod' not in df_aj_cargado.columns:
-            df_aj_cargado['customer cod'] = 'CLI-01'
-        if 'override_value' not in df_aj_cargado.columns:
-            df_aj_cargado['override_value'] = df_aj_cargado.get('Ajuste_Consenso', 0)
         st.session_state['df_ajustes'] = df_aj_cargado
     else:
-        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
     st.session_state['last_ajuste_file'] = id_ajuste_actual
 elif file_ajustes is None and st.session_state['last_ajuste_file'] is not None:
-    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES_BASE)
+    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
     st.session_state['last_ajuste_file'] = None
 
 df_ajustes = st.session_state['df_ajustes']
-df_stock, df_bom, df_rutas, df_cal = cargar_datos(file_stock), cargar_datos(file_bom), cargar_datos(file_rutas), cargar_datos(file_cal)
-df_compras_erp, df_produccion_erp = cargar_datos(file_compras_erp), cargar_datos(file_produccion_erp)
+df_stock = validar_y_cargar_tabla(file_stock, COLS_STOCK, "3. Stock Actual")
+df_bom = validar_y_cargar_tabla(file_bom, COLS_BOM, "4. BOM")
+df_rutas = validar_y_cargar_tabla(file_rutas, COLS_RUTAS, "5. Rutas / Routing")
+df_cal = validar_y_cargar_tabla(file_cal, COLS_CAL, "6. Calendario")
+df_compras_erp = validar_y_cargar_tabla(file_compras_erp, COLS_COMPRAS, "7. ERP Compras / POs", permitir_vacio=True)
+df_produccion_erp = validar_y_cargar_tabla(file_produccion_erp, COLS_PROD, "8. ERP Producción / Prd. Orders", permitir_vacio=True)
 
 if df is None or df.empty:
-    st.info("👋 **Please upload '1. Histórico Ventas' in the sidebar to start.**")
+    st.info("👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube el archivo **1. Histórico Ventas** con las columnas oficiales.")
     st.stop()
 
-# --- OPTIMIZACIÓN 1: TOPE HISTÓRICO AL INICIO ---
+# --- TOPE HISTÓRICO Y CONVERSIÓN DE TIPOS ---
 df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
 df = df.dropna(subset=['Date'])
 fecha_maxima = df['Date'].max()
 fecha_corte = fecha_maxima - pd.DateOffset(months=24)
-df = df[df['Date'] >= fecha_corte].copy() 
+df = df[df['Date'] >= fecha_corte].copy()
 
-if 'volume' in df.columns: df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
+df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
+df['revenue'] = pd.to_numeric(df['revenue'], errors='coerce').fillna(0)
+df['margin'] = pd.to_numeric(df['margin'], errors='coerce').fillna(0)
 
-dict_price, dict_margin, dict_currency = {}, {}, {}
-if 'revenue' in df.columns and 'margin' in df.columns:
-    # 1. Convertir fila a fila a GBP antes de sumar nada
-    dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
-    df['Moneda'] = df.get('currency', pd.Series(['EUR']*len(df))).astype(str).str.strip().str.upper()
-    df['FX'] = df['Moneda'].map(dict_fx).fillna(1.0)
-    df['Rev_GBP'] = df['revenue'] * df['FX']
-    df['Mar_GBP'] = df['margin'] * df['FX']
-    
-    # 2. Calcular precios unitarios reales en GBP puros
-    df_fin_base = df.groupby('sku cod').agg({'volume':'sum', 'Rev_GBP':'sum', 'Mar_GBP':'sum'}).reset_index()
-    df_fin_base['unit_price'] = np.where(df_fin_base['volume']>0, df_fin_base['Rev_GBP']/df_fin_base['volume'], 0)
-    df_fin_base['unit_margin'] = np.where(df_fin_base['volume']>0, df_fin_base['Mar_GBP']/df_fin_base['volume'], 0)
-    
-    dict_price = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_price']))
-    dict_margin = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_margin']))
-    # Inyectamos 'GBP' a todo porque ya lo hemos convertido
-    dict_currency = dict(zip(df_fin_base['sku cod'], ['GBP'] * len(df_fin_base)))
+# Conversión financiera a GBP fila a fila
+dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
+df['Moneda'] = df['currency'].astype(str).str.strip().str.upper()
+df['FX'] = df['Moneda'].map(dict_fx).fillna(1.0)
+df['Rev_GBP'] = df['revenue'] * df['FX']
+df['Mar_GBP'] = df['margin'] * df['FX']
+
+df_fin_base = df.groupby('sku cod').agg({'volume': 'sum', 'Rev_GBP': 'sum', 'Mar_GBP': 'sum'}).reset_index()
+df_fin_base['unit_price'] = np.where(df_fin_base['volume'] > 0, df_fin_base['Rev_GBP'] / df_fin_base['volume'], 0.0)
+df_fin_base['unit_margin'] = np.where(df_fin_base['volume'] > 0, df_fin_base['Mar_GBP'] / df_fin_base['volume'], 0.0)
+
+dict_price = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_price']))
+dict_margin = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_margin']))
+dict_currency = dict(zip(df_fin_base['sku cod'], ['GBP'] * len(df_fin_base)))
 
 # ==========================================
 # 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def calcular_abc_xyz_global(df_in):
-    if df_in is None or df_in.empty or 'volume' not in df_in.columns:
+    if df_in is None or df_in.empty:
         return pd.DataFrame()
     
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
@@ -507,57 +541,22 @@ def calcular_abc_xyz_global(df_in):
     
     df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
     df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
-    df_cv['CV'] = (df_cv['std'] / df_cv['mean'].replace(0, 1)).fillna(0)
+    df_cv['CV'] = (df_cv['std'] / df_cv['mean'].replace(0, 1)).replace([np.inf, -np.inf], 0).fillna(0)
     df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
     
     df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
     df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
 
-    # --- Añadir 'sku desc' y 'Margen Unitario' para que la Pestaña 7 nunca falle ---
-    if 'sku desc' in df_in.columns:
-        mapa_desc = df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
-        df_res['sku desc'] = df_res['sku cod'].map(mapa_desc).fillna(df_res['sku cod'])
-    else:
-        df_res['sku desc'] = df_res['sku cod']
+    mapa_desc = df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
+    df_res['sku desc'] = df_res['sku cod'].map(mapa_desc).fillna(df_res['sku cod'].astype(str))
 
-    if 'Margen Unitario' in df_in.columns:
-        mapa_mg = df_in.groupby('sku cod')['Margen Unitario'].mean().to_dict()
-        df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).fillna(0.25)
-    elif 'Precio_Venta' in df_in.columns and 'Coste_Unitario' in df_in.columns:
-        df_tmp = df_in.assign(_mg=pd.to_numeric(df_in['Precio_Venta'], errors='coerce') - pd.to_numeric(df_in['Coste_Unitario'], errors='coerce'))
-        mapa_mg = df_tmp.groupby('sku cod')['_mg'].mean().to_dict()
-        df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).fillna(0.25)
-    else:
-        df_res['Margen Unitario'] = 0.25
+    df_mg_agg = df_in.groupby('sku cod').agg({'volume': 'sum', 'Mar_GBP': 'sum'}).reset_index()
+    df_mg_agg['Margen Unitario'] = np.where(df_mg_agg['volume'] > 0, df_mg_agg['Mar_GBP'] / df_mg_agg['volume'], 0.0)
+    mapa_mg = dict(zip(df_mg_agg['sku cod'], df_mg_agg['Margen Unitario']))
+    df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).replace([np.inf, -np.inf], 0).fillna(0.0)
 
     return df_res
-# --- 1. PROTECCIÓN SI AÚN NO SE HA CARGADO HISTÓRICO NI PULSADO DEMO ---
-if df is None or df.empty:
-    st.info("👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube el archivo **1. Histórico Ventas**.")
-    st.stop()
 
-# --- 2. NORMALIZACIÓN AUTOMÁTICA DE COLUMNAS CLAVE EN DF ---
-for col in list(df.columns):
-    c_low = str(col).strip().lower()
-    if c_low in ['pais', 'país', 'country', 'planta', 'site'] and 'País' not in df.columns:
-        df['País'] = df[col]
-    elif c_low in ['volume', 'volumen', 'kg', 'kilos', 'cantidad', 'ventas'] and 'volume' not in df.columns:
-        df['volume'] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    elif c_low in ['date', 'fecha', 'mes', 'period'] and 'Date' not in df.columns:
-        df['Date'] = pd.to_datetime(df[col], errors='coerce')
-
-if 'Date' in df.columns:
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-if 'País' not in df.columns:
-    df['País'] = 'España'
-if 'volume' not in df.columns and 'Kg' in df.columns:
-    df['volume'] = pd.to_numeric(df['Kg'], errors='coerce').fillna(0)
-if 'Kg' not in df.columns and 'volume' in df.columns:
-    df['Kg'] = df['volume']
-if 'customer cod' not in df.columns:
-    df['customer cod'] = 'CLI-01'
-if 'customer desc' not in df.columns:
-    df['customer desc'] = df['customer cod'].astype(str)
 
 df_abcxyz_global = calcular_abc_xyz_global(df)
 
@@ -566,10 +565,11 @@ with col_f1:
     lista_paises = ["TODOS"] + sorted(df['País'].dropna().astype(str).unique().tolist())
     pais_sel = st.selectbox("1. Country / País:", lista_paises)
 df_filtro1 = df if pais_sel == "TODOS" else df[df['País'].astype(str) == pais_sel]
+
 with col_f2:
-    lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().unique().tolist())
+    lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().astype(str).unique().tolist())
     cliente_sel = st.selectbox("2. Customer / Cliente:", lista_clientes)
-df_filtro2 = df_filtro1 if cliente_sel == "TODOS" else df_filtro1[df_filtro1['customer cod'] == cliente_sel]
+df_filtro2 = df_filtro1 if cliente_sel == "TODOS" else df_filtro1[df_filtro1['customer cod'].astype(str) == cliente_sel]
 
 with col_f3:
     lista_clases = ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique().tolist()) if not df_abcxyz_global.empty else ["TODAS"]
@@ -582,79 +582,118 @@ else:
     df_filtro3 = df_filtro2
 
 with col_f4:
-    lista_skus = ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().unique().tolist())
+    lista_skus = ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().astype(str).unique().tolist())
     sku_sel = st.selectbox("4. Filter SKU (PT):", lista_skus)
-df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'] == sku_sel]
+df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'].astype(str) == sku_sel]
 
 col_objetivo = 'volume'
 dict_sku_desc = dict(zip(df['sku cod'], df['sku desc']))
+
 # 1. Diccionario de descripciones de Materia Prima (BOM)
-if df_bom is not None and 'rm cod' in df_bom.columns:
-    if 'rm desc' in df_bom.columns:
-        dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc']))
-    else:
-        dict_rm_desc = {rm: dict_sku_desc.get(rm, str(rm)) for rm in df_bom['rm cod'].dropna().unique()}
+if df_bom is not None and not df_bom.empty:
+    dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc']))
 else:
     dict_rm_desc = {}
 
 # 2. Diccionario de Pedidos de Producción ERP (8_ERP_Produccion_PrdOrders.xlsx)
 dict_prd_erp = {}
-df_erp_p_src = globals().get('df_erp_prod', globals().get('df_prod_erp', globals().get('df_prd')))
-if df_erp_p_src is not None and not df_erp_p_src.empty and {'Date', 'sku cod'}.issubset(df_erp_p_src.columns):
-    df_p_tmp = df_erp_p_src.copy()
+if df_produccion_erp is not None and not df_produccion_erp.empty:
+    df_p_tmp = df_produccion_erp.copy()
     df_p_tmp['Date'] = pd.to_datetime(df_p_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-    col_qty_p = 'Cantidad_Kg' if 'Cantidad_Kg' in df_p_tmp.columns else df_p_tmp.columns[-1]
-    dict_prd_erp = df_p_tmp.groupby(['sku cod', 'Date'])[col_qty_p].sum().to_dict()
+    df_p_tmp['Cantidad_Kg'] = pd.to_numeric(df_p_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
+    dict_prd_erp = df_p_tmp.dropna(subset=['Date']).groupby(['sku cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
 
 # 3. Diccionario de Pedidos de Compra ERP (7_ERP_Compras_POs.xlsx)
 dict_cmp_erp = {}
-df_erp_c_src = globals().get('df_erp_compras', globals().get('df_compras_erp', globals().get('df_pos', globals().get('df_cmp'))))
-if df_erp_c_src is not None and not df_erp_c_src.empty and {'Date', 'rm cod'}.issubset(df_erp_c_src.columns):
-    df_c_tmp = df_erp_c_src.copy()
+if df_compras_erp is not None and not df_compras_erp.empty:
+    df_c_tmp = df_compras_erp.copy()
     df_c_tmp['Date'] = pd.to_datetime(df_c_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-    col_qty_c = 'Cantidad_Kg' if 'Cantidad_Kg' in df_c_tmp.columns else df_c_tmp.columns[-1]
-    dict_cmp_erp = df_c_tmp.groupby(['rm cod', 'Date'])[col_qty_c].sum().to_dict()
+    df_c_tmp['Cantidad_Kg'] = pd.to_numeric(df_c_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
+    dict_cmp_erp = df_c_tmp.dropna(subset=['Date']).groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
+
 
 # ==========================================
 # 3. FUNCIONES CORE Y OPTIMIZACIÓN DE CACHÉ
 # ==========================================
-def obtener_parametros_stock(codigo, cobertura_defecto):
-    stk_inicial, cob_meses, lead_time = 0, cobertura_defecto, 0
-    if df_stock is not None and not df_stock.empty and 'sku cod' in df_stock.columns:
-        fila = df_stock[df_stock['sku cod'] == codigo]
+def obtener_parametros_stock(codigo, cob_defecto=2):
+    stk, cob, lt = 0.0, int(cob_defecto), 0
+    if df_stock is not None and not df_stock.empty:
+        fila = df_stock[df_stock['sku cod'].astype(str).str.strip() == str(codigo).strip()]
         if not fila.empty:
-            if 'stock_disponible' in fila.columns: stk_inicial = pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum()
-            if 'Cobertura_Meses' in fila.columns and pd.notna(fila['Cobertura_Meses'].iloc[0]): cob_meses = int(fila['Cobertura_Meses'].iloc[0])
-            if 'Categoria' in fila.columns and str(fila['Categoria'].iloc[0]).strip().upper() == 'MTO': cob_meses = 0
-            if 'LT_Meses' in fila.columns and pd.notna(fila['LT_Meses'].iloc[0]): lead_time = int(fila['LT_Meses'].iloc[0])
-    return stk_inicial, cob_meses, lead_time
+            stk = float(pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum())
+            if pd.notna(fila['Cobertura_Meses'].iloc[0]):
+                cob = int(fila['Cobertura_Meses'].iloc[0])
+            if str(fila['Categoria'].iloc[0]).strip().upper() == 'MTO':
+                cob = 0
+            if pd.notna(fila['LT_Meses'].iloc[0]):
+                lt = int(fila['LT_Meses'].iloc[0])
+    return stk, cob, lt
+
 
 @st.cache_data(show_spinner=False, max_entries=5000)
 def limpiar_anomalias(serie):
-    if len(serie) < 6: return serie
+    if len(serie) < 6:
+        return serie
     q1, q3 = serie.quantile(0.25), serie.quantile(0.75)
     iqr = q3 - q1
     return serie.clip(lower=max(0, q1 - 1.5 * iqr), upper=q3 + 1.5 * iqr)
 
+
 @st.cache_data(show_spinner=False, max_entries=5000)
 def calcular_forecast(serie, steps):
-    if len(serie) == 0: return pd.Series([0.0]*steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
-    if len(serie) < 6: return pd.Series([serie.mean()]*steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
-    try: return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie)>=24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0, x))
-    except: return pd.Series([serie.tail(6).mean()]*steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
+    if len(serie) == 0:
+        return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
+    if len(serie) < 6:
+        return pd.Series([serie.mean()] * steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
+    try:
+        return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0, x))
+    except Exception:
+        return pd.Series([serie.tail(6).mean()] * steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
+
+
+def aplicar_variacion_cliente(pais, cliente, pct):
+    try:
+        sub = df[(df['País'] == pais) & (df['customer cod'] == cliente)].copy()
+        if sub.empty:
+            return False, "No hay histórico para ese País y Cliente."
+        factor = 1.0 + (float(pct) / 100.0)
+        df_aj = st.session_state['df_ajustes'].copy()
+        df_aj = df_aj[~((df_aj['País'] == pais) & (df_aj['customer cod'] == cliente))]
+        nuevas = []
+        for sku_c in sub['sku cod'].unique():
+            s_sku = sub[sub['sku cod'] == sku_c].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+            s_mod = limpiar_anomalias(s_sku) if usar_limpieza_outliers else s_sku
+            fcst = calcular_forecast(s_mod, horizonte)
+            for f_dt, val in fcst.items():
+                nuevas.append({
+                    'Date': f_dt,
+                    'País': pais,
+                    'customer cod': cliente,
+                    'sku cod': sku_c,
+                    'override_value': round(float(val) * factor, 2)
+                })
+        if nuevas:
+            df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
+        st.session_state['df_ajustes'] = df_aj
+        return True, "OK"
+    except Exception as e:
+        return False, str(e)
+
 
 @st.cache_data(show_spinner=False)
 def calcular_kpis_forecast(df_in, usar_outliers):
-    if df_in is None or df_in.empty: return 0.0, 0.0, 0.0
+    if df_in is None or df_in.empty:
+        return 0.0, 0.0, 0.0
     df_eval = df_in.groupby('Date')['volume'].sum().resample("MS").sum().reset_index()
-    if len(df_eval) < 12: return 0.0, 0.0, 0.0
+    if len(df_eval) < 12:
+        return 0.0, 0.0, 0.0
     
     serie = df_eval.set_index('Date')['volume']
     serie_limpia = limpiar_anomalias(serie) if usar_outliers else serie
     try:
-        modelo = ExponentialSmoothing(serie_limpia, trend="add", seasonal="add" if len(serie_limpia)>=24 else None, seasonal_periods=12).fit()
+        modelo = ExponentialSmoothing(serie_limpia, trend="add", seasonal="add" if len(serie_limpia) >= 24 else None, seasonal_periods=12).fit()
         fitted_values = modelo.fittedvalues
-    except:
+    except Exception:
         fitted_values = serie_limpia.shift(1).fillna(serie_limpia.mean())
         
     df_eval['Forecast'] = fitted_values.values
@@ -671,25 +710,17 @@ def calcular_kpis_forecast(df_in, usar_outliers):
     
     return forecast_accuracy, bias, wape
 
-def estilo_doh(val):
-    if pd.isna(val): return ''
-    if val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
-    elif val > 60: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
-    else: return 'background-color: #e6ffe6; color: #006600;'
 
-def obtener_parametros_stock(codigo, cob_defecto=2):
-    stk, cob, lt = 0.0, cob_defecto, 0
-    df_s = globals().get('df_stock')
-    if df_s is not None and not df_s.empty and 'sku cod' in df_s.columns:
-        fila = df_s[df_s['sku cod'] == codigo]
-        if not fila.empty:
-            if 'stock_disponible' in fila.columns:
-                stk = float(pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum())
-            if 'Cobertura_Meses' in fila.columns and pd.notna(fila['Cobertura_Meses'].iloc[0]):
-                cob = int(fila['Cobertura_Meses'].iloc[0])
-            if 'LT_Meses' in fila.columns and pd.notna(fila['LT_Meses'].iloc[0]):
-                lt = int(fila['LT_Meses'].iloc[0])
-    return stk, cob, lt
+def estilo_doh(val):
+    if pd.isna(val):
+        return ''
+    if val < 15:
+        return 'background-color: #ffcccc; color: #900; font-weight: bold;'
+    elif val > 60:
+        return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
+    else:
+        return 'background-color: #e6ffe6; color: #006600;'
+
 
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
     plan = pd.DataFrame(index=serie_salidas.index)
@@ -700,11 +731,10 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
     plan['Stock_Inicial'], plan['Stock_Objetivo'], plan['Entradas_Netas'], plan['Stock_Final'] = 0.0, 0.0, 0.0, 0.0
     stock_corriente = float(stock_inicial)
     
-    # Media móvil suave para rellenar el borde final del horizonte sin saltos en el último mes
     media_reciente = plan['Salidas_Brutas'].tail(3).mean() if len(plan) > 0 else 0.0
     
     for i in range(len(plan)):
-        futuro_disponible = plan['Salidas_Brutas'].iloc[i+1 : i+1+cobertura_meses]
+        futuro_disponible = plan['Salidas_Brutas'].iloc[i + 1 : i + 1 + cobertura_meses]
         meses_faltantes = max(0, cobertura_meses - len(futuro_disponible))
         salida_futura = futuro_disponible.sum() + (meses_faltantes * media_reciente)
         
@@ -720,11 +750,12 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
         plan.iloc[i, plan.columns.get_loc('Stock_Final')] = stock_corriente
         
     demanda_futura_media = plan['Salidas_Brutas'].rolling(window=3, min_periods=1).mean().shift(-1)
-    if len(plan) > 0: 
+    if len(plan) > 0:
         demanda_futura_media.iloc[-1] = media_reciente
     plan['DOH'] = np.where(demanda_futura_media > 0, (plan['Stock_Final'] / demanda_futura_media) * 30, 0)
     plan['DOH'] = plan['DOH'].fillna(0).round(0)
     return plan
+
 
 @st.cache_data(show_spinner=False)
 def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None, _v_cache=99):
@@ -732,41 +763,43 @@ def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=No
     if df_stk is None: df_stk = globals().get('df_stock')
     if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
     if horiz is None: horiz = globals().get('horizonte', 12)
-    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 2)
-    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', globals().get('dict_prod_erp', {}))
+    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 1)
+    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', {})
 
     mps_dict = {}
-    if df_v is None or df_v.empty: return mps_dict
+    if df_v is None or df_v.empty:
+        return mps_dict
 
     fecha_max_global = pd.to_datetime(df_v['Date']).max().replace(day=1)
     idx_futuro_global = pd.date_range(start=fecha_max_global + pd.DateOffset(months=1), periods=horiz, freq="MS")
 
-    for i, sku in enumerate(df_v['sku cod'].unique()):
+    for sku in df_v['sku cod'].unique():
         serie_sku = df_v[df_v['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        
-        # Si tiene ventas históricas, proyectar; si el modelo da 0, forzar la media de sus meses con venta
-        media_positiva = float(serie_sku[serie_sku > 0].mean()) if (serie_sku > 0).any() else 1500.0
+        media_positiva = float(serie_sku[serie_sku > 0].mean()) if (serie_sku > 0).any() else 0.0
         fcst_vals = calcular_forecast(serie_sku, horiz)
-        vals = np.maximum(fcst_vals.values, media_positiva * 0.8)
+        vals = np.maximum(fcst_vals.values, media_positiva * 0.5) if media_positiva > 0 else fcst_vals.values
         df_fcst = pd.DataFrame({'Consenso': vals}, index=idx_futuro_global)
 
-        # FORZADO PARA TEST: Stock inicial muy bajo (10% de un mes) y alternar coberturas (0, 2 y 4 meses) para forzar alertas DOH < 15 y DOH > 60
-        stk_inicial = media_positiva * 0.10
-        cob_meses = 0 if i % 4 == 0 else (4 if i % 4 == 1 else max(2, int(cob_fg)))
+        if aj_df is not None and not aj_df.empty:
+            aj_sku = aj_df[aj_df['sku cod'] == sku].copy()
+            if not aj_sku.empty:
+                aj_sku['Date'] = pd.to_datetime(aj_sku['Date'], dayfirst=True, errors='coerce')
+                for f_dt, r in aj_sku.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
+                    if f_dt.replace(day=1) in df_fcst.index:
+                        df_fcst.at[f_dt.replace(day=1), 'Consenso'] = r['override_value']
 
-        # Simular pedidos firmes ERP desfasados si no cruzan por fecha
+        stk_inicial, cob_meses, _ = obtener_parametros_stock(sku, cob_fg)
+
         serie_erp = pd.Series(0.0, index=df_fcst.index)
-        for m_idx, idx in enumerate(df_fcst.index):
-            val_erp = prod_erp.get((sku, idx), 0.0)
-            if val_erp == 0 and m_idx < 2:
-                # Forzar pedido ERP parcial (40% en unos, 250% en otros) para activar alertas en Pestaña 6 (Ejecución ERP)
-                val_erp = round(media_positiva * (0.40 if i % 2 == 0 else 2.50), 0)
-            serie_erp[idx] = val_erp
+        for idx in df_fcst.index:
+            serie_erp[idx] = prod_erp.get((sku, idx), 0.0)
 
         df_plan = calcular_necesidades_netas(df_fcst['Consenso'], stk_inicial, cob_meses, serie_erp)
-        df_plan['sku cod'], df_plan['sku desc'] = sku, dict_sku_desc.get(sku, str(sku))
+        df_plan['sku cod'] = sku
+        df_plan['sku desc'] = dict_sku_desc.get(sku, str(sku))
         mps_dict[sku] = df_plan
     return mps_dict
+
 
 @st.cache_data(show_spinner=False)
 def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None, _v_cache=99):
@@ -775,47 +808,40 @@ def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None
     if df_b is None: df_b = globals().get('df_bom')
     if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
     if horiz is None: horiz = globals().get('horizonte', 12)
-    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 2)
+    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 1)
     if cob_rm is None: cob_rm = globals().get('cobertura_rm', 2)
-    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', globals().get('dict_prod_erp', {}))
-    if cmp_erp is None: cmp_erp = globals().get('dict_cmp_erp', globals().get('dict_compras_erp', {}))
+    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', {})
+    if cmp_erp is None: cmp_erp = globals().get('dict_cmp_erp', {})
 
     mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp, _v_cache=_v_cache)
-    if df_b is None or df_b.empty or not mps_g: return pd.DataFrame()
+    if df_b is None or df_b.empty or not mps_g:
+        return pd.DataFrame()
     
     lista_req = []
     for sku in mps_g:
         sub_bom = df_b[df_b['sku cod'].astype(str).str.strip() == str(sku).strip()]
         for _, row in sub_bom.iterrows():
-            rm_c = row.get('rm cod')
+            rm_c = row['rm cod']
             if pd.notna(rm_c):
-                cant = float(row.get('Cantidad', 0.25))
-                if cant <= 0: cant = 0.25
-                lista_req.append(pd.DataFrame({
-                    'Date': mps_g[sku].index, 
-                    'Necesidad_Bruta': np.maximum(mps_g[sku]['Entradas_Netas'], mps_g[sku]['Salidas_Brutas']) * cant, 
-                    'rm cod': str(rm_c).strip()
-                }))
+                cant = float(pd.to_numeric(row['Cantidad'], errors='coerce')) if pd.notna(row['Cantidad']) else 0.0
+                if cant > 0:
+                    lista_req.append(pd.DataFrame({
+                        'Date': mps_g[sku].index,
+                        'Necesidad_Bruta': (mps_g[sku]['Entradas_Netas'] + mps_g[sku]['Recepciones_ERP']) * cant,
+                        'rm cod': str(rm_c).strip()
+                    }))
                 
-    if not lista_req: return pd.DataFrame()
+    if not lista_req:
+        return pd.DataFrame()
     df_req_all = pd.concat(lista_req)
     
     lista_compras_g = []
-    for j, (rm_cod, df_rm) in enumerate(df_req_all.groupby(['Date', 'rm cod'])['Necesidad_Bruta'].sum().reset_index().groupby('rm cod')):
-        media_rm = float(df_rm['Necesidad_Bruta'].mean())
-        
-        # FORZADO PARA TEST: Stock inicial de MP muy bajo (5% de 1 mes) para obligar a comprar todas las materias primas
-        stk = media_rm * 0.05
-        cob = 0 if j % 4 == 0 else (4 if j % 4 == 1 else max(2, int(cob_rm)))
-        lt = 1 if j % 2 == 0 else 0
+    for rm_cod, df_rm in df_req_all.groupby(['Date', 'rm cod'])['Necesidad_Bruta'].sum().reset_index().groupby('rm cod'):
+        stk, cob, lt = obtener_parametros_stock(rm_cod, cob_rm)
             
         serie_erp = pd.Series(0.0, index=df_rm['Date'])
-        for m_idx, idx in enumerate(df_rm['Date']):
-            val_po = cmp_erp.get((rm_cod, idx), 0.0)
-            if val_po == 0 and m_idx < 2:
-                # Forzar POs firmes insuficientes (35%) o excesivas (280%) en los primeros 2 meses
-                val_po = round(media_rm * (0.35 if j % 3 != 0 else 2.80), 0)
-            serie_erp[idx] = val_po
+        for idx in df_rm['Date']:
+            serie_erp[idx] = cmp_erp.get((rm_cod, idx), 0.0)
         
         plan = calcular_necesidades_netas(df_rm.set_index('Date')['Necesidad_Bruta'], stk, cob, serie_erp)
         plan['Lanzamiento_Pedidos'] = plan['Entradas_Netas'].shift(-lt).fillna(plan['Entradas_Netas'])
@@ -828,7 +854,7 @@ def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None
 
 
 # ==========================================
-# FUNCIONES AUXILIARES PARA ALIGERAR TABS 9 Y 10
+# FUNCIONES AUXILIARES PARA TABS 9 Y 10
 # ==========================================
 @st.cache_data(show_spinner=False)
 def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, outl, s_vol, s_pre, s_cos):
@@ -839,44 +865,40 @@ def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, ho
         p, m = dict_p.get(sku, 0), dict_m.get(sku, 0)
         c_base = p - m
         mon = str(dict_c.get(sku, 'EUR')).strip().upper()
-        t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
+        t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
         vol = fcst.sum()
-        l_base.append({'Revenue': vol * p * t, 'Margin': vol * m * t})
-        l_wi.append({'Revenue': vol * (1 + s_vol/100) * p * (1 + s_pre/100) * t, 'Margin': vol * (1 + s_vol/100) * (p * (1 + s_pre/100) - c_base * (1 + s_cos/100)) * t})
+        l_base.append({'Revenue': vol * p * t_fx, 'Margin': vol * m * t_fx})
+        l_wi.append({
+            'Revenue': vol * (1 + s_vol / 100) * p * (1 + s_pre / 100) * t_fx,
+            'Margin': vol * (1 + s_vol / 100) * (p * (1 + s_pre / 100) - c_base * (1 + s_cos / 100)) * t_fx
+        })
     return pd.DataFrame(l_base), pd.DataFrame(l_wi)
 
-@st.cache_data(show_spinner=False)
+
 @st.cache_data(show_spinner=False)
 def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, max_date_global, horiz=12):
-    # Definir el rango exacto y común de los próximos 12 meses corporativos
     inicio_fcst = max_date_global.replace(day=1) + pd.DateOffset(months=1)
     rango_futuro = pd.date_range(start=inicio_fcst, periods=horiz, freq="MS")
     
-    v_total, r_total, m_total = 0, 0, 0
+    v_total, r_total, m_total = 0.0, 0.0, 0.0
     
     for sku in df_f['sku cod'].unique():
-        # Agrupar histórico del SKU
         serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum()
-        
-        # Asegurar continuidad reindexando hasta la fecha máxima global
         serie_completa = serie.reindex(pd.date_range(start=serie.index.min(), end=max_date_global.replace(day=1), freq="MS"), fill_value=0)
-        
-        # Calcular forecast estandarizado
         fcst = calcular_forecast(limpiar_anomalias(serie_completa) if outl else serie_completa, horiz)
-        
-        # Alinear estrictamente al calendario futuro común
         fcst.index = rango_futuro
         
         vol_sku = fcst.sum()
-        p, mg = dict_p.get(sku, 0), dict_margin.get(sku, 0)
+        p, mg = dict_p.get(sku, 0), dict_m.get(sku, 0)
         mon = str(dict_c.get(sku, 'EUR')).strip().upper()
-        t = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
+        t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
         
         v_total += vol_sku
-        r_total += vol_sku * p * t
-        m_total += vol_sku * mg * t
+        r_total += vol_sku * p * t_fx
+        m_total += vol_sku * mg * t_fx
         
     return v_total, r_total, m_total
+
 
 # ==========================================
 # PREPARACIÓN DATOS BASE
@@ -889,13 +911,16 @@ df_comparativo.index.name = 'Date'
 
 ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
 if not ajustes_activos.empty and sku_sel != "TODOS":
-    if 'País' in ajustes_activos.columns and pais_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
-    if 'customer cod' in ajustes_activos.columns and cliente_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
-    if 'sku cod' in ajustes_activos.columns: ajustes_activos = ajustes_activos[ajustes_activos['sku cod'] == sku_sel]
-    if not ajustes_activos.empty and 'override_value' in ajustes_activos.columns:
+    if pais_sel != "TODOS":
+        ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
+    if cliente_sel != "TODOS":
+        ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
+    ajustes_activos = ajustes_activos[ajustes_activos['sku cod'] == sku_sel]
+    if not ajustes_activos.empty:
         ajustes_activos['Date'] = pd.to_datetime(ajustes_activos['Date'], dayfirst=True, errors='coerce')
         for fecha, row in ajustes_activos.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-            if fecha.replace(day=1) in df_comparativo.index: df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
+            if fecha.replace(day=1) in df_comparativo.index:
+                df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
 
 LAYOUT_STYLE = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
@@ -923,16 +948,19 @@ with tab_guia:
     st.markdown(f"**{t['g_fin_t']}**: {t['g_fin_d']}")
     st.markdown(f"**{t['g_erp_t']}**: {t['g_erp_d']}")
     st.markdown("**🔠 7. ABC/XYZ**: Segmentación estratégica cruzando volumen (ABC) y volatilidad (XYZ).")
-    st.markdown("**🚨 8. Excepciones**: Radar automático para riesgo de roturas (DOH < 15) y excesos (DOH > 90).")
+    st.markdown("**🚨 8. Excepciones**: Radar automático para riesgo de roturas (DOH < 15) y excesos (DOH > 60).")
     st.markdown("**🔀 9. What-If**: Simulador financiero interactivo. Estresa volúmenes, precios y costes para evaluar impacto en margen.")
 
+# ==========================================
+# MODULO 1: DEMANDA
+# ==========================================
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Demanda.")
     else:
         st.subheader(f"Forecast: {sku_sel}")
         fig_demanda = go.Figure()
-        if not df_grouped.empty: 
+        if not df_grouped.empty:
             fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name='Histórico Real', line=dict(color='#A0B2C6', width=2)))
         fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name='Forecast Estadistico', line=dict(color='gray', width=2, dash='dot')))
         fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name='Forecast Consenso', line=dict(color='#1E3E5B', width=4)))
@@ -947,9 +975,16 @@ with tab_demanda:
             df_display.index = df_display.index.strftime('%Y-%m')
             
             if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                df_editado = st.data_editor(df_display, column_config={"Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"), "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")}, width="stretch")
+                df_editado = st.data_editor(
+                    df_display,
+                    column_config={
+                        "Estadistico": st.column_config.NumberColumn(disabled=True, format="%.2f"),
+                        "Consenso": st.column_config.NumberColumn(step=1, format="%.2f")
+                    },
+                    use_container_width=True
+                )
             else:
-                st.dataframe(df_display.style.format("{:,.2f}"), width="stretch")
+                st.dataframe(df_display.style.format("{:,.2f}"), use_container_width=True)
                 
             st.markdown("---")
             
@@ -958,15 +993,18 @@ with tab_demanda:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
                     if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
                         if st.session_state['df_ajustes'] is not None:
-                            try:
-                                df_aj = st.session_state['df_ajustes'].copy()
-                                df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
-                                df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
-                                nuevas_filas = [{'Date': pd.to_datetime(f), 'País': pais_sel, 'customer cod': cliente_sel, 'sku cod': sku_sel, 'override_value': r['Consenso']} for f, r in df_mod.iterrows()]
-                                if nuevas_filas: df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
-                                st.session_state['df_ajustes'] = df_aj
-                                st.success("Guardado Temporal"); st.rerun()
-                            except: pass
+                            df_aj = st.session_state['df_ajustes'].copy()
+                            df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
+                            df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
+                            nuevas_filas = [
+                                {'Date': pd.to_datetime(f), 'País': pais_sel, 'customer cod': cliente_sel, 'sku cod': sku_sel, 'override_value': r['Consenso']}
+                                for f, r in df_mod.iterrows()
+                            ]
+                            if nuevas_filas:
+                                df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
+                            st.session_state['df_ajustes'] = df_aj
+                            st.success("✅ Guardado Temporal en RAM")
+                            st.rerun()
                 else:
                     st.info("⚠️ Selecciona País, Cliente y SKU para editar.")
                     
@@ -974,11 +1012,11 @@ with tab_demanda:
                 if not st.session_state['df_ajustes'].empty:
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Ajustes_Consenso')
+                        st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Sheet1')
                     st.download_button(
-                        label="📥 Descargar Ajustes (Excel Final)", 
-                        data=output.getvalue(), 
-                        file_name="2_Ajustes_Consenso_Actualizado.xlsx", 
+                        label="📥 Descargar Ajustes (Excel Final)",
+                        data=output.getvalue(),
+                        file_name="2_Ajustes_Consenso.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
@@ -992,20 +1030,28 @@ with tab_demanda:
                 if pais_macro and cli_macro:
                     with st.spinner("Processing..."):
                         exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
-                        if exito: st.success("Done!"); st.rerun()
-                        else: st.error("Error")
+                        if exito:
+                            st.success("Done!")
+                            st.rerun()
+                        else:
+                            st.error(msg)
 
+# ==========================================
+# MODULO 2: PRODUCCIÓN (MPS)
+# ==========================================
 with tab_prod:
     if "tab2" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Producción.")
     else:
-        if df_stock is None or sku_sel == "TODOS": st.info("👈 Upload Stock file and select SKU.")
+        if df_stock is None or sku_sel == "TODOS":
+            st.info("👈 Upload '3. Stock Actual' file and select a specific SKU in filter 4.")
         else:
             st.subheader(f"Master Production Schedule (MPS): [{sku_sel}] {dict_sku_desc.get(sku_sel, sku_sel)}")
             stock_sku_fg, cob_real_fg, _ = obtener_parametros_stock(sku_sel, cobertura_fg)
             
             serie_erp = pd.Series(0.0, index=df_comparativo.index)
-            for idx in df_comparativo.index: serie_erp[idx] = dict_prd_erp.get((sku_sel, idx), 0.0)
+            for idx in df_comparativo.index:
+                serie_erp[idx] = dict_prd_erp.get((sku_sel, idx), 0.0)
                 
             df_plan_fg = calcular_necesidades_netas(df_comparativo['Consenso'], stock_sku_fg, cob_real_fg, serie_erp)
             
@@ -1026,17 +1072,25 @@ with tab_prod:
             
             df_show_fg = df_plan_fg.copy()
             df_show_fg.index = df_show_fg.index.strftime('%Y-%m')
-            st.dataframe(df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final']).format("{:.0f}", subset=['DOH']).map(estilo_doh, subset=['DOH']), width="stretch")
+            st.dataframe(
+                df_show_fg.style.format("{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Stock_Objetivo', 'Entradas_Netas', 'Stock_Final'])
+                .format("{:.0f}", subset=['DOH'])
+                .map(estilo_doh, subset=['DOH']),
+                use_container_width=True
+            )
 
+# ==========================================
+# MODULO 3: COMPRAS (MRP)
+# ==========================================
 with tab_bom:
     if "tab3" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Compras (MRP).")
     else:
         st.subheader("MRP / Purchasing Plan")
-        if df_bom is None or df_stock is None: 
-            st.info("👈 Upload BOM & Stock files in the sidebar.")
+        if df_bom is None or df_stock is None:
+            st.info("👈 Upload '3. Stock Actual' & '4. BOM' files in the sidebar.")
         else:
-            lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist()) if 'rm cod' in df_bom.columns else ["TODAS"]
+            lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
             rm_sel = st.selectbox("🔍 Filter Material:", lista_rms)
             
             if st.button("🚀 Execute BOM Explosion"):
@@ -1046,10 +1100,10 @@ with tab_bom:
                     if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
                         st.warning("⚠️ No se han generado necesidades de compra (comprueba que el Stock y el BOM estén cargados correctamente).")
                     else:
-                        if rm_sel != "TODAS": 
+                        if rm_sel != "TODAS":
                             df_viz = df_viz[df_viz['rm cod'] == rm_sel]
                             
-                        if df_viz.empty: 
+                        if df_viz.empty:
                             st.warning("No demand for the selected material.")
                         else:
                             df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc'].fillna('')
@@ -1060,187 +1114,145 @@ with tab_bom:
                             
                             fig_rm = px.bar(
                                 pd.melt(
-                                    df_plot_rm, 
-                                    id_vars=['Date', 'MP_Visual'], 
-                                    value_vars=['Recepciones_ERP', 'Entradas_Netas'], 
-                                    var_name='Tipo', 
+                                    df_plot_rm,
+                                    id_vars=['Date', 'MP_Visual'],
+                                    value_vars=['Recepciones_ERP', 'Entradas_Netas'],
+                                    var_name='Tipo',
                                     value_name='Volumen'
-                                ).replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}), 
-                                x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3, 
+                                ).replace({'Entradas_Netas': 'Nuevas (Teóricas)', 'Recepciones_ERP': 'ERP (Firme)'}),
+                                x='Date', y='Volumen', color='Tipo', facet_col='MP_Visual', facet_col_wrap=3,
                                 facet_row_spacing=0.08,
-                                title=titulo_graf, barmode='stack', 
+                                title=titulo_graf, barmode='stack',
                                 color_discrete_sequence=['#1E3E5B', '#88FFBB']
                             )
                             fig_rm.update_layout(**LAYOUT_STYLE, height=650 if rm_sel == "TODAS" else 400)
-                            st.plotly_chart(fig_rm, width="stretch")
+                            st.plotly_chart(fig_rm, use_container_width=True)
                             
-                            cols_mostrar = [c for c in ['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_viz.columns]
+                            cols_mostrar = ['Date', 'rm cod', 'rm desc', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH']
                             df_show = df_viz[cols_mostrar].copy()
                             df_show['Date'] = pd.to_datetime(df_show['Date']).dt.strftime('%Y-%m')
 
-                            def estilo_doh(val):
-                                if pd.isna(val): return ''
-                                if val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
-                                elif val > 60: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
-                                else: return 'background-color: #e6ffe6; color: #006600;'
-
                             st.dataframe(
                                 df_show.reset_index(drop=True).style.format(
-                                    "{:,.2f}", subset=[c for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_show.columns]
+                                    "{:,.2f}", subset=['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final']
                                 ).format(
-                                    "{:.0f}", subset=[c for c in ['DOH'] if c in df_show.columns]
-                                ).map(estilo_doh, subset=[c for c in ['DOH'] if c in df_show.columns]), 
-                                width="stretch"
+                                    "{:.0f}", subset=['DOH']
+                                ).map(estilo_doh, subset=['DOH']),
+                                use_container_width=True
                             )
-                            
 
+# ==========================================
+# MODULO 4: CAPACIDAD (RCCP)
+# ==========================================
 with tab_cap:
     if "tab4" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Capacidad.")
     else:
         st.subheader("Capacity Planning (RCCP)")
         if df_rutas is None or df_cal is None:
-            st.info("👈 Upload Rutas & Calendario.")
+            st.info("👈 Upload '5. Rutas / Routing' & '6. Calendario' in the sidebar.")
         else:
-            # Detectar si la columna se llama 'Maquina', 'Linea', 'work_center' o 'Planta'
-            col_maq = next((c for c in ['Maquina', 'Linea', 'work_center', 'Planta'] if c in df_rutas.columns), 'Linea')
-            
-            lista_maquinas = ["TODOS"] + sorted(df_rutas[col_maq].dropna().unique().tolist()) if col_maq in df_rutas.columns else ["TODOS"]
+            lista_maquinas = ["TODOS"] + sorted(df_rutas['Maquina'].dropna().astype(str).unique().tolist())
             maq_sel = st.selectbox("⚙️ Filter Line / Línea:", lista_maquinas)
             
             if st.button("⚖️ Calculate Saturation"):
                 with st.spinner("Processing..."):
                     mps_g = generar_mps_global()
                     if mps_g:
-                        df_req = pd.merge(
-                            pd.concat(mps_g.values()).reset_index().rename(columns={'index': 'Date'})[lambda x: x['Entradas_Netas'] > 0], 
-                            df_rutas, 
-                            on='sku cod', 
-                            how='inner'
-                        )
-                        
-                        # --- BLINDAJE 1: KILOS POR HORA ---
-                        if 'Kilos_por_Hora' not in df_req.columns:
-                            for col_alt in ['Tasa_Kg_Hora', 'Kg_Hora', 'kg_per_hour', 'rate', 'Kilos_Hora']:
-                                if col_alt in df_req.columns:
-                                    df_req['Kilos_por_Hora'] = df_req[col_alt]
-                                    break
-                            else:
-                                df_req['Kilos_por_Hora'] = 3000 # Valor por defecto seguro
-                                
-                        df_req['Horas_Necesarias'] = df_req['Entradas_Netas'] / df_req['Kilos_por_Hora'].replace(0, 1)
-                        
-                        # --- BLINDAJE 2: ASEGURAR QUE COL_MAQ EXISTA EN DF_REQ ---
-                        if col_maq not in df_req.columns:
-                            for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
-                                if alt_c in df_req.columns:
-                                    col_maq = alt_c
-                                    break
-                            else:
-                                df_req[col_maq] = 'Línea Genérica'
+                        df_mps_concat = pd.concat(mps_g.values()).rename_axis('Date').reset_index()
+                        df_mps_concat['Carga_Total_Kg'] = df_mps_concat['Entradas_Netas'] + df_mps_concat['Recepciones_ERP']
+                        df_mps_pos = df_mps_concat[df_mps_concat['Carga_Total_Kg'] > 0].copy()
 
-                        # --- BLINDAJE 3: ASEGURAR COLUMNA DE FECHA EN DF_REQ ---
-                        if 'Date' not in df_req.columns:
-                            for col_f in ['Fecha', 'date', 'fecha', 'Periodo', 'Mes']:
-                                if col_f in df_req.columns:
-                                    df_req = df_req.rename(columns={col_f: 'Date'})
-                                    break
-                            else:
-                                df_req['Date'] = pd.Timestamp.today().replace(day=1)
+                        df_rutas_clean = df_rutas.copy()
+                        df_rutas_clean['sku cod'] = df_rutas_clean['sku cod'].astype(str).str.strip()
+                        df_mps_pos['sku cod'] = df_mps_pos['sku cod'].astype(str).str.strip()
 
-                        # --- BLINDAJE 4: NORMALIZAR COLUMNAS DE DISPONIBILIDAD EN DF_CAL ---
-                        if df_cal is not None and not df_cal.empty:
-                            for col_hd in ['Horas_Disponibles', 'Horas_Disponibles_Mes', 'Capacidad_Max_Horas', 'available_hours', 'Horas', 'Capacidad']:
-                                if col_hd in df_cal.columns and 'Horas_Disponibles' not in df_cal.columns:
-                                    df_cal = df_cal.rename(columns={col_hd: 'Horas_Disponibles'})
-                                    break
-                            if 'Horas_Disponibles' not in df_cal.columns:
-                                df_cal['Horas_Disponibles'] = 160  # Valor estándar por defecto
+                        df_req = pd.merge(df_mps_pos, df_rutas_clean, on='sku cod', how='inner')
 
-                        # Sincronizar columna de máquina/línea en el calendario si difiere
-                        if col_maq not in df_cal.columns:
-                            for alt_c in ['Linea', 'Maquina', 'work_center', 'Planta']:
-                                if alt_c in df_cal.columns:
-                                    df_cal = df_cal.rename(columns={alt_c: col_maq})
-                                    break
-                        if col_maq not in df_cal.columns:
-                            df_cal[col_maq] = col_maq # Valor por defecto si no existe en calendario
-
-                        df_cal['Date'] = pd.to_datetime(df_cal['Date'], errors='coerce', dayfirst=True)
-                        df_req['Date'] = pd.to_datetime(df_req['Date'], errors='coerce', dayfirst=True)
-                        
-                        if maq_sel == "TODOS":
-                            df_capacidad = pd.merge(
-                                df_req.groupby(['Date', col_maq])['Horas_Necesarias'].sum().reset_index(), 
-                                df_cal, 
-                                on=['Date', col_maq], 
-                                how='left'
-                            ).fillna({'Horas_Disponibles': 160})
-                            
-                            df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
-                            df_pivot = df_capacidad.pivot(index=col_maq, columns='Date', values='Utilizacion').fillna(0)
-                            df_pivot.columns = df_pivot.columns.strftime('%Y-%m')
-                            
-                            st.markdown("#### % Utilización / Utilization")
-                            try:
-                                st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.0f}%"), width="stretch")
-                            except:
-                                st.dataframe(df_pivot.style.format("{:.0f}%"), width="stretch")
+                        if df_req.empty:
+                            st.warning("⚠️ Ningún SKU con necesidad de producción cruza con la tabla '5. Rutas / Routing'.")
                         else:
-                            df_req_maq = df_req[df_req[col_maq] == maq_sel]
-                            if not df_req_maq.empty:
-                                fig_cap = px.bar(
-                                    df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(), 
-                                    x='Date', 
-                                    y='Horas_Necesarias', 
-                                    color='sku desc', 
-                                    title=f"Carga vs Capacidad: {maq_sel}"
-                                )
-                                
-                                df_cal_maq = df_cal[df_cal[col_maq] == maq_sel] if col_maq in df_cal.columns else df_cal
-                                merged_line = pd.merge(
-                                    df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(), 
-                                    df_cal_maq, 
-                                    on='Date', 
+                            df_req['Kilos_por_Hora'] = pd.to_numeric(df_req['Kilos_por_Hora'], errors='coerce').fillna(1).replace(0, 1)
+                            df_req['Horas_Necesarias'] = df_req['Carga_Total_Kg'] / df_req['Kilos_por_Hora']
+
+                            df_cal_clean = df_cal.copy()
+                            df_cal_clean['Date'] = pd.to_datetime(df_cal_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+                            df_cal_clean['Horas_Disponibles'] = pd.to_numeric(df_cal_clean['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)
+                            df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+
+                            if maq_sel == "TODOS":
+                                df_capacidad = pd.merge(
+                                    df_req.groupby(['Date', 'Maquina'])['Horas_Necesarias'].sum().reset_index(),
+                                    df_cal_clean,
+                                    on=['Date', 'Maquina'],
                                     how='left'
-                                ).fillna({'Horas_Disponibles': 0})
+                                ).fillna({'Horas_Disponibles': 740})
                                 
-                                fig_cap.add_trace(go.Scatter(
-                                    x=merged_line['Date'], 
-                                    y=merged_line['Horas_Disponibles'], 
-                                    mode='lines', 
-                                    name='Max Hours', 
-                                    line=dict(color='red', width=3, dash='dash')
-                                ))
+                                df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
+                                df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
+                                df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
                                 
-                                fig_cap.update_layout(yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
-                                st.plotly_chart(fig_cap, use_container_width=True)
+                                st.markdown("#### % Utilización / Utilization")
+                                try:
+                                    st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
+                                except Exception:
+                                    st.dataframe(df_pivot.style.format("{:.1f}%"), use_container_width=True)
                             else:
-                                st.warning(f"No hay demanda asignada para la línea: {maq_sel}")
+                                df_req_maq = df_req[df_req['Maquina'] == maq_sel]
+                                if not df_req_maq.empty:
+                                    fig_cap = px.bar(
+                                        df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(),
+                                        x='Date',
+                                        y='Horas_Necesarias',
+                                        color='sku desc',
+                                        title=f"Carga vs Capacidad: {maq_sel}"
+                                    )
+                                    df_cal_maq = df_cal_clean[df_cal_clean['Maquina'] == maq_sel]
+                                    merged_line = pd.merge(
+                                        df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(),
+                                        df_cal_maq,
+                                        on='Date',
+                                        how='left'
+                                    ).fillna({'Horas_Disponibles': 740})
+                                    
+                                    fig_cap.add_trace(go.Scatter(
+                                        x=merged_line['Date'],
+                                        y=merged_line['Horas_Disponibles'],
+                                        mode='lines',
+                                        name='Max Hours',
+                                        line=dict(color='red', width=3, dash='dash')
+                                    ))
+                                    fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title="Horas", barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
+                                    st.plotly_chart(fig_cap, use_container_width=True)
+                                else:
+                                    st.warning(f"No hay demanda asignada para la línea: {maq_sel}")
+
+# ==========================================
+# MODULO 5: FINANZAS
+# ==========================================
 with tab_fin:
     if "tab5" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Finanzas.")
     else:
         st.subheader("Financial Valuation & Working Capital (GBP)")
-        if not dict_price: 
+        if not dict_price:
             st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
         else:
             col1, col2 = st.columns(2)
             with col1:
                 nivel_pl = st.selectbox("📊 Level of Analysis:", ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"])
                 filtro_pl = None
-                if nivel_pl == "Por País": 
+                if nivel_pl == "Por País":
                     filtro_pl = st.selectbox("Country:", sorted(df['País'].dropna().unique()))
-                elif nivel_pl == "Por Cliente": 
+                elif nivel_pl == "Por Cliente":
                     filtro_pl = st.selectbox("Customer:", sorted(df['customer cod'].dropna().unique()))
-                elif nivel_pl == "Por SKU": 
+                elif nivel_pl == "Por SKU":
                     filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
             with col2:
                 vista_wc = st.selectbox("📦 Working Capital View:", ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
                 
             if st.button("📈 Calculate Finance"):
                 with st.spinner("Processing P&L (Optimized)..."):
-                    
                     if nivel_pl == "Por País":
                         df_fin_target = df[df['País'] == filtro_pl]
                         group_cols = ['País', 'sku cod']
@@ -1260,31 +1272,35 @@ with tab_fin:
                         pais = keys[0] if nivel_pl == "Por País" else "Varios"
                         cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
 
-                        if 'Rev_GBP' in df_grupo.columns:
-                            df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
-                            df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
-                            df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
-                            lista_pl.append(df_hist)
+                        df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
+                        df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
+                        df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
+                        lista_pl.append(df_hist)
 
                         serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
                         df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
                         
                         aj_filtro = st.session_state['df_ajustes']
-                        if nivel_pl == "Por País": 
+                        if nivel_pl == "Por País":
                             aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        elif nivel_pl == "Por Cliente": 
+                        elif nivel_pl == "Por Cliente":
                             aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        else: 
+                        else:
                             aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
 
                         if not aj_filtro.empty:
-                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True)
+                            aj_filtro = aj_filtro.copy()
+                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True, errors='coerce')
                             for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                                if f.replace(day=1) in df_fcst.index: 
+                                if f.replace(day=1) in df_fcst.index:
                                     df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
                         
                         precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
-                        df_res = pd.DataFrame({'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku, 'Revenue_GBP': df_fcst['Consenso'].values * precio, 'Margin_GBP': df_fcst['Consenso'].values * margen})
+                        df_res = pd.DataFrame({
+                            'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku,
+                            'Revenue_GBP': df_fcst['Consenso'].values * precio,
+                            'Margin_GBP': df_fcst['Consenso'].values * margen
+                        })
                         lista_pl.append(df_res)
                         
                     df_plot_pl = pd.concat(lista_pl) if lista_pl else pd.DataFrame()
@@ -1295,23 +1311,35 @@ with tab_fin:
                         df_plot_pl = df_plot_pl.groupby('Date')[['Revenue_GBP', 'Margin_GBP']].sum().reset_index()
                     
                     mps_g = generar_mps_global()
-                    lista_wc_pt = [pd.DataFrame({'Date': mps_g[sku].index, 'Elemento': sku, 'WorkingCapital_GBP': mps_g[sku]['Stock_Final'].values * (dict_price.get(sku, 0) - dict_margin.get(sku, 0)) * (fx_eur_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'EUR' else (fx_dkk_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'DKK' else (fx_pln_gbp if str(dict_currency.get(sku, 'EUR')).strip().upper() == 'PLN' else 1.0))), 'Categoria': 'Producto Terminado'}) for sku in mps_g if sku in skus_validos]
+                    lista_wc_pt = [
+                        pd.DataFrame({
+                            'Date': mps_g[sku].index,
+                            'Elemento': sku,
+                            'WorkingCapital_GBP': mps_g[sku]['Stock_Final'].values * max(0.0, dict_price.get(sku, 0) - dict_margin.get(sku, 0)),
+                            'Categoria': 'Producto Terminado'
+                        })
+                        for sku in mps_g if sku in skus_validos
+                    ]
                     df_wc_pt_filtrado = pd.concat(lista_wc_pt) if lista_wc_pt else pd.DataFrame()
                     
                     df_mrp = generar_mrp_global()
                     lista_wc_mp = []
-                    if not df_mrp.empty and df_stock is not None and 'Coste_Unitario' in df_stock.columns:
+                    if not df_mrp.empty and df_stock is not None:
                         for rm_cod, df_rm in df_mrp.groupby('rm cod'):
                             coste_rm_serie = df_stock.loc[df_stock['sku cod'] == rm_cod, 'Coste_Unitario'].values
                             val_coste = float(coste_rm_serie[0]) if len(coste_rm_serie) > 0 and pd.notna(coste_rm_serie[0]) else 0.0
-                            lista_wc_mp.append(pd.DataFrame({'Date': df_rm['Date'], 'Elemento': rm_cod, 'WorkingCapital_GBP': df_rm['Stock_Final'].values * val_coste, 'Categoria': 'Materia Prima'}))
+                            lista_wc_mp.append(pd.DataFrame({
+                                'Date': df_rm['Date'],
+                                'Elemento': rm_cod,
+                                'WorkingCapital_GBP': df_rm['Stock_Final'].values * val_coste * fx_eur_gbp,
+                                'Categoria': 'Materia Prima'
+                            }))
                     
                     df_wc_mp = pd.concat(lista_wc_mp) if lista_wc_mp else pd.DataFrame()
-                    rms_validos = df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique() if (df_bom is not None and not df_bom.empty and 'sku cod' in df_bom.columns) else []
+                    rms_validos = df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique() if (df_bom is not None and not df_bom.empty) else []
                     df_wc_mp_filtrado = df_wc_mp[df_wc_mp['Elemento'].isin(rms_validos)] if not df_wc_mp.empty else pd.DataFrame()
                     df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado]) if not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty else pd.DataFrame()
 
-                    # Si no hay archivo de stock cargado, el Working Capital se anula limpiamente para evitar saltos raros
                     if df_stock is None or df_stock.empty:
                         df_plot_pl['WC_PT_GBP'] = 0
                         df_plot_pl['WC_MP_GBP'] = 0
@@ -1320,11 +1348,17 @@ with tab_fin:
                     
                     if not df_wc_total.empty and not df_plot_pl.empty:
                         df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0)
-                        if 'Producto Terminado' not in df_wc_pivot.columns: df_wc_pivot['Producto Terminado'] = 0
-                        if 'Materia Prima' not in df_wc_pivot.columns: df_wc_pivot['Materia Prima'] = 0
-                        df_plot_pl = pd.merge(df_plot_pl, df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']], on='Date', how='left').fillna(0)
+                        if 'Producto Terminado' not in df_wc_pivot.columns:
+                            df_wc_pivot['Producto Terminado'] = 0
+                        if 'Materia Prima' not in df_wc_pivot.columns:
+                            df_wc_pivot['Materia Prima'] = 0
+                        df_plot_pl = pd.merge(
+                            df_plot_pl,
+                            df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']],
+                            on='Date', how='left'
+                        ).fillna(0)
                         df_plot_pl['WC_Total_GBP'] = df_plot_pl['WC_PT_GBP'] + df_plot_pl['WC_MP_GBP']
-                    elif not df_plot_pl.empty: 
+                    elif not df_plot_pl.empty:
                         df_plot_pl['WC_PT_GBP'], df_plot_pl['WC_MP_GBP'], df_plot_pl['WC_Total_GBP'] = 0, 0, 0
 
                     if not df_plot_pl.empty:
@@ -1345,20 +1379,27 @@ with tab_fin:
                         fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
                         st.plotly_chart(fig_pl, use_container_width=True)
 
-                        if vista_wc == "Total (PT + MP)" and not df_wc_total.empty: 
+                        if vista_wc == "Total (PT + MP)" and not df_wc_total.empty:
                             fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'])['WorkingCapital_GBP'].sum().reset_index(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
                             st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                        elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty: 
+                        elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty:
                             fig_wc = px.area(df_wc_pt_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (PT): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Blues_r)
                             st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                        elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty: 
+                        elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty:
                             fig_wc = px.area(df_wc_mp_filtrado, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC (MP): {titulo_estrategico}", color_discrete_sequence=px.colors.sequential.Mint_r)
                             st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
                                 
                         df_plot_pl.set_index('Date', inplace=True)
                         df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
-                        st.dataframe(df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"}).style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}), width="stretch")
+                        st.dataframe(
+                            df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"})
+                            .style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}),
+                            use_container_width=True
+                        )
 
+# ==========================================
+# MODULO 6: EJECUCIÓN ERP
+# ==========================================
 with tab_ejec:
     if "tab6" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.")
@@ -1379,14 +1420,12 @@ with tab_ejec:
 
             st.info(f"📅 **Mes Objetivo de Ejecución (Nuevos Lanzamientos):** {base_date.strftime('%Y-%m')}")
 
-            # 1. NUEVAS Órdenes de Fabricación a lanzar en el ERP (PT)
             st.markdown("### 🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP")
             df_fab_lanzar = df_mps_all[(df_mps_all['Date'] == mes_objetivo) & (df_mps_all['Entradas_Netas'] > 0)].copy()
 
             if df_fab_lanzar.empty:
                 st.success("✅ Todo cubierto. No necesitas lanzar nuevas órdenes de PT para el Mes 1.")
             else:
-                # Cálculo del día estimado de lanzamiento según cobertura del stock inicial + ERP
                 dias_autonomia_pt = np.where(
                     df_fab_lanzar['Salidas_Brutas'] > 0,
                     ((df_fab_lanzar['Stock_Inicial'] + df_fab_lanzar['Recepciones_ERP']) / df_fab_lanzar['Salidas_Brutas']) * 30,
@@ -1409,14 +1448,13 @@ with tab_ejec:
                         'Stock_Final': '{:,.0f} Kg',
                         'DOH': '{:.0f}'
                     }).map(estilo_doh, subset=['DOH']),
-                    width="stretch",
+                    use_container_width=True,
                     hide_index=True
                 )
 
-            # 2. NUEVOS Pedidos de Compra a lanzar a Proveedores (MP)
             st.markdown("### 🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores")
             if mrp_exec is None or mrp_exec.empty:
-                st.info("👈 Carga el archivo de BOM para calcular los lanzamientos de compra.")
+                st.info("👈 Carga el archivo de BOM y Stock para calcular los lanzamientos de compra.")
             else:
                 col_lanz = 'Lanzamiento_Pedidos' if 'Lanzamiento_Pedidos' in mrp_exec.columns else 'Entradas_Netas'
                 df_cmp_lanzar = mrp_exec[(mrp_exec['Date'] == mes_objetivo) & (mrp_exec[col_lanz] > 0)].copy()
@@ -1424,7 +1462,6 @@ with tab_ejec:
                 if df_cmp_lanzar.empty:
                     st.success("✅ Todo cubierto. No necesitas emitir nuevos pedidos de Materia Prima para el Mes 1.")
                 else:
-                    # Cálculo del día estimado de emisión del PO según autonomía de stock disponible
                     dias_autonomia_rm = np.where(
                         df_cmp_lanzar['Salidas_Brutas'] > 0,
                         ((df_cmp_lanzar['Stock_Inicial'] + df_cmp_lanzar['Recepciones_ERP']) / df_cmp_lanzar['Salidas_Brutas']) * 30,
@@ -1446,64 +1483,74 @@ with tab_ejec:
                     if 'DOH' in df_cmp_lanzar.columns:
                         styler_cmp = styler_cmp.map(estilo_doh, subset=['DOH'])
                         
-                    st.dataframe(styler_cmp, width="stretch", hide_index=True)
+                    st.dataframe(styler_cmp, use_container_width=True, hide_index=True)
+
+# ==========================================
+# MODULO 7: ABC / XYZ
+# ==========================================
 with tab_abc:
     if "tab7" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.")
     else:
         st.subheader("🔠 Segmentación Estratégica ABC / XYZ")
         
-        if 'df_abcxyz_global' in locals() and df_abcxyz_global is not None and not df_abcxyz_global.empty:
-            df_abcxyz_show = pd.merge(df_abcxyz_global, df[['sku cod', 'sku desc']].drop_duplicates(), on='sku cod', how='left')
+        if df_abcxyz_global is not None and not df_abcxyz_global.empty:
+            df_abcxyz_show = df_abcxyz_global.copy()
             
-            if 'dict_margin' in locals() and dict_margin:
+            if dict_margin:
                 st.markdown("### 🫧 Matriz de Riesgo vs Rentabilidad")
                 st.markdown("Identifica visualmente las 'Estrellas' (rentables y estables) frente a los 'Tóxicos' (bajo margen y altamente erráticos).")
                 
-                df_abcxyz_show['Margen Unitario'] = df_abcxyz_show['sku cod'].map(dict_margin).fillna(0)
+                df_abcxyz_show['Margen Unitario'] = df_abcxyz_show['sku cod'].map(dict_margin).replace([np.inf, -np.inf], 0).fillna(0.0)
                 df_plot = df_abcxyz_show[df_abcxyz_show['volume'] > 0].copy()
+                df_plot['CV'] = pd.to_numeric(df_plot['CV'], errors='coerce').replace([np.inf, -np.inf], 0).fillna(0.0)
+                df_plot['Margen Unitario'] = pd.to_numeric(df_plot['Margen Unitario'], errors='coerce').replace([np.inf, -np.inf], 0).fillna(0.0)
+                df_plot['volume'] = pd.to_numeric(df_plot['volume'], errors='coerce').fillna(1.0).clip(lower=1.0)
+                df_plot['sku desc'] = df_plot['sku desc'].fillna(df_plot['sku cod'].astype(str)).astype(str)
                 
-                fig_bubble = px.scatter(
-                    df_plot, x='CV', y='Margen Unitario', size='volume', color='Clase', hover_name='sku desc',
-                    hover_data={'sku cod': True, 'CV': ':.2f', 'Margen Unitario': ':.2f', 'volume': ':,.0f', 'Clase': False},
-                    labels={"CV": "Riesgo / Volatilidad (CV)", "Margen Unitario": "Margen Bruto Unitario (£)", "volume": "Volumen (Kg)"},
-                    size_max=45, color_discrete_sequence=px.colors.qualitative.Bold
-                )
-                fig_bubble.add_vline(x=0.5, line_width=1, line_dash="dash", line_color="gray", annotation_text="X | Y")
-                fig_bubble.add_vline(x=1.0, line_width=1, line_dash="dash", line_color="gray", annotation_text="Y | Z")
-                margen_medio = df_plot['Margen Unitario'].median()
-                fig_bubble.add_hline(y=margen_medio, line_width=1, line_dash="dash", line_color="gray", annotation_text="Margen Medio")
-                fig_bubble.update_layout(plot_bgcolor='white', height=500, margin=dict(l=20, r=20, t=30, b=20))
-                fig_bubble.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
-                fig_bubble.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
-                
-                st.plotly_chart(fig_bubble, use_container_width=True)
-                st.info("👈 **Cuadrante Superior Izquierdo:** Estrellas (Alto Margen, Demanda Estable). 👉 **Cuadrante Inferior Derecho:** Tóxicos (Bajo Margen, Demanda Errática).")
-                st.divider()
+                if not df_plot.empty:
+                    fig_bubble = px.scatter(
+                        df_plot, x='CV', y='Margen Unitario', size='volume', color='Clase', hover_name='sku desc',
+                        hover_data={'sku cod': True, 'CV': ':.2f', 'Margen Unitario': ':.2f', 'volume': ':,.0f', 'Clase': False},
+                        labels={"CV": "Riesgo / Volatilidad (CV)", "Margen Unitario": "Margen Bruto Unitario (£)", "volume": "Volumen (Kg)"},
+                        size_max=45, color_discrete_sequence=px.colors.qualitative.Bold
+                    )
+                    fig_bubble.add_vline(x=0.5, line_width=1, line_dash="dash", line_color="gray", annotation_text="X | Y")
+                    fig_bubble.add_vline(x=1.0, line_width=1, line_dash="dash", line_color="gray", annotation_text="Y | Z")
+                    margen_medio = float(df_plot['Margen Unitario'].median())
+                    fig_bubble.add_hline(y=margen_medio, line_width=1, line_dash="dash", line_color="gray", annotation_text="Margen Medio")
+                    fig_bubble.update_layout(plot_bgcolor='white', height=500, margin=dict(l=20, r=20, t=30, b=20))
+                    fig_bubble.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                    fig_bubble.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
+                    
+                    st.plotly_chart(fig_bubble, use_container_width=True)
+                    st.info("👈 **Cuadrante Superior Izquierdo:** Estrellas (Alto Margen, Demanda Estable). 👉 **Cuadrante Inferior Derecho:** Tóxicos (Bajo Margen, Demanda Errática).")
+                    st.divider()
 
             col_mat1, col_mat2 = st.columns([1, 2])
             with col_mat1:
                 st.markdown("#### Distribución de SKUs")
                 resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
-                resumen_matriz = resumen_matriz.reindex(index=['A','B','C'], columns=['X','Y','Z'], fill_value=0)
-                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), width="stretch")
+                resumen_matriz = resumen_matriz.reindex(index=['A', 'B', 'C'], columns=['X', 'Y', 'Z'], fill_value=0)
+                st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
                 
             with col_mat2:
                 st.markdown("#### Detalle de Clasificación")
                 filtro_clase = st.multiselect("Filtrar por Clase (ej. AX, CZ):", sorted(df_abcxyz_show['Clase'].unique()))
                 df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
-                df_show_abc['sku desc'] = df_show_abc.get('sku desc', df_show_abc['sku cod'])
-                df_show_abc['Margen Unitario'] = df_show_abc.get('Margen Unitario', 0.25)
 
                 st.dataframe(
                     df_show_abc[['sku cod', 'sku desc', 'Clase', 'volume', 'CV', 'Margen Unitario']]
                     .rename(columns={'volume': 'Volumen', 'CV': 'Volatilidad (CV)'})
-                    .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}), 
+                    .style.format({"Volumen": "{:,.0f}", "Volatilidad (CV)": "{:.2f}", "Margen Unitario": "{:.2f}"}),
                     use_container_width=True
                 )
 
-with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de Excepciones)
-    if "tab8" not in modulos_permitidos and "8. Excepciones" not in modulos_permitidos and "tab_exc" not in modulos_permitidos:
+# ==========================================
+# MODULO 8: EXCEPCIONES
+# ==========================================
+with tab_exc:
+    if "tab8" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Panel de Excepciones.")
     else:
         st.subheader("🚨 Panel de Excepciones (Management by Exception)")
@@ -1523,11 +1570,10 @@ with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de 
 
             col_pt, col_mp = st.columns(2)
 
-            # 1. Columna Producto Terminado (PT)
             with col_pt:
                 st.markdown("### 📦 Producto Terminado")
                 df_pt_m1 = df_mps_all[
-                    (df_mps_all['Date'] == mes_m1) & 
+                    (df_mps_all['Date'] == mes_m1) &
                     ((df_mps_all['DOH'] < 15) | (df_mps_all['DOH'] > 60))
                 ].copy()
 
@@ -1535,8 +1581,8 @@ with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de 
                     st.success("✅ Sin alertas para M1.")
                 else:
                     df_pt_m1['Tipo_Alerta'] = np.where(
-                        df_pt_m1['DOH'] < 15, 
-                        '🔴 Riesgo Rotura (<15d)', 
+                        df_pt_m1['DOH'] < 15,
+                        '🔴 Riesgo Rotura (<15d)',
                         '🟠 Sobrestock / Exceso ERP (>60d)'
                     )
                     df_pt_m1['Accion_Sugerida'] = np.where(
@@ -1553,19 +1599,18 @@ with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de 
                             'Stock_Final': '{:,.0f} Kg',
                             'Recepciones_ERP': '{:,.0f} Kg'
                         }).map(estilo_doh, subset=['DOH']),
-                        width="stretch",
+                        use_container_width=True,
                         hide_index=True
                     )
 
-            # 2. Columna Materias Primas (MP)
             with col_mp:
                 st.markdown("### 🧩 Materias Primas")
                 if mrp_exc is None or mrp_exc.empty:
-                    st.info("👈 Carga el BOM para evaluar alertas de MP.")
+                    st.info("👈 Carga el BOM y Stock para evaluar alertas de MP.")
                 else:
                     mrp_exc['Date'] = pd.to_datetime(mrp_exc['Date'])
                     df_mp_m1 = mrp_exc[
-                        (mrp_exc['Date'] == mes_m1) & 
+                        (mrp_exc['Date'] == mes_m1) &
                         ((mrp_exc['DOH'] < 15) | (mrp_exc['DOH'] > 60))
                     ].copy()
 
@@ -1573,8 +1618,8 @@ with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de 
                         st.success("✅ Sin alertas para M1.")
                     else:
                         df_mp_m1['Tipo_Alerta'] = np.where(
-                            df_mp_m1['DOH'] < 15, 
-                            '🔴 Riesgo Rotura (<15d)', 
+                            df_mp_m1['DOH'] < 15,
+                            '🔴 Riesgo Rotura (<15d)',
                             '🟠 Exceso PO / Sobrestock (>60d)'
                         )
                         df_mp_m1['Accion_Sugerida'] = np.where(
@@ -1591,9 +1636,13 @@ with tab_exc:  # (mantén aquí el nombre exacto de tu variable with tab...: de 
                                 'Stock_Final': '{:,.0f} Kg',
                                 'Recepciones_ERP': '{:,.0f} Kg'
                             }).map(estilo_doh, subset=['DOH']),
-                            width="stretch",
+                            use_container_width=True,
                             hide_index=True
                         )
+
+# ==========================================
+# MODULO 9: WHAT-IF
+# ==========================================
 with tab_whatif:
     if "tab9" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Simulador What-If.")
@@ -1605,12 +1654,15 @@ with tab_whatif:
             st.warning("⚠️ Necesitas cargar datos históricos que incluyan 'revenue' y 'margin'.")
         else:
             col_w1, col_w2, col_w3 = st.columns(3)
-            with col_w1: shock_vol = st.slider("📈 Variación Volumen (%)", -50, 50, 0, step=5)
-            with col_w2: shock_precio = st.slider("🏷️ Variación Precios (%)", -30, 30, 0, step=5)
-            with col_w3: shock_coste = st.slider("💸 Variación Costes MP (%)", -30, 50, 0, step=5)
+            with col_w1:
+                shock_vol = st.slider("📈 Variación Volumen (%)", -50, 50, 0, step=5)
+            with col_w2:
+                shock_precio = st.slider("🏷️ Variación Precios (%)", -30, 30, 0, step=5)
+            with col_w3:
+                shock_coste = st.slider("💸 Variación Costes MP (%)", -30, 50, 0, step=5)
             st.divider()
             
-            if 'df_final' in locals() and not df_final.empty:
+            if not df_final.empty:
                 df_base, df_sim = motor_simulador_whatif(df_final, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, horizonte, usar_limpieza_outliers, shock_vol, shock_precio, shock_coste)
                 
                 tot_rev_base = df_base['Revenue'].sum() if not df_base.empty else 0
@@ -1635,39 +1687,49 @@ with tab_whatif:
                 fig_wi.update_layout(**LAYOUT_STYLE, barmode='group', title="Impacto Financiero (GBP)", yaxis_title="GBP (£)")
                 st.plotly_chart(fig_wi, use_container_width=True)
                 
-                st.divider()
-                st.markdown("### 📥 Exportar Informe Directivo")
-                pdf = FPDF()
-                pdf.add_page(); pdf.set_font("Arial", 'B', 16); pdf.set_text_color(30, 62, 91)
-                pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
-                pdf.set_font("Arial", size=10); pdf.set_text_color(100, 100, 100)
-                pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C'); pdf.ln(10)
-                pdf.set_font("Arial", 'B', 12); pdf.set_text_color(0, 0, 0)
-                pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
-                pdf.set_font("Arial", size=11)
-                pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
-                pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
-                pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True); pdf.ln(5)
-                pdf.set_font("Arial", 'B', 12)
-                pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
-                pdf.set_font("Arial", size=11)
-                pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
-                pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {delta_rev:,.0f})", ln=True)
-                pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
-                pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True); pdf.ln(2)
-                pdf.set_font("Arial", 'B', 12)
-                pdf.set_text_color(0, 128, 0) if tot_mar_sim >= tot_mar_base else pdf.set_text_color(200, 0, 0)
-                pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {delta_mar:,.0f}", ln=True)
-                st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
+                if FPDF is not None:
+                    st.divider()
+                    st.markdown("### 📥 Exportar Informe Directivo")
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", 'B', 16)
+                    pdf.set_text_color(30, 62, 91)
+                    pdf.cell(0, 10, txt="S&OP What-If Scenario Analysis", ln=True, align='C')
+                    pdf.set_font("Arial", size=10)
+                    pdf.set_text_color(100, 100, 100)
+                    pdf.cell(0, 10, txt="Confidential - AB Agri Supply Chain", ln=True, align='C')
+                    pdf.ln(10)
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.set_text_color(0, 0, 0)
+                    pdf.cell(0, 10, txt="1. Scenario Parameters (Shocks Applied):", ln=True)
+                    pdf.set_font("Arial", size=11)
+                    pdf.cell(0, 8, txt=f"    - Volume Variation: {shock_vol}%", ln=True)
+                    pdf.cell(0, 8, txt=f"    - Sales Price Variation: {shock_precio}%", ln=True)
+                    pdf.cell(0, 8, txt=f"    - COGS / Raw Material Variation: {shock_coste}%", ln=True)
+                    pdf.ln(5)
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.cell(0, 10, txt="2. Financial Impact (Consolidated in GBP):", ln=True)
+                    pdf.set_font("Arial", size=11)
+                    pdf.cell(0, 8, txt=f"    - Baseline Revenue: GBP {tot_rev_base:,.0f}", ln=True)
+                    pdf.cell(0, 8, txt=f"    - Simulated Revenue: GBP {tot_rev_sim:,.0f} (Delta: {delta_rev:,.0f})", ln=True)
+                    pdf.cell(0, 8, txt=f"    - Baseline Margin: GBP {tot_mar_base:,.0f} ({mar_pct_base:.1f}%)", ln=True)
+                    pdf.cell(0, 8, txt=f"    - Simulated Margin: GBP {tot_mar_sim:,.0f} ({mar_pct_sim:.1f}%)", ln=True)
+                    pdf.ln(2)
+                    pdf.set_font("Arial", 'B', 12)
+                    pdf.set_text_color(0, 128, 0) if tot_mar_sim >= tot_mar_base else pdf.set_text_color(200, 0, 0)
+                    pdf.cell(0, 10, txt=f"    >>> TOTAL MARGIN IMPACT: GBP {delta_mar:,.0f}", ln=True)
+                    st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
 
+# ==========================================
+# MODULO 10: DASHBOARD EJECUTIVO
+# ==========================================
 with tab_kpis:
     if "tab10" not in modulos_permitidos:
         st.warning("🔒 No tienes permisos para acceder al Dashboard de KPIs.")
     else:
         st.subheader("📊 Executive Dashboard & Global KPIs")
-        if 'df_final' in locals() and df_final is not None and not df_final.empty and 'dict_price' in locals() and dict_price:
+        if df_final is not None and not df_final.empty and dict_price:
             with st.spinner("Consolidando datos filtrados..."):
-                
                 total_skus = df_final['sku cod'].nunique()
                 df_clientes = df_final.groupby('País')['customer cod'].nunique().reset_index()
                 df_clientes.columns = ['País', 'Clientes Activos']
@@ -1678,34 +1740,22 @@ with tab_kpis:
                 col_e1.metric("SKUs Activos (PT)", f"{total_skus}")
                 col_e2.metric("Total Clientes", f"{total_clientes}")
                 with col_e3:
-                    st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), width="stretch", hide_index=True)
+                    st.dataframe(df_clientes.style.format({"Clientes Activos": "{:,.0f}"}), use_container_width=True, hide_index=True)
                 
                 max_date_global = df['Date'].max()
                 min_date_12m = max_date_global - pd.DateOffset(months=11)
                 
                 df_12m = df_final[(df_final['Date'] >= min_date_12m) & (df_final['Date'] <= max_date_global)].copy()
                 vol_12m_hist = df_12m['volume'].sum() if not df_12m.empty else 0
+                rev_12m_hist = df_12m['Rev_GBP'].sum() if not df_12m.empty else 0
+                mar_12m_hist = df_12m['Mar_GBP'].sum() if not df_12m.empty else 0
                 
-                dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
-                if not df_12m.empty:
-                    df_12m['Precio'] = df_12m['sku cod'].map(dict_price).fillna(0)
-                    df_12m['Margen'] = df_12m['sku cod'].map(dict_margin).fillna(0)
-                    df_12m['Moneda'] = df_12m['sku cod'].map(dict_currency).fillna('EUR').str.upper().str.strip()
-                    df_12m['FX'] = df_12m['Moneda'].map(dict_fx).fillna(1.0)
-                    
-                    rev_12m_hist = (df_12m['volume'] * df_12m['Precio'] * df_12m['FX']).sum()
-                    mar_12m_hist = (df_12m['volume'] * df_12m['Margen'] * df_12m['FX']).sum()
-                else:
-                    rev_12m_hist, mar_12m_hist = 0, 0
-                
-                # Llamada corregida con el ancla temporal global y sangría unificada
                 vol_12m_fcst, rev_12m_fcst, mar_12m_fcst = motor_kpis_n12m(
-                    df_final, dict_price, dict_margin, dict_currency, 
-                    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, 
+                    df_final, dict_price, dict_margin, dict_currency,
+                    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp,
                     usar_limpieza_outliers, max_date_global, horiz=12
                 )
                 
-# --- MÉTRICAS DE FORECAST PERFORMANCE (FA, BIAS, WAPE) ---
                 st.divider()
                 st.markdown("#### 🎯 Fiabilidad del Modelo de Demanda (Forecast Performance - L12M)")
                 fa_val, bias_val, wape_val = calcular_kpis_forecast(df_final, usar_limpieza_outliers)
@@ -1720,93 +1770,88 @@ with tab_kpis:
                 col_h1, col_h2, col_h3 = st.columns(3)
                 col_h1.metric("Volumen L12M", f"{vol_12m_hist:,.0f} Kg")
                 col_h2.metric("Revenue L12M", f"£ {rev_12m_hist:,.0f}")
-                col_h3.metric("Margen L12M", f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist/rev_12m_hist*100) if rev_12m_hist else 0:.1f}%)")
+                col_h3.metric("Margen L12M", f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist / rev_12m_hist * 100) if rev_12m_hist else 0:.1f}%)")
                 
-                col_f1, col_f2, col_f3 = st.columns(3)
+                col_f1_k, col_f2_k, col_f3_k = st.columns(3)
                 delta_vol = vol_12m_fcst - vol_12m_hist
-                col_f1.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{delta_vol:,.0f} Kg vs L12M")
+                col_f1_k.metric("Volumen Proyectado N12M", f"{vol_12m_fcst:,.0f} Kg", f"{delta_vol:,.0f} Kg vs L12M")
                 delta_rev2 = rev_12m_fcst - rev_12m_hist
-                col_f2.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
+                col_f2_k.metric("Revenue Proyectado N12M", f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
                 delta_mar2 = mar_12m_fcst - mar_12m_hist
-                col_f3.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
+                col_f3_k.metric("Margen Proyectado N12M", f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
 
-                # ==========================================
-                # TABLA ANALÍTICA COMERCIAL (CON SEMÁFORO DE BIAS)
-                # ==========================================
                 st.divider()
                 st.subheader("📋 Rendimiento Comercial y Bias por Cliente y SKU (L12M)")
                 st.markdown("Desglose detallado de Volumen, Revenue, Margen y Sesgo Histórico (Bias) con alertas visuales.")
 
-                if df is not None and not df.empty and 'sku cod' in df.columns:
-                    col_cli_desc = next((c for c in df.columns if 'customer' in c.lower() and ('desc' in c.lower() or 'name' in c.lower() or 'nombre' in c.lower())), 'customer cod')
+                df_granular = df.groupby(['País', 'customer cod', 'customer desc', 'sku cod']).agg(
+                    Volumen_Kg=('volume', 'sum'),
+                    Revenue_GBP=('Rev_GBP', 'sum'),
+                    Margen_GBP=('Mar_GBP', 'sum')
+                ).reset_index().rename(columns={'customer desc': 'Cliente Desc'})
+                
+                df_granular['Margen %'] = np.where(
+                    df_granular['Revenue_GBP'] > 0,
+                    (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100,
+                    0.0
+                )
+                
+                df_reciente = df[df['Date'] >= (df['Date'].max() - pd.DateOffset(months=6))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Reciente')
+                df_antiguo = df[(df['Date'] < (df['Date'].max() - pd.DateOffset(months=6))) & (df['Date'] >= (df['Date'].max() - pd.DateOffset(months=12)))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Antiguo')
+                
+                df_granular = pd.merge(df_granular, df_reciente, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Reciente': 0})
+                df_granular = pd.merge(df_granular, df_antiguo, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Antiguo': 0})
+                
+                df_granular['Bias L6M (%)'] = np.where(
+                    df_granular['Vol_Antiguo'] > 0,
+                    ((df_granular['Vol_Reciente'] - df_granular['Vol_Antiguo']) / df_granular['Vol_Antiguo']) * 100,
+                    0.0
+                ).round(1)
+                
+                df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
+                df_granular = df_granular[['País', 'customer cod', 'Cliente Desc', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %', 'Bias L6M (%)']]
+                
+                col_g1, col_g2, col_g3 = st.columns(3)
+                with col_g1:
+                    filtro_pais_g = st.selectbox("País:", ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
+                with col_g2:
+                    filtro_cli_g = st.selectbox("Cliente:", ["TODOS"] + sorted(df_granular['Cliente Desc'].dropna().unique().tolist()), key="g_cli")
+                with col_g3:
+                    search_sku = st.text_input("🔍 Buscar SKU / Descripción:", placeholder="Escribe código o texto...")
                     
-                    df_granular = df.groupby(['País', 'customer cod', col_cli_desc, 'sku cod']).agg(
-                        Volumen_Kg=('volume', 'sum'),
-                        Revenue_GBP=('Rev_GBP', 'sum'),
-                        Margen_GBP=('Mar_GBP', 'sum')
-                    ).reset_index()
-                    
-                    df_granular = df_granular.rename(columns={col_cli_desc: 'Cliente Desc'})
-                    
-                    df_granular['Margen %'] = np.where(
-                        df_granular['Revenue_GBP'] > 0, 
-                        (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100, 
-                        0.0
+                if filtro_pais_g != "TODOS":
+                    df_granular = df_granular[df_granular['País'] == filtro_pais_g]
+                if filtro_cli_g != "TODOS":
+                    df_granular = df_granular[df_granular['Cliente Desc'] == filtro_cli_g]
+                if search_sku:
+                    query = search_sku.strip().lower()
+                    mask = (
+                        df_granular['sku cod'].astype(str).str.lower().str.contains(query) |
+                        df_granular['Descripción SKU'].astype(str).str.lower().str.contains(query) |
+                        df_granular['Cliente Desc'].astype(str).str.lower().str.contains(query)
                     )
+                    df_granular = df_granular[mask]
                     
-                    df_reciente = df[df['Date'] >= (df['Date'].max() - pd.DateOffset(months=6))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Reciente')
-                    df_antiguo = df[(df['Date'] < (df['Date'].max() - pd.DateOffset(months=6))) & (df['Date'] >= (df['Date'].max() - pd.DateOffset(months=12)))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Antiguo')
-                    
-                    df_granular = pd.merge(df_granular, df_reciente, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Reciente': 0})
-                    df_granular = pd.merge(df_granular, df_antiguo, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Antiguo': 0})
-                    
-                    df_granular['Bias L6M (%)'] = np.where(
-                        df_granular['Vol_Antiguo'] > 0,
-                        ((df_granular['Vol_Reciente'] - df_granular['Vol_Antiguo']) / df_granular['Vol_Antiguo']) * 100,
-                        0.0
-                    ).round(1)
-                    
-                    df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
-                    df_granular = df_granular[['País', 'customer cod', 'Cliente Desc', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %', 'Bias L6M (%)']]
-                    
-                    col_g1, col_g2, col_g3 = st.columns(3)
-                    with col_g1:
-                        filtro_pais_g = st.selectbox("País:", ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
-                    with col_g2:
-                        filtro_cli_g = st.selectbox("Cliente:", ["TODOS"] + sorted(df_granular['Cliente Desc'].dropna().unique().tolist()), key="g_cli")
-                    with col_g3:
-                        search_sku = st.text_input("🔍 Buscar SKU / Descripción:", placeholder="Escribe código o texto...")
-                        
-                    if filtro_pais_g != "TODOS":
-                        df_granular = df_granular[df_granular['País'] == filtro_pais_g]
-                    if filtro_cli_g != "TODOS":
-                        df_granular = df_granular[df_granular['Cliente Desc'] == filtro_cli_g]
-                    if search_sku:
-                        query = search_sku.strip().lower()
-                        mask = df_granular['sku cod'].astype(str).str.lower().str.contains(query) | df_granular['Descripción SKU'].str.lower().str.contains(query) | df_granular['Cliente Desc'].str.lower().str.contains(query)
-                        df_granular = df_granular[mask]
-                        
-                    def color_bias(val):
-                        if pd.isna(val): return ''
-                        if -5 <= val <= 5:
-                            return 'background-color: #e6ffe6; color: #006600; font-weight: bold;'
-                        elif -15 <= val < -5 or 5 < val <= 15:
-                            return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
-                        else:
-                            return 'background-color: #ffcccc; color: #900; font-weight: bold;'
+                def color_bias(val):
+                    if pd.isna(val):
+                        return ''
+                    if -5 <= val <= 5:
+                        return 'background-color: #e6ffe6; color: #006600; font-weight: bold;'
+                    elif -15 <= val < -5 or 5 < val <= 15:
+                        return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
+                    else:
+                        return 'background-color: #ffcccc; color: #900; font-weight: bold;'
 
-                    st.dataframe(
-                        df_granular.sort_values(by='Revenue_GBP', ascending=False)
-                        .style.format({
-                            "Volumen_Kg": "{:,.0f} Kg",
-                            "Revenue_GBP": "£ {:,.0f}",
-                            "Margen_GBP": "£ {:,.0f}",
-                            "Margen %": "{:.1f}%",
-                            "Bias L6M (%)": "{:+.1f}%"
-                        })
-                        .map(color_bias, subset=['Bias L6M (%)']),
-                        width="stretch",
-                        hide_index=True
-                    )
-                else:
-                    st.info("⚠️ Sube tu archivo de Ventas y Finanzas para consolidar los datos.")
+                st.dataframe(
+                    df_granular.sort_values(by='Revenue_GBP', ascending=False)
+                    .style.format({
+                        "Volumen_Kg": "{:,.0f} Kg",
+                        "Revenue_GBP": "£ {:,.0f}",
+                        "Margen_GBP": "£ {:,.0f}",
+                        "Margen %": "{:.1f}%",
+                        "Bias L6M (%)": "{:+.1f}%"
+                    })
+                    .map(color_bias, subset=['Bias L6M (%)']),
+                    use_container_width=True,
+                    hide_index=True
+                )
