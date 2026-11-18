@@ -1,5 +1,5 @@
 # ==============================================================================
-# S&OP / IBP CORPORATE PLATFORM - PARTE 1 DE 2 (CORE ENGINE & BIG DATA 2D MATRIX)
+# S&OP / IBP CORPORATE PLATFORM - INICIO PARTE 1 (HASTA DF_5_RUTAS)
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -285,11 +285,10 @@ def _pdf_safe(texto):
 
 
 # ==========================================
-# GENERADORES DE DATOS DEMO (LIGERO 5 SKUs Y BIG DATA STRESS-TEST 500 SKUs / 150k FILAS)
+# GENERADORES DE DATOS DEMO (LIGERO Y BIG DATA EQUILIBRADO)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def obtener_excels_demo_8_tablas():
-    """Genera los 8 DataFrames de Demo ligera (5 SKUs)."""
     np.random.seed(42)
     fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
     mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)
@@ -348,105 +347,6 @@ def obtener_excels_demo_8_tablas():
         {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
         for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
     ])[COLS_RUTAS]
-
-    maquinas_unicas = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
-    filas_cal = [{"Date": f, "Maquina": maq, "Horas_Disponibles": 740} for f in pd.date_range(start="2024-05-01", periods=48, freq="MS") for maq in maquinas_unicas]
-    df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
-
-    df_7_compras = pd.DataFrame([
-        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
-        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
-    ])[COLS_COMPRAS]
-
-    df_8_prod = pd.DataFrame([
-        {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
-        {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
-        {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 40000},
-    ])[COLS_PROD]
-
-    return {
-        "hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom,
-        "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod,
-    }
-
-
-@st.cache_data(show_spinner=False)
-def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, n_clientes=80):
-    """Genera un dataset masivo vectorizado para pruebas de estrés (150k ventas, 500 SKUs, 2.5k BOM)."""
-    np.random.seed(42)
-    paises = ["España", "UK", "Polonia", "Dinamarca"]
-    monedas_map = {"España": "EUR", "UK": "GBP", "Polonia": "PLN", "Dinamarca": "DKK"}
-    maquinas = ["Linea_1_Extrusion", "Linea_2_Mezcla", "Linea_3_Pellet", "Linea_4_Premix", "Linea_5_Liquidos", "Linea_6_BigBag"]
-
-    fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
-    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)
-    mes_m2 = mes_m1 + pd.DateOffset(months=1)
-    fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
-
-    sku_cods = [f"SKU-{i:04d}" for i in range(1, n_skus + 1)]
-    sku_descs = [f"PRODUCTO NUTRICION INDUSTRIAL {i:04d}" for i in range(1, n_skus + 1)]
-    rm_cods = [f"RM-{j:03d}" for j in range(1, n_rms + 1)]
-    rm_descs = [f"MATERIA PRIMA BASE {j:03d}" for j in range(1, n_rms + 1)]
-    cli_cods = [f"CLI-{k:04d}" for k in range(1, n_clientes + 1)]
-    cli_descs = [f"Corporacion Agroalimentaria {k:04d}" for k in range(1, n_clientes + 1)]
-
-    idx_sku = np.random.randint(0, n_skus, size=n_rows_hist)
-    idx_cli = np.random.randint(0, n_clientes, size=n_rows_hist)
-    idx_pais = idx_cli % len(paises)
-    idx_fecha = np.random.randint(0, len(fechas_hist), size=n_rows_hist)
-
-    vols = np.random.randint(500, 15000, size=n_rows_hist)
-    precios_base = np.random.uniform(0.8, 12.0, size=n_skus)
-    margenes_base = precios_base * np.random.uniform(0.18, 0.38, size=n_skus)
-
-    df_1_hist = pd.DataFrame({
-        "Date": fechas_hist[idx_fecha],
-        "País": np.array(paises)[idx_pais],
-        "customer cod": np.array(cli_cods)[idx_cli],
-        "customer desc": np.array(cli_descs)[idx_cli],
-        "sku cod": np.array(sku_cods)[idx_sku],
-        "sku desc": np.array(sku_descs)[idx_sku],
-        "volume": vols,
-        "revenue": np.round(vols * precios_base[idx_sku], 2),
-        "margin": np.round(vols * margenes_base[idx_sku], 2),
-        "currency": np.array([monedas_map[p] for p in paises])[idx_pais]
-    })[COLS_HIST]
-
-    df_2_ajustes = pd.DataFrame({
-        "Date": np.random.choice(fechas_fut[:6], size=300),
-        "País": np.random.choice(paises, size=300),
-        "customer cod": np.random.choice(cli_cods[:20], size=300),
-        "sku cod": np.random.choice(sku_cods[:50], size=300),
-        "override_value": np.random.randint(8000, 45000, size=300)
-    }).drop_duplicates(subset=["Date", "País", "customer cod", "sku cod"])[COLS_AJUSTES]
-
-    # Stock inicial moderado para garantizar necesidades de fabricación y explosión BOM activa en todos los RMs
-    df_3_stock = pd.DataFrame({
-        "sku cod": sku_cods + rm_cods,
-        "sku desc": sku_descs + rm_descs,
-        "stock_disponible": np.random.randint(1000, 15000, size=n_skus + n_rms),
-        "Cobertura_Meses": np.random.choice([1, 2], size=n_skus + n_rms, p=[0.65, 0.35]),
-        "LT_Meses": np.random.choice([0, 1, 2], size=n_skus + n_rms, p=[0.3, 0.5, 0.2]),
-        "Categoria": np.random.choice(["MTS", "MTO"], size=n_skus + n_rms, p=[0.85, 0.15]),
-        "Coste_Unitario": np.round(np.concatenate([precios_base - margenes_base, np.random.uniform(0.4, 5.0, size=n_rms)]), 2)
-    })[COLS_STOCK]
-
-    bom_sku_idx = np.repeat(np.arange(n_skus), 5)
-    # Garantizar que los 120 RMs estén presentes en al menos varios SKUs
-    bom_rm_idx = np.arange(len(bom_sku_idx)) % n_rms
-    np.random.shuffle(bom_rm_idx)
-    df_4_bom = pd.DataFrame({
-        "sku cod": np.array(sku_cods)[bom_sku_idx],
-        "rm cod": np.array(rm_cods)[bom_rm_idx],
-        "rm desc": np.array(rm_descs)[bom_rm_idx],
-        "Cantidad": np.round(np.random.uniform(0.05, 0.35, size=len(bom_sku_idx)), 4)
-    }).drop_duplicates(subset=["sku cod", "rm cod"])[COLS_BOM]
-
-    df_5_rutas = pd.DataFrame({
-        "sku cod": sku_cods,
-        "Maquina": np.random.choice(maquinas, size=n_skus),
-        "Kilos_por_Hora": np.random.randint(2000, 6500, size=n_skus)
-    })[COLS_RUTAS]
 
     filas_cal = [{"Date": f, "Maquina": m, "Horas_Disponibles": 740} for f in pd.date_range("2024-05-01", periods=48, freq="MS") for m in maquinas]
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
