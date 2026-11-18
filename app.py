@@ -192,7 +192,7 @@ def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
 
 
 def registrar_evento_fva_consenso(lista_eventos_fva):
-    """Registra en GitHub cada cambio de Forecast de Consenso para medir el FVA."""
+    """Registra en GitHub cada cambio de Forecast de Consenso o Snapshot para medir el FVA."""
     if not lista_eventos_fva:
         return
     df_fva = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
@@ -477,7 +477,7 @@ TEXTS = {
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa",
         "guide_desc": "El simulador cuenta con un motor MRP integrado, validación estricta de columnas y persistencia Cloud:",
-        "g_dem_t": "1. Demanda", "g_dem_d": "Holt-Winters sobre histórico. Prioriza Ajustes Consenso sincronizados en GitHub y mide el FVA.",
+        "g_dem_t": "1. Demanda", "g_dem_d": "Holt-Winters sobre histórico. Prioriza Ajustes Consenso en GitHub, congela Snapshots S&OP y evalúa el FVA Post-Mortem contra ventas reales.",
         "g_pro_t": "2. Producción (MPS)", "g_pro_d": "Absorbe órdenes del ERP. `Nuevas Órdenes = Demanda + Stock Obj - Stock Inic - Órdenes ERP`.",
         "g_com_t": "3. Compras (MRP)", "g_com_d": "Explosiona las Nuevas Órdenes de Producción. Absorbe Pedidos de Compra del ERP. Incluye Trazabilidad (Pegging).",
         "g_cap_t": "4. Capacidad", "g_cap_d": "Convierte Kilos a Horas y cruza con Calendario de plantas.",
@@ -493,7 +493,7 @@ TEXTS = {
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform",
         "guide_desc": "The simulator runs a full integrated MRP engine with strict column validation and Cloud persistence:",
-        "g_dem_t": "1. Demand", "g_dem_d": "Holt-Winters on history. Cloud Consensus Adjustments take priority and track FVA.",
+        "g_dem_t": "1. Demand", "g_dem_d": "Holt-Winters on history. Cloud Consensus Adjustments take priority, freeze S&OP Snapshots, and evaluate Post-Mortem FVA.",
         "g_pro_t": "2. Production (MPS)", "g_pro_d": "Absorbs ERP orders. `New Orders = Demand + Target Stock - Init Stock - ERP Orders`.",
         "g_com_t": "3. Purchasing (MRP)", "g_com_d": "Explodes New Production Orders. Absorbs ERP Purchase Orders. Includes Pegging.",
         "g_cap_t": "4. Capacity", "g_cap_d": "Converts Kilos to Hours and crosses against Plant Calendars.",
@@ -900,6 +900,52 @@ def aplicar_variacion_cliente(pais, cliente, pct):
         return False, str(e)
 
 
+def congelar_snapshot_ciclo_sop(df_target):
+    """Congela la foto fija (Estadístico vs Consenso) de todos los pares Cliente-SKU activos en GitHub."""
+    if df_target is None or df_target.empty:
+        return 0
+    ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
+    aj_all = st.session_state.get('df_ajustes', pd.DataFrame(columns=COLS_AJUSTES)).copy()
+    if not aj_all.empty:
+        aj_all['Date_M'] = pd.to_datetime(aj_all['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+
+    eventos_snap = []
+    for (p_val, c_val, s_val), g_sub in df_target.groupby(['País', 'customer cod', 'sku cod']):
+        s_mensual = g_sub.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
+        s_limpia = limpiar_anomalias(s_mensual) if usar_limpieza_outliers else s_mensual
+        fcst_est = calcular_forecast(s_limpia, min(horizonte, 6))  # Congelar primeros 6 meses del horizonte
+
+        mapa_ovr = {}
+        if not aj_all.empty:
+            sub_aj = aj_all[(aj_all['País'] == p_val) & (aj_all['customer cod'] == c_val) & (aj_all['sku cod'] == s_val)]
+            if not sub_aj.empty:
+                mapa_ovr = sub_aj.dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().to_dict()
+
+        for f_dt, val_e in fcst_est.items():
+            f_m = pd.to_datetime(f_dt).replace(day=1)
+            est_v = round(float(val_e), 2)
+            ovr_v = round(float(mapa_ovr.get(f_m, est_v)), 2)
+            delta_kg = round(ovr_v - est_v, 2)
+            delta_pct = round((delta_kg / est_v * 100), 1) if est_v > 0 else 0.0
+            eventos_snap.append({
+                "Fecha_Cambio (CET)": ahora_cet,
+                "Usuario": usuario_actual,
+                "Tipo_Ajuste": "Snapshot Ciclo S&OP",
+                "Date": f_m.strftime("%Y-%m-%d"),
+                "País": p_val,
+                "customer cod": c_val,
+                "sku cod": s_val,
+                "Forecast_Estadistico": est_v,
+                "Consenso_Override": ovr_v,
+                "Delta_Kg": delta_kg,
+                "Delta_Pct_FVA": delta_pct
+            })
+
+    if eventos_snap:
+        registrar_evento_fva_consenso(eventos_snap)
+    return len(eventos_snap)
+
+
 @st.cache_data(show_spinner=False)
 def calcular_kpis_forecast(df_in, usar_outliers):
     if df_in is None or df_in.empty:
@@ -1197,7 +1243,7 @@ def generar_pdf_executive_sop_deck(
     if not df_fva_hist.empty and 'Delta_Kg' in df_fva_hist.columns:
         tot_cambios = len(df_fva_hist)
         delta_neto_fva = pd.to_numeric(df_fva_hist['Delta_Kg'], errors='coerce').fillna(0).sum()
-        pdf.cell(0, 6, txt=_pdf_safe(f"   - Gobernanza Consenso (FVA Cloud): {tot_cambios} overrides registrados | Impacto Neto: {delta_neto_fva:+,.0f} Kg"), ln=True)
+        pdf.cell(0, 6, txt=_pdf_safe(f"   - Gobernanza Consenso (FVA Cloud): {tot_cambios} registros en log | Impacto Neto: {delta_neto_fva:+,.0f} Kg"), ln=True)
     pdf.ln(5)
 
     # 3. Top Alertas de Excepciones en Mes 1 (PT y MP)
@@ -1333,7 +1379,7 @@ with tab_guia:
     st.markdown("**📊 10. Dashboard**: Incluye KPIs ejecutivos L12M vs N12M y exportación directa del **Executive S&OP Deck (PDF)**.")
 
 # ==========================================
-# MODULO 1: DEMANDA + PERSISTENCIA CLOUD & FVA
+# MODULO 1: DEMANDA + SNAPSHOT S&OP + EVALUADOR POST-MORTEM FVA
 # ==========================================
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
@@ -1369,14 +1415,21 @@ with tab_demanda:
                 
             st.markdown("---")
             
-            btn_c1, btn_c2 = st.columns(2)
+            btn_c1, btn_c2, btn_c3 = st.columns(3)
             with btn_c1:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
                     if st.button("💾 Guardar Consenso (RAM + GitHub)", use_container_width=True, type="primary"):
                         if st.session_state['df_ajustes'] is not None:
                             df_aj = st.session_state['df_ajustes'].copy()
+                            # Comparar contra el estado previo para registrar en el log solo las celdas tocadas o nuevas
+                            df_prev_sku = df_aj[(df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel)].copy()
+                            mapa_prev = {}
+                            if not df_prev_sku.empty:
+                                df_prev_sku['Date_Str'] = pd.to_datetime(df_prev_sku['Date'], errors='coerce').dt.strftime('%Y-%m')
+                                mapa_prev = dict(zip(df_prev_sku['Date_Str'], pd.to_numeric(df_prev_sku['override_value'], errors='coerce').fillna(0)))
+
                             df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
-                            df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
+                            df_mod = df_editado[np.abs(df_editado['Consenso'] - df_editado['Estadistico']) > 0.01].copy()
                             ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
                             nuevas_filas = []
                             eventos_fva = []
@@ -1392,39 +1445,48 @@ with tab_demanda:
                                     'sku cod': sku_sel,
                                     'override_value': ovr_v
                                 })
-                                eventos_fva.append({
-                                    "Fecha_Cambio (CET)": ahora_cet,
-                                    "Usuario": usuario_actual,
-                                    "Tipo_Ajuste": "Override Manual",
-                                    "Date": pd.to_datetime(f).strftime("%Y-%m-%d"),
-                                    "País": pais_sel,
-                                    "customer cod": cliente_sel,
-                                    "sku cod": sku_sel,
-                                    "Forecast_Estadistico": est_v,
-                                    "Consenso_Override": ovr_v,
-                                    "Delta_Kg": delta_kg,
-                                    "Delta_Pct_FVA": delta_pct
-                                })
+                                val_anterior = mapa_prev.get(str(f), est_v)
+                                if abs(ovr_v - float(val_anterior)) > 0.01:
+                                    eventos_fva.append({
+                                        "Fecha_Cambio (CET)": ahora_cet,
+                                        "Usuario": usuario_actual,
+                                        "Tipo_Ajuste": "Override Manual",
+                                        "Date": pd.to_datetime(f).strftime("%Y-%m-%d"),
+                                        "País": pais_sel,
+                                        "customer cod": cliente_sel,
+                                        "sku cod": sku_sel,
+                                        "Forecast_Estadistico": est_v,
+                                        "Consenso_Override": ovr_v,
+                                        "Delta_Kg": delta_kg,
+                                        "Delta_Pct_FVA": delta_pct
+                                    })
                             if nuevas_filas:
                                 df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
                             st.session_state['df_ajustes'] = df_aj
                             ok_cloud = github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Consensus override by {usuario_actual} on {sku_sel}")
                             registrar_evento_fva_consenso(eventos_fva)
                             if ok_cloud:
-                                st.success("✅ Guardado en RAM y sincronizado permanentemente en GitHub Cloud")
+                                st.success("✅ Guardado en RAM y sincronizado en GitHub Cloud")
                             else:
                                 st.success("✅ Guardado en RAM y almacenamiento local")
                             st.rerun()
                 else:
-                    st.info("⚠️ Selecciona País, Cliente y SKU para editar y sincronizar en la nube.")
+                    st.info("⚠️ Selecciona País, Cliente y SKU para editar celdas.")
                     
             with btn_c2:
+                if st.button("📸 Congelar Snapshot Ciclo S&OP", use_container_width=True, help="Guarda en GitHub la foto fija actual (Estadístico vs Consenso) de los SKUs filtrados antes de subir las ventas del nuevo mes."):
+                    with st.spinner("Congelando foto fija del ciclo S&OP en GitHub..."):
+                        n_reg = congelar_snapshot_ciclo_sop(df_final)
+                        st.success(f"📸 Snapshot congelado ({n_reg} registros en GitHub).")
+                        st.rerun()
+
+            with btn_c3:
                 if not st.session_state['df_ajustes'].empty:
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Sheet1')
                     st.download_button(
-                        label="📥 Descargar Ajustes (Excel Final)",
+                        label="📥 Descargar Ajustes (.xlsx)",
                         data=output.getvalue(),
                         file_name="2_Ajustes_Consenso.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1436,7 +1498,7 @@ with tab_demanda:
             pais_macro = st.selectbox("País / Country:", sorted(df['País'].dropna().unique()), key="macro_pais")
             cli_macro = st.selectbox("Cliente / Customer:", sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
             pct_macro = st.number_input("Variation % (e.g. 15, -20):", value=15.0, step=5.0, format="%.1f")
-            if st.button("🚀 Apply Macro Factor"):
+            if st.button("🚀 Apply Macro Factor", use_container_width=True):
                 if pais_macro and cli_macro:
                     with st.spinner("Sincronizando Macro Factor en RAM y GitHub..."):
                         exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
@@ -1446,19 +1508,27 @@ with tab_demanda:
                         else:
                             st.error(msg)
 
+            st.markdown("---")
+            if st.button("🧹 Limpiar Overrides Activos (Cloud)", use_container_width=True, help="Vacía los overrides activos de prueba en RAM y GitHub sin borrar el historial de auditoría FVA."):
+                df_vacio_aj = pd.DataFrame(columns=COLS_AJUSTES)
+                st.session_state['df_ajustes'] = df_vacio_aj
+                github_guardar_csv(df_vacio_aj, CLOUD_AJUSTES_FILE, f"Reset active overrides by {usuario_actual}")
+                st.success("✅ Overrides activos reseteados.")
+                st.rerun()
+
         st.divider()
-        with st.expander("📋 Historial de Cambios de Consenso & Auditoría FVA (Forecast Value Added)"):
-            st.caption("Registro permanente en GitHub de todos los ajustes manuales y Macro Factors aplicados sobre la base estadística Holt-Winters.")
+        with st.expander("📋 Historial de Cambios de Consenso, Snapshots & Evaluador Post-Mortem FVA", expanded=False):
+            st.caption("1) Registro inmutable en GitHub de todos los ajustes manuales y Snapshots congelados. 2) Cruce automático contra Ventas Reales cuando el mes ya está cerrado en el histórico.")
             col_fva1, col_fva2 = st.columns([1, 4])
             with col_fva1:
                 if st.button("🔄 Refrescar Log FVA", use_container_width=True):
                     st.session_state["df_fva_logs"] = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
             df_fva_view = st.session_state.get("df_fva_logs", github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG))
             if df_fva_view is None or df_fva_view.empty:
-                st.info("Aún no se han registrado modificaciones manuales de consenso en la nube.")
+                st.info("Aún no se han registrado modificaciones manuales ni Snapshots de consenso en la nube.")
             else:
                 fva_c1, fva_c2, fva_c3 = st.columns(3)
-                fva_c1.metric("Overrides Registrados", f"{len(df_fva_view)}")
+                fva_c1.metric("Registros / Snapshots en Log", f"{len(df_fva_view)}")
                 fva_c2.metric("SKUs Intervenidos", f"{df_fva_view['sku cod'].nunique()}")
                 delta_sum_fva = pd.to_numeric(df_fva_view['Delta_Kg'], errors='coerce').fillna(0).sum()
                 fva_c3.metric("Volumen Neto Añadido (FVA)", f"{delta_sum_fva:+,.0f} Kg")
@@ -1480,6 +1550,74 @@ with tab_demanda:
                     file_name=f"Audit_FVA_Consenso_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
+
+                # --- EVALUADOR POST-MORTEM DE FVA (FOTO CONGELADA VS VENTA REAL CERRADA) ---
+                st.markdown("---")
+                st.markdown("#### 🎯 Evaluación Post-Mortem de FVA (Foto Congelada vs. Venta Real Cerrada)")
+                st.caption("Cuando subes un nuevo archivo de '1. Histórico Ventas' que ya incluye meses que fueron pronosticados o ajustados en ciclos anteriores, esta tabla calcula automáticamente si el ajuste humano mejoró o empeoró al modelo estadístico.")
+
+                df_snap = df_fva_view.copy()
+                df_snap['Date_Mes'] = pd.to_datetime(df_snap['Date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
+                df_snap = df_snap.dropna(subset=['Date_Mes']).drop_duplicates(subset=['Date_Mes', 'País', 'customer cod', 'sku cod'], keep='last')
+
+                df_real_mes = df.copy()
+                df_real_mes['Date_Mes'] = pd.to_datetime(df_real_mes['Date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
+                df_real_agg = df_real_mes.groupby(['Date_Mes', 'País', 'customer cod', 'sku cod'])['volume'].sum().reset_index()
+                df_real_agg = df_real_agg.rename(columns={'volume': 'Venta_Real_Kg'})
+
+                df_postmortem = pd.merge(
+                    df_snap,
+                    df_real_agg,
+                    on=['Date_Mes', 'País', 'customer cod', 'sku cod'],
+                    how='inner'
+                )
+
+                if df_postmortem.empty:
+                    st.info("ℹ️ Todavía no hay cruce entre las fechas futuras guardadas en el Log FVA y los meses cerrados de tu archivo '1. Histórico Ventas'. A medida que cierres meses y actualices el histórico de ventas, aquí aparecerá el veredicto FVA.")
+                else:
+                    est_fijo = pd.to_numeric(df_postmortem['Forecast_Estadistico'], errors='coerce').fillna(0)
+                    con_fijo = pd.to_numeric(df_postmortem['Consenso_Override'], errors='coerce').fillna(0)
+                    real_kg = pd.to_numeric(df_postmortem['Venta_Real_Kg'], errors='coerce').fillna(0)
+
+                    df_postmortem['Error_Abs_Estadistico'] = (real_kg - est_fijo).abs()
+                    df_postmortem['Error_Abs_Consenso'] = (real_kg - con_fijo).abs()
+                    df_postmortem['FVA_Neto_Kg'] = df_postmortem['Error_Abs_Estadistico'] - df_postmortem['Error_Abs_Consenso']
+                    df_postmortem['Veredicto_S&OP'] = np.where(
+                        df_postmortem['FVA_Neto_Kg'] > 0,
+                        '🟢 Aportó Valor (Mejoró al Modelo)',
+                        np.where(df_postmortem['FVA_Neto_Kg'] < 0, '🔴 Destruyó Valor (Peor que el Modelo)', '⚪ Neutro')
+                    )
+
+                    pm1, pm2, pm3 = st.columns(3)
+                    err_est_tot = df_postmortem['Error_Abs_Estadistico'].sum()
+                    err_con_tot = df_postmortem['Error_Abs_Consenso'].sum()
+                    real_tot_pm = real_kg.sum()
+                    wape_est_pm = (err_est_tot / real_tot_pm * 100) if real_tot_pm > 0 else 0.0
+                    wape_con_pm = (err_con_tot / real_tot_pm * 100) if real_tot_pm > 0 else 0.0
+                    fva_global_pct = wape_est_pm - wape_con_pm
+
+                    pm1.metric("Error WAPE Modelo Base", f"{wape_est_pm:.1f}%")
+                    pm2.metric("Error WAPE Consenso", f"{wape_con_pm:.1f}%", f"{-fva_global_pct:+.1f}% error vs Base", delta_color="inverse")
+                    pm3.metric("FVA Neto Acumulado (Kg)", f"{df_postmortem['FVA_Neto_Kg'].sum():+,.0f} Kg")
+
+                    df_pm_show = df_postmortem[[
+                        'Date', 'País', 'customer cod', 'sku cod', 'Usuario',
+                        'Forecast_Estadistico', 'Consenso_Override', 'Venta_Real_Kg',
+                        'Error_Abs_Estadistico', 'Error_Abs_Consenso', 'FVA_Neto_Kg', 'Veredicto_S&OP'
+                    ]].copy()
+
+                    st.dataframe(
+                        df_pm_show.style.format({
+                            'Forecast_Estadistico': '{:,.0f} Kg',
+                            'Consenso_Override': '{:,.0f} Kg',
+                            'Venta_Real_Kg': '{:,.0f} Kg',
+                            'Error_Abs_Estadistico': '{:,.0f} Kg',
+                            'Error_Abs_Consenso': '{:,.0f} Kg',
+                            'FVA_Neto_Kg': '{:+,.0f} Kg'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
 # ==========================================
 # MODULO 2: PRODUCCIÓN (MPS)
