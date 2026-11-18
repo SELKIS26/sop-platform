@@ -289,10 +289,11 @@ def _pdf_safe(texto):
 # ==========================================
 @st.cache_data(show_spinner=False)
 def obtener_excels_demo_8_tablas():
+    """Genera los 8 DataFrames de Demo con las columnas exactas oficiales."""
     np.random.seed(42)
     fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
-    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)
-    mes_m2 = mes_m1 + pd.DateOffset(months=1)
+    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)  # 2026-09-01
+    mes_m2 = mes_m1 + pd.DateOffset(months=1)          # 2026-10-01
     fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
 
     skus_demo = [
@@ -303,6 +304,10 @@ def obtener_excels_demo_8_tablas():
         ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200, "MTS"),
     ]
 
+    # Lista local de máquinas asegurada para evitar NameError al recargar por idioma
+    maquinas_locales = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
+
+    # 1. Histórico Ventas
     filas_ventas = []
     for f in fechas_hist:
         est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
@@ -310,24 +315,34 @@ def obtener_excels_demo_8_tablas():
             ruido = 0.65 if sku_cod == "PR01299X" else 0.12
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             filas_ventas.append({
-                "Date": f, "País": "España", "customer cod": "000007SCAAS",
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
                 "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
-                "sku cod": sku_cod, "sku desc": sku_desc,
-                "volume": vol, "revenue": round(vol * precio_u, 2),
-                "margin": round(vol * margen_u, 2), "currency": "EUR"
+                "sku cod": sku_cod,
+                "sku desc": sku_desc,
+                "volume": vol,
+                "revenue": round(vol * precio_u, 2),
+                "margin": round(vol * margen_u, 2),
+                "currency": "EUR"
             })
     df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
 
+    # 2. Ajustes Consenso
     filas_ajustes = []
     for f in fechas_fut[:6]:
         for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
             override = int(base_vol * np.random.uniform(0.95, 1.10))
             filas_ajustes.append({
-                "Date": f, "País": "España", "customer cod": "000007SCAAS",
-                "sku cod": sku_cod, "override_value": override
+                "Date": f,
+                "País": "España",
+                "customer cod": "000007SCAAS",
+                "sku cod": sku_cod,
+                "override_value": override
             })
     df_2_ajustes = pd.DataFrame(filas_ajustes)[COLS_AJUSTES]
 
+    # 3. Stock Actual
     filas_stock = [
         {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": cat, "Coste_Unitario": cost}
         for sku, desc, vol, cost, _, _, _, _, cat in skus_demo
@@ -337,35 +352,52 @@ def obtener_excels_demo_8_tablas():
     ]
     df_3_stock = pd.DataFrame(filas_stock)[COLS_STOCK]
 
+    # 4. BOM
     filas_bom = []
     for sku, _, _, _, _, _, _, _, _ in skus_demo:
         filas_bom.append({"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.6961})
         filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
     df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
 
+    # 5. Rutas / Routing
     df_5_rutas = pd.DataFrame([
         {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
         for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
     ])[COLS_RUTAS]
 
-    filas_cal = [{"Date": f, "Maquina": m, "Horas_Disponibles": 740} for f in pd.date_range("2024-05-01", periods=48, freq="MS") for m in maquinas]
+    # 6. Calendario (usando la lista local robusta)
+    filas_cal = []
+    for f in pd.date_range(start="2024-05-01", periods=48, freq="MS"):
+        for maq in maquinas_locales:
+            filas_cal.append({
+                "Date": f,
+                "Maquina": maq,
+                "Horas_Disponibles": 740
+            })
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
 
-    df_7_compras = pd.DataFrame({
-        "Date": np.random.choice([mes_m1, mes_m2], size=150),
-        "rm cod": np.random.choice(rm_cods, size=150),
-        "Cantidad_Kg": np.random.randint(5000, 25000, size=150)
-    })[COLS_COMPRAS]
+    # 7. ERP Compras POs
+    df_7_compras = pd.DataFrame([
+        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
+        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
+    ])[COLS_COMPRAS]
 
-    df_8_prod = pd.DataFrame({
-        "Date": np.random.choice([mes_m1, mes_m2], size=200),
-        "sku cod": np.random.choice(sku_cods, size=200),
-        "Cantidad_Kg": np.random.randint(4000, 20000, size=200)
-    })[COLS_PROD]
+    # 8. ERP Producción
+    df_8_prod = pd.DataFrame([
+        {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
+        {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
+        {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 40000},
+    ])[COLS_PROD]
 
     return {
-        "hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom,
-        "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod
+        "hist": df_1_hist,
+        "ajustes": df_2_ajustes,
+        "stock": df_3_stock,
+        "bom": df_4_bom,
+        "rutas": df_5_rutas,
+        "cal": df_6_cal,
+        "compras_erp": df_7_compras,
+        "produccion_erp": df_8_prod,
     }
 @st.cache_data(show_spinner=False)
 def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, n_clientes=80):
