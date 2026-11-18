@@ -2768,18 +2768,22 @@ with tab_fin:
                 with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...")):
                     if nivel_pl == "Por País":
                         df_fin_target = df[df['País'] == filtro_pl]
+                        skus_validos = set(df_fin_target['sku cod'].unique())
                     elif nivel_pl == "Por Cliente":
                         df_fin_target = df[df['customer cod'] == filtro_pl]
+                        skus_validos = set(df_fin_target['sku cod'].unique())
                     elif nivel_pl == "Por SKU":
                         df_fin_target = df[df['sku cod'] == filtro_pl]
+                        skus_validos = {filtro_pl}
                     else:
                         df_fin_target = df
+                        skus_validos = set(df['sku cod'].unique())
 
                     df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP']].sum().reset_index()
                     df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
 
-                    skus_validos = set(df_fin_target['sku cod'].unique())
                     df_mps_fin = generar_mps_df_2d()
+                    # Filtrar estrictamente por los SKUs del ámbito seleccionado para guardar coherencia con el histórico
                     df_mps_sub = df_mps_fin[df_mps_fin['sku cod'].isin(skus_validos)].copy()
 
                     if not df_mps_sub.empty:
