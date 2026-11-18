@@ -85,6 +85,7 @@ LOG_FILE = "audit_log_accesos.csv"
 CLOUD_AJUSTES_FILE = "2_Ajustes_Consenso_Cloud.csv"
 FVA_LOG_FILE = "audit_log_fva_consenso.csv"
 SOP_CAL_FILE = "sop_calendar_status_cloud.csv"
+ACTION_LOG_FILE = "sop_action_log_cloud.csv"
 
 COLS_FVA_LOG = [
     "Fecha_Cambio (CET)", "Usuario", "Tipo_Ajuste", "Date", "País",
@@ -92,6 +93,7 @@ COLS_FVA_LOG = [
     "Delta_Kg", "Delta_Pct_FVA"
 ]
 COLS_SOP_CAL = ["Fase", "Etapa S&OP", "Dias_Mes", "Dia_Inicio", "Dia_Fin", "Owner", "Entregable_Clave", "Estado", "Notas_Comite"]
+COLS_ACTION_LOG = ["ID", "Fecha_Alta", "Area_S&OP", "Accion_Acordada", "Responsable", "Fecha_Limite", "Impacto_GBP", "Estado"]
 
 # ==========================================
 # MOTOR DE INTERNACIONALIZACIÓN COMPLETO (4 IDIOMAS)
@@ -159,7 +161,7 @@ TEXTS = {
 
 
 # ==========================================
-# MOTOR DE PERSISTENCIA EN GITHUB (API + LOCAL)
+# MOTOR DE PERSISTENCIA EN GITHUB (API + LOCAL CON CACHÉ EN SESIÓN)
 # ==========================================
 def _github_creds():
     try:
@@ -170,8 +172,12 @@ def _github_creds():
         return None, None
 
 
-def github_leer_csv(filename, cols_default):
-    """Lee un CSV desde el repositorio de GitHub o fallback local."""
+def github_leer_csv(filename, cols_default, forzar_recarga=False):
+    """Lee un CSV desde GitHub con caché en session_state para no bloquear la app en cada clic."""
+    cache_key = f"_cloud_cache_{filename}"
+    if not forzar_recarga and cache_key in st.session_state:
+        return st.session_state[cache_key].copy()
+
     token, repo = _github_creds()
     if token and repo:
         url = f"https://api.github.com/repos/{repo}/contents/{filename}"
@@ -182,24 +188,32 @@ def github_leer_csv(filename, cols_default):
         }
         try:
             req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 contenido_csv = base64.b64decode(data["content"]).decode("utf-8-sig")
                 df_out = pd.read_csv(io.StringIO(contenido_csv))
+                st.session_state[cache_key] = df_out.copy()
                 return df_out
         except Exception:
             pass
 
     if os.path.exists(filename):
         try:
-            return pd.read_csv(filename)
+            df_local = pd.read_csv(filename)
+            st.session_state[cache_key] = df_local.copy()
+            return df_local
         except Exception:
             pass
-    return pd.DataFrame(columns=cols_default)
+
+    df_empty = pd.DataFrame(columns=cols_default)
+    st.session_state[cache_key] = df_empty.copy()
+    return df_empty
 
 
 def github_guardar_csv(df_to_save, filename, commit_msg):
-    """Guarda un DataFrame como CSV en GitHub (y copia local)."""
+    """Guarda un DataFrame como CSV en GitHub y actualiza inmediatamente la caché en RAM."""
+    cache_key = f"_cloud_cache_{filename}"
+    st.session_state[cache_key] = df_to_save.copy()
     try:
         df_to_save.to_csv(filename, index=False, encoding="utf-8-sig")
     except Exception:
@@ -218,7 +232,7 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
     sha_actual = None
     try:
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             sha_actual = data.get("sha")
     except Exception:
@@ -238,16 +252,15 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
             headers={**headers, "Content-Type": "application/json"},
             method="PUT"
         )
-        urllib.request.urlopen(req_put, timeout=10)
+        urllib.request.urlopen(req_put, timeout=8)
         return True
     except Exception:
         return False
 
 
-def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
-    """Lee y guarda el historial de accesos en GitHub."""
+def registrar_y_leer_auditoria_permanente(nuevo_evento=None, forzar=False):
     cols_log = ["Fecha_Hora (CET)", "Username", "Nombre", "Rol"]
-    df_actual = github_leer_csv(LOG_FILE, cols_log)
+    df_actual = github_leer_csv(LOG_FILE, cols_log, forzar_recarga=forzar)
     if nuevo_evento is not None:
         df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
         github_guardar_csv(
@@ -259,7 +272,6 @@ def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
 
 
 def registrar_evento_fva_consenso(lista_eventos_fva):
-    """Registra en GitHub cada cambio de Forecast de Consenso o Snapshot para medir el FVA."""
     if not lista_eventos_fva:
         return
     df_fva = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
@@ -270,7 +282,6 @@ def registrar_evento_fva_consenso(lista_eventos_fva):
 
 
 def _pdf_safe(texto):
-    """Limpia caracteres especiales o emojis para que FPDF (latin-1) nunca falle."""
     return str(texto).encode("latin-1", "replace").decode("latin-1")
 
 
@@ -291,7 +302,6 @@ def obtener_excels_demo_8_tablas():
         ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200, "MTS"),
     ]
 
-    # 1. Histórico Ventas
     filas_ventas = []
     for f in fechas_hist:
         est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
@@ -312,7 +322,6 @@ def obtener_excels_demo_8_tablas():
             })
     df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
 
-    # 2. Ajustes Consenso
     filas_ajustes = []
     for f in fechas_fut[:6]:
         for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
@@ -326,7 +335,6 @@ def obtener_excels_demo_8_tablas():
             })
     df_2_ajustes = pd.DataFrame(filas_ajustes)[COLS_AJUSTES]
 
-    # 3. Stock Actual
     filas_stock = [
         {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": cat, "Coste_Unitario": cost}
         for sku, desc, vol, cost, _, _, _, _, cat in skus_demo
@@ -336,20 +344,17 @@ def obtener_excels_demo_8_tablas():
     ]
     df_3_stock = pd.DataFrame(filas_stock)[COLS_STOCK]
 
-    # 4. BOM
     filas_bom = []
     for sku, _, _, _, _, _, _, _, _ in skus_demo:
         filas_bom.append({"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.6961})
         filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
     df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
 
-    # 5. Rutas / Routing
     df_5_rutas = pd.DataFrame([
         {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
         for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
     ])[COLS_RUTAS]
 
-    # 6. Calendario
     maquinas_unicas = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
     filas_cal = []
     for f in pd.date_range(start="2024-05-01", periods=48, freq="MS"):
@@ -361,13 +366,11 @@ def obtener_excels_demo_8_tablas():
             })
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
 
-    # 7. ERP Compras POs
     df_7_compras = pd.DataFrame([
         {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
         {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
     ])[COLS_COMPRAS]
 
-    # 8. ERP Producción
     df_8_prod = pd.DataFrame([
         {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
         {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
@@ -388,7 +391,6 @@ def obtener_excels_demo_8_tablas():
 
 @st.cache_data
 def generar_plantillas_oficiales_excel():
-    """Genera un único libro Excel con las 8 plantillas oficiales y ejemplos de cabecera."""
     buf_tpl = io.BytesIO()
     demos_tpl = obtener_excels_demo_8_tablas()
     mapa_hojas = [
@@ -508,7 +510,7 @@ with st.sidebar:
     if usuario_actual == "amancebo":
         with st.expander(tr("🛡️ Registro de Accesos (Admin)", "🛡️ Access Audit Log (Admin)", "🛡️ Dziennik Dostępu (Admin)", "🛡️ Adgangslog (Admin)")):
             if st.button(tr("🔄 Actualizar Historial GitHub", "🔄 Refresh GitHub Log", "🔄 Odśwież dziennik GitHub", "🔄 Opdater GitHub Log"), use_container_width=True):
-                st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(None)
+                st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(None, forzar=True)
             df_logs = st.session_state.get("df_audit_logs", registrar_y_leer_auditoria_permanente(None))
             if df_logs is None or df_logs.empty:
                 st.caption(tr("Sin registros todavía.", "No records yet.", "Brak wpisów.", "Ingen optegnelser endnu."))
@@ -599,7 +601,11 @@ with st.sidebar:
         if file_produccion_erp is None:  file_produccion_erp  = demos["produccion_erp"]
 
     st.divider()
-    st.header(tr("📅 3. Parámetros", "📅 3. Parameters", "📅 3. Parametry", "📅 3. Parametre"))
+    st.header(tr("📅 3. Parámetros y Motor IA", "📅 3. Parameters & AI Engine", "📅 3. Parametry i Silnik AI", "📅 3. Parametre & AI-motor"))
+    modelo_fcst_sel = st.selectbox(
+        tr("🏆 Algoritmo de Forecasting:", "🏆 Forecasting Algorithm:", "🏆 Algorytm Prognozowania:", "🏆 Prognosealgoritme:"),
+        ["Auto-ML Best-Fit", "Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"]
+    )
     horizonte = st.slider(tr("Horizonte (Meses):", "Horizon (Months):", "Horyzont (Miesiące):", "Horisont (Måneder):"), 1, 24, 12)
     cobertura_fg = st.slider(tr("Cob. PT (Meses):", "FG Coverage (Months):", "Pokrycie WG (Miesiące):", "FG Dækning (Måneder):"), 0, 6, 1)
     cobertura_rm = st.slider(tr("Cob. MP (Meses):", "RM Coverage (Months):", "Pokrycie SM (Miesiące):", "RM Dækning (Måneder):"), 0, 6, 2)
@@ -617,8 +623,15 @@ with st.sidebar:
     usar_limpieza_outliers = st.checkbox(tr("🧹 Limpiar Outliers (IQR)", "🧹 Clean Outliers (IQR)", "🧹 Usuń Wartości Odstające", "🧹 Rens Outliers"), value=True)
 
 
+@st.cache_data(show_spinner=False)
+def _leer_archivo_subido_bytes(contenido_bytes, nombre_archivo):
+    if nombre_archivo.endswith('.csv'):
+        return pd.read_csv(io.BytesIO(contenido_bytes))
+    return pd.read_excel(io.BytesIO(contenido_bytes))
+
+
 def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, permitir_vacio=False):
-    """Carga el archivo y valida estrictamente que contenga las columnas oficiales exactas."""
+    """Carga el archivo con caché de bytes y valida estrictamente las columnas oficiales exactas."""
     if uploaded_file is None:
         return None
         
@@ -627,10 +640,9 @@ def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, p
     else:
         try:
             uploaded_file.seek(0)
-            if getattr(uploaded_file, 'name', '').endswith('.csv'):
-                d = pd.read_csv(uploaded_file)
-            else:
-                d = pd.read_excel(uploaded_file)
+            raw_bytes = uploaded_file.read()
+            fname = getattr(uploaded_file, 'name', 'file.xlsx')
+            d = _leer_archivo_subido_bytes(raw_bytes, fname).copy()
         except Exception as e:
             st.error(f"❌ {tr('Error al leer el archivo para', 'Error reading file for')} **{nombre_tabla}**: {e}")
             return None
@@ -669,7 +681,7 @@ if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_a
 if 'last_ajuste_file' not in st.session_state:
     st.session_state['last_ajuste_file'] = None
 
-df = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
+df_raw = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
 
 id_ajuste_actual = "DEMO_AJUSTES" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
 if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
@@ -692,7 +704,7 @@ df_cal = validar_y_cargar_tabla(file_cal, COLS_CAL, "6. Calendario")
 df_compras_erp = validar_y_cargar_tabla(file_compras_erp, COLS_COMPRAS, "7. ERP Compras / POs", permitir_vacio=True)
 df_produccion_erp = validar_y_cargar_tabla(file_produccion_erp, COLS_PROD, "8. ERP Producción / Prd. Orders", permitir_vacio=True)
 
-if df is None or df.empty:
+if df_raw is None or df_raw.empty:
     st.info(tr(
         "👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube el archivo **1. Histórico Ventas** con las columnas oficiales.",
         "👈 Click **'🚀 Load 8 Tables'** in the sidebar to start the Demo or upload **1. Sales History** with the official schema.",
@@ -701,31 +713,169 @@ if df is None or df.empty:
     ))
     st.stop()
 
-# --- TOPE HISTÓRICO Y CONVERSIÓN DE TIPOS ---
-df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
-df = df.dropna(subset=['Date'])
-fecha_maxima = df['Date'].max()
-fecha_corte = fecha_maxima - pd.DateOffset(months=24)
-df = df[df['Date'] >= fecha_corte].copy()
 
-df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0)
-df['revenue'] = pd.to_numeric(df['revenue'], errors='coerce').fillna(0)
-df['margin'] = pd.to_numeric(df['margin'], errors='coerce').fillna(0)
+# ==========================================
+# PREPROCESADO VECTORIZADO CON CACHÉ (BIG DATA OPTIMIZATION)
+# ==========================================
+@st.cache_data(show_spinner=False)
+def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
+    """Limpia fechas, recorta a los últimos 24 meses y calcula precios/márgenes en GBP de forma vectorizada."""
+    d = df_in.copy()
+    d['Date'] = pd.to_datetime(d['Date'], dayfirst=True, errors='coerce')
+    d = d.dropna(subset=['Date'])
+    fecha_max = d['Date'].max()
+    fecha_corte = fecha_max - pd.DateOffset(months=24)
+    d = d[d['Date'] >= fecha_corte].copy()
 
-# Conversión financiera a GBP fila a fila
-dict_fx = {'EUR': fx_eur_gbp, 'DKK': fx_dkk_gbp, 'PLN': fx_pln_gbp, 'GBP': 1.0}
-df['Moneda'] = df['currency'].astype(str).str.strip().str.upper()
-df['FX'] = df['Moneda'].map(dict_fx).fillna(1.0)
-df['Rev_GBP'] = df['revenue'] * df['FX']
-df['Mar_GBP'] = df['margin'] * df['FX']
+    d['volume'] = pd.to_numeric(d['volume'], errors='coerce').fillna(0.0)
+    d['revenue'] = pd.to_numeric(d['revenue'], errors='coerce').fillna(0.0)
+    d['margin'] = pd.to_numeric(d['margin'], errors='coerce').fillna(0.0)
 
-df_fin_base = df.groupby('sku cod').agg({'volume': 'sum', 'Rev_GBP': 'sum', 'Mar_GBP': 'sum'}).reset_index()
-df_fin_base['unit_price'] = np.where(df_fin_base['volume'] > 0, df_fin_base['Rev_GBP'] / df_fin_base['volume'], 0.0)
-df_fin_base['unit_margin'] = np.where(df_fin_base['volume'] > 0, df_fin_base['Mar_GBP'] / df_fin_base['volume'], 0.0)
+    dict_fx = {'EUR': f_eur, 'DKK': f_dkk, 'PLN': f_pln, 'GBP': 1.0}
+    d['Moneda'] = d['currency'].astype(str).str.strip().str.upper()
+    d['FX'] = d['Moneda'].map(dict_fx).fillna(1.0)
+    d['Rev_GBP'] = d['revenue'] * d['FX']
+    d['Mar_GBP'] = d['margin'] * d['FX']
 
-dict_price = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_price']))
-dict_margin = dict(zip(df_fin_base['sku cod'], df_fin_base['unit_margin']))
-dict_currency = dict(zip(df_fin_base['sku cod'], ['GBP'] * len(df_fin_base)))
+    df_fin_b = d.groupby('sku cod', as_index=False).agg({'volume': 'sum', 'Rev_GBP': 'sum', 'Mar_GBP': 'sum'})
+    df_fin_b['unit_price'] = np.where(df_fin_b['volume'] > 0, df_fin_b['Rev_GBP'] / df_fin_b['volume'], 0.0)
+    df_fin_b['unit_margin'] = np.where(df_fin_b['volume'] > 0, df_fin_b['Mar_GBP'] / df_fin_b['volume'], 0.0)
+
+    d_price = dict(zip(df_fin_b['sku cod'], df_fin_b['unit_price']))
+    d_margin = dict(zip(df_fin_b['sku cod'], df_fin_b['unit_margin']))
+    d_curr = dict(zip(df_fin_b['sku cod'], ['GBP'] * len(df_fin_b)))
+    d_desc = d.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
+
+    return d, d_price, d_margin, d_curr, d_desc
+
+
+df, dict_price, dict_margin, dict_currency, dict_sku_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
+
+
+# ==========================================
+# MEJORA #1: TORNEO MULTI-MODELO VECTORIZADO (AUTO-ML BEST-FIT EN MILISEGUNDOS)
+# ==========================================
+@st.cache_data(show_spinner=False)
+def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True):
+    """
+    Pivota todo el dataset en una matriz (Meses x SKUs) y ejecuta en paralelo:
+      1) Holt-Winters / Descomposición Estacional Aditiva
+      2) Media Móvil Ponderada Amortiguada (Damped WMA)
+      3) Método de Croston / TSB para demanda intermitente
+    Evalúa el WAPE de validación en los últimos 6 meses y selecciona el modelo ganador (Best-Fit) por SKU.
+    """
+    if df_in is None or df_in.empty:
+        return {}, {}
+
+    df_m = df_in.groupby([pd.Grouper(key='Date', freq='MS'), 'sku cod'])['volume'].sum().unstack(fill_value=0.0)
+    idx_full = pd.date_range(start=df_m.index.min(), end=df_m.index.max(), freq="MS")
+    df_m = df_m.reindex(idx_full, fill_value=0.0)
+
+    vals = df_m.values.astype(float)  # (T, N_skus)
+    T, N = vals.shape
+    skus = df_m.columns.tolist()
+
+    # Limpieza IQR vectorizada por columna
+    if usar_outliers and T >= 6:
+        q25 = np.percentile(vals, 25, axis=0, keepdims=True)
+        q75 = np.percentile(vals, 75, axis=0, keepdims=True)
+        iqr = q75 - q25
+        vals_clean = np.clip(vals, np.maximum(0.0, q25 - 1.5 * iqr), q75 + 1.5 * iqr)
+    else:
+        vals_clean = vals.copy()
+
+    # Perfil estacional por mes del año (1..12)
+    meses_num = df_m.index.month.values
+    media_global_sku = np.maximum(vals_clean.mean(axis=0, keepdims=True), 1e-6)
+    indices_est = np.ones((12, N), dtype=float)
+    if T >= 12:
+        for m in range(1, 13):
+            mask_m = (meses_num == m)
+            if mask_m.any():
+                indices_est[m - 1, :] = np.clip(vals_clean[mask_m, :].mean(axis=0) / media_global_sku[0, :], 0.4, 2.2)
+
+    # Nivel reciente y tendencia amortiguada vectorizada
+    w_rec = min(6, T)
+    pesos = np.arange(1, w_rec + 1, dtype=float).reshape(-1, 1)
+    nivel_wma = (vals_clean[-w_rec:, :] * pesos).sum(axis=0) / pesos.sum()
+
+    if T >= 6:
+        mitad = min(6, T // 2)
+        media_rec = vals_clean[-mitad:, :].mean(axis=0)
+        media_ant = vals_clean[-2 * mitad:-mitad, :].mean(axis=0)
+        slope = (media_rec - media_ant) / float(mitad)
+    else:
+        slope = np.zeros(N, dtype=float)
+
+    # Croston / TSB vectorizado: Probabilidad de demanda * Tamaño medio de pedido positivo
+    mask_pos = (vals_clean > 0).astype(float)
+    prob_dem = mask_pos[-w_rec:, :].mean(axis=0)
+    sum_pos = (vals_clean * mask_pos).sum(axis=0)
+    cnt_pos = np.maximum(mask_pos.sum(axis=0), 1.0)
+    tam_pos = sum_pos / cnt_pos
+    nivel_croston = prob_dem * tam_pos
+
+    # Backtest rápido en los últimos min(6, T-1) meses para elegir el ganador Auto-ML
+    h_val = min(6, max(1, T - 1))
+    actual_val = vals[-h_val:, :]
+    meses_val = df_m.index[-h_val:].month.values - 1
+
+    pred_hw_val = np.maximum(0.0, nivel_wma.reshape(1, -1) * indices_est[meses_val, :])
+    pred_wma_val = np.repeat(np.maximum(0.0, nivel_wma.reshape(1, -1)), h_val, axis=0)
+    pred_cro_val = np.repeat(np.maximum(0.0, nivel_croston.reshape(1, -1)), h_val, axis=0)
+
+    denom_val = np.maximum(actual_val.sum(axis=0), 1.0)
+    wape_hw = np.abs(actual_val - pred_hw_val).sum(axis=0) / denom_val * 100.0
+    wape_wma = np.abs(actual_val - pred_wma_val).sum(axis=0) / denom_val * 100.0
+    wape_cro = np.abs(actual_val - pred_cro_val).sum(axis=0) / denom_val * 100.0
+
+    # Proyección hacia el futuro (steps meses)
+    idx_fut = pd.date_range(start=df_m.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS")
+    meses_fut = idx_fut.month.values - 1
+
+    fcst_hw = np.zeros((steps, N), dtype=float)
+    fcst_wma = np.zeros((steps, N), dtype=float)
+    fcst_cro = np.zeros((steps, N), dtype=float)
+
+    for s in range(steps):
+        amort = (0.88 ** (s + 1))
+        base_t = np.maximum(0.0, nivel_wma + slope * (s + 1) * amort)
+        fcst_hw[s, :] = np.maximum(0.0, base_t * indices_est[meses_fut[s], :])
+        fcst_wma[s, :] = np.maximum(0.0, nivel_wma + slope * 0.5 * amort)
+        fcst_cro[s, :] = np.maximum(0.0, nivel_croston)
+
+    # Selección del ganador por cada SKU
+    matriz_wapes = np.vstack([wape_hw, wape_wma, wape_cro])  # (3, N)
+    ganador_idx = np.argmin(matriz_wapes, axis=0)
+    nombres_mod = ["Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"]
+
+    fcst_best = np.choose(ganador_idx.reshape(1, -1), [fcst_hw, fcst_wma, fcst_cro])
+
+    dict_series = {
+        "Auto-ML Best-Fit": pd.DataFrame(fcst_best, index=idx_fut, columns=skus),
+        "Holt-Winters Seasonal": pd.DataFrame(fcst_hw, index=idx_fut, columns=skus),
+        "Damped Moving Average (WMA)": pd.DataFrame(fcst_wma, index=idx_fut, columns=skus),
+        "Croston TSB (Intermittent)": pd.DataFrame(fcst_cro, index=idx_fut, columns=skus),
+    }
+
+    meta_torneo = {}
+    for j, s_cod in enumerate(skus):
+        g_i = int(ganador_idx[j])
+        meta_torneo[s_cod] = {
+            "Ganador": nombres_mod[g_i],
+            "WAPE_HW": round(float(wape_hw[j]), 1),
+            "WAPE_WMA": round(float(wape_wma[j]), 1),
+            "WAPE_Croston": round(float(wape_cro[j]), 1),
+            "WAPE_Min": round(float(matriz_wapes[g_i, j]), 1),
+            "Std_Mensual": float(vals_clean[:, j].std()),
+            "Media_Mensual": float(vals_clean[:, j].mean())
+        }
+
+    return dict_series, meta_torneo
+
+
+dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(df, steps=24, usar_outliers=usar_limpieza_outliers)
+
 
 # ==========================================
 # 2. MOTOR ABC/XYZ Y FILTROS EN CASCADA
@@ -744,10 +894,11 @@ def calcular_abc_xyz_global(df_in):
     
     df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
     df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
+    df_cv['std'] = df_cv['std'].fillna(0.0)
     df_cv['CV'] = (df_cv['std'] / df_cv['mean'].replace(0, 1)).replace([np.inf, -np.inf], 0).fillna(0)
     df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
     
-    df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'CV', 'XYZ']], on='sku cod')
+    df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'mean', 'std', 'CV', 'XYZ']], on='sku cod')
     df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
 
     mapa_desc = df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
@@ -790,7 +941,6 @@ with col_f4:
 df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'].astype(str) == sku_sel]
 
 col_objetivo = 'volume'
-dict_sku_desc = dict(zip(df['sku cod'], df['sku desc']))
 
 # 1. Diccionario de descripciones de Materia Prima (BOM)
 if df_bom is not None and not df_bom.empty:
@@ -818,19 +968,31 @@ if df_compras_erp is not None and not df_compras_erp.empty:
 # ==========================================
 # 3. FUNCIONES CORE Y OPTIMIZACIÓN DE CACHÉ
 # ==========================================
+@st.cache_data(show_spinner=False)
+def _indexar_stock_rapido(df_s):
+    if df_s is None or df_s.empty:
+        return {}
+    d = df_s.copy()
+    d['sku_clean'] = d['sku cod'].astype(str).str.strip()
+    d['stk'] = pd.to_numeric(d['stock_disponible'], errors='coerce').fillna(0.0)
+    d['cob'] = pd.to_numeric(d['Cobertura_Meses'], errors='coerce').fillna(1).astype(int)
+    d['lt'] = pd.to_numeric(d['LT_Meses'], errors='coerce').fillna(0).astype(int)
+    d['cat'] = d['Categoria'].astype(str).str.strip().str.upper()
+    res = {}
+    for s_c, grp in d.groupby('sku_clean'):
+        cob_v = 0 if (grp['cat'].iloc[0] == 'MTO') else int(grp['cob'].iloc[0])
+        res[s_c] = (float(grp['stk'].sum()), cob_v, int(grp['lt'].iloc[0]))
+    return res
+
+
+mapa_stock_fast = _indexar_stock_rapido(df_stock)
+
+
 def obtener_parametros_stock(codigo, cob_defecto=2):
-    stk, cob, lt = 0.0, int(cob_defecto), 0
-    if df_stock is not None and not df_stock.empty:
-        fila = df_stock[df_stock['sku cod'].astype(str).str.strip() == str(codigo).strip()]
-        if not fila.empty:
-            stk = float(pd.to_numeric(fila['stock_disponible'], errors='coerce').fillna(0).sum())
-            if pd.notna(fila['Cobertura_Meses'].iloc[0]):
-                cob = int(fila['Cobertura_Meses'].iloc[0])
-            if str(fila['Categoria'].iloc[0]).strip().upper() == 'MTO':
-                cob = 0
-            if pd.notna(fila['LT_Meses'].iloc[0]):
-                lt = int(fila['LT_Meses'].iloc[0])
-    return stk, cob, lt
+    s_clean = str(codigo).strip()
+    if s_clean in mapa_stock_fast:
+        return mapa_stock_fast[s_clean]
+    return 0.0, int(cob_defecto), 0
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
@@ -843,15 +1005,44 @@ def limpiar_anomalias(serie):
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
-def calcular_forecast(serie, steps):
+def calcular_forecast_serie_unica(serie, steps, metodo="Auto-ML Best-Fit"):
+    """Calcula el forecast para la serie agregada mostrada en la Pestaña 1 según el algoritmo elegido."""
     if len(serie) == 0:
         return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
+    idx_fut = pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS")
     if len(serie) < 6:
-        return pd.Series([serie.mean()] * steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
+        return pd.Series([max(0.0, float(serie.mean()))] * steps, index=idx_fut)
+
+    if metodo == "Damped Moving Average (WMA)":
+        w = min(6, len(serie))
+        pesos = np.arange(1, w + 1, dtype=float)
+        base_wma = float((serie.tail(w).values * pesos).sum() / pesos.sum())
+        slope = float((serie.tail(3).mean() - serie.iloc[-6:-3].mean()) / 3.0) if len(serie) >= 6 else 0.0
+        vals = [max(0.0, base_wma + slope * 0.5 * (0.88 ** (i + 1))) for i in range(steps)]
+        return pd.Series(vals, index=idx_fut)
+
+    elif metodo == "Croston TSB (Intermittent)":
+        vals_s = serie.values.astype(float)
+        pos = vals_s[vals_s > 0]
+        if len(pos) == 0:
+            return pd.Series([0.0] * steps, index=idx_fut)
+        prob_p = float((vals_s[-min(6, len(vals_s)):] > 0).mean())
+        tam_m = float(pos.mean())
+        return pd.Series([max(0.0, prob_p * tam_m)] * steps, index=idx_fut)
+
+    # Holt-Winters Seasonal o Auto-ML sobre serie agregada
     try:
-        return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0, x))
+        return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0.0, x))
     except Exception:
-        return pd.Series([serie.tail(6).mean()] * steps, index=pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS"))
+        return pd.Series([max(0.0, float(serie.tail(6).mean()))] * steps, index=idx_fut)
+
+
+def obtener_fcst_sku_rapido(sku_cod, steps, metodo_sel):
+    """Obtiene instantáneamente en O(1) el forecast precalculado de cualquier SKU desde la matriz en caché."""
+    mat = dict_fcst_matrices.get(metodo_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat is not None and sku_cod in mat.columns:
+        return mat[sku_cod].iloc[:steps]
+    return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
 
 
 def aplicar_variacion_cliente(pais, cliente, pct):
@@ -866,9 +1057,7 @@ def aplicar_variacion_cliente(pais, cliente, pct):
         eventos_fva = []
         ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
         for sku_c in sub['sku cod'].unique():
-            s_sku = sub[sub['sku cod'] == sku_c].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-            s_mod = limpiar_anomalias(s_sku) if usar_limpieza_outliers else s_sku
-            fcst = calcular_forecast(s_mod, horizonte)
+            fcst = obtener_fcst_sku_rapido(sku_c, horizonte, modelo_fcst_sel)
             for f_dt, val in fcst.items():
                 est_val = round(float(val), 2)
                 ovr_val = round(float(val) * factor, 2)
@@ -903,7 +1092,7 @@ def aplicar_variacion_cliente(pais, cliente, pct):
 
 
 def congelar_snapshot_ciclo_sop(df_target):
-    """Congela la foto fija (Estadístico vs Consenso) de todos los pares Cliente-SKU activos en GitHub."""
+    """Congela de forma vectorizada la foto fija (Estadístico vs Consenso) en GitHub."""
     if df_target is None or df_target.empty:
         return 0
     ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
@@ -911,12 +1100,13 @@ def congelar_snapshot_ciclo_sop(df_target):
     if not aj_all.empty:
         aj_all['Date_M'] = pd.to_datetime(aj_all['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
 
+    pares = df_target[['País', 'customer cod', 'sku cod']].drop_duplicates().head(300)
     eventos_snap = []
-    for (p_val, c_val, s_val), g_sub in df_target.groupby(['País', 'customer cod', 'sku cod']):
-        s_mensual = g_sub.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        s_limpia = limpiar_anomalias(s_mensual) if usar_limpieza_outliers else s_mensual
-        fcst_est = calcular_forecast(s_limpia, min(horizonte, 6))
+    h_snap = min(horizonte, 6)
 
+    for _, row_p in pares.iterrows():
+        p_val, c_val, s_val = row_p['País'], row_p['customer cod'], row_p['sku cod']
+        fcst_est = obtener_fcst_sku_rapido(s_val, h_snap, modelo_fcst_sel)
         mapa_ovr = {}
         if not aj_all.empty:
             sub_aj = aj_all[(aj_all['País'] == p_val) & (aj_all['customer cod'] == c_val) & (aj_all['sku cod'] == s_val)]
@@ -953,7 +1143,7 @@ def calcular_kpis_forecast(df_in, usar_outliers):
     if df_in is None or df_in.empty:
         return 0.0, 0.0, 0.0
     df_eval = df_in.groupby('Date')['volume'].sum().resample("MS").sum().reset_index()
-    if len(df_eval) < 12:
+    if len(df_eval) < 6:
         return 0.0, 0.0, 0.0
     
     serie = df_eval.set_index('Date')['volume']
@@ -991,7 +1181,6 @@ def estilo_doh(val):
 
 
 def aplicar_moq_y_lote_multiplo(serie_necesidad, moq_kg, lote_mult_kg):
-    """Redondea hacia arriba las necesidades netas aplicando Pedido Mínimo (MOQ) y Lote Múltiplo (S&OE)."""
     vals = pd.to_numeric(serie_necesidad, errors='coerce').fillna(0.0).values
     res = np.zeros_like(vals, dtype=float)
     moq_val = max(0.0, float(moq_kg))
@@ -1009,7 +1198,6 @@ def aplicar_moq_y_lote_multiplo(serie_necesidad, moq_kg, lote_mult_kg):
 
 
 def construir_diagrama_sankey_red(mps_dict, df_b, df_r, df_v):
-    """Construye un diagrama Sankey E2E: Materia Prima -> Línea Planta -> SKU PT -> País."""
     if not mps_dict or df_b is None or df_b.empty:
         return None
 
@@ -1027,7 +1215,6 @@ def construir_diagrama_sankey_red(mps_dict, df_b, df_r, df_v):
         mapa_maq = dict(zip(df_r['sku cod'].astype(str).str.strip(), df_r['Maquina'].astype(str).str.strip()))
 
     enlaces = []
-    # Tramo 1 y 2: Materia Prima -> Línea de Planta -> Producto Terminado (SKU)
     for _, row_p in df_mps_top.iterrows():
         sku_c = str(row_p['sku cod']).strip()
         fab_kg = float(row_p['Fab_Total_Kg'])
@@ -1045,7 +1232,6 @@ def construir_diagrama_sankey_red(mps_dict, df_b, df_r, df_v):
                     enlaces.append((nodo_rm, maq_c, flujo_rm))
         enlaces.append((maq_c, nodo_sku, fab_kg))
 
-        # Tramo 3: Producto Terminado (SKU) -> País / Mercado Destino
         if df_v is not None and not df_v.empty:
             sub_v = df_v[df_v['sku cod'].astype(str).str.strip() == sku_c]
             if not sub_v.empty:
@@ -1096,195 +1282,203 @@ def construir_diagrama_sankey_red(mps_dict, df_b, df_r, df_v):
 
 
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
-    plan = pd.DataFrame(index=serie_salidas.index)
-    plan['Salidas_Brutas'] = serie_salidas.fillna(0)
-    plan['Recepciones_ERP'] = serie_erp if serie_erp is not None else 0.0
-    plan['Recepciones_ERP'] = plan['Recepciones_ERP'].fillna(0)
-    
-    plan['Stock_Inicial'], plan['Stock_Objetivo'], plan['Entradas_Netas'], plan['Stock_Final'] = 0.0, 0.0, 0.0, 0.0
+    """Cálculo rápido con arrays NumPy de alta velocidad."""
+    idx = serie_salidas.index
+    n = len(idx)
+    salidas = np.nan_to_num(serie_salidas.values.astype(float), nan=0.0)
+    rec_erp = np.nan_to_num(serie_erp.values.astype(float), nan=0.0) if serie_erp is not None else np.zeros(n, dtype=float)
+
+    stk_ini = np.zeros(n, dtype=float)
+    stk_obj = np.zeros(n, dtype=float)
+    entradas = np.zeros(n, dtype=float)
+    stk_fin = np.zeros(n, dtype=float)
+
     stock_corriente = float(stock_inicial)
-    
-    media_reciente = plan['Salidas_Brutas'].tail(3).mean() if len(plan) > 0 else 0.0
-    
-    for i in range(len(plan)):
-        futuro_disponible = plan['Salidas_Brutas'].iloc[i + 1 : i + 1 + cobertura_meses]
-        meses_faltantes = max(0, cobertura_meses - len(futuro_disponible))
-        salida_futura = futuro_disponible.sum() + (meses_faltantes * media_reciente)
-        
-        plan.iloc[i, plan.columns.get_loc('Stock_Inicial')] = stock_corriente
-        plan.iloc[i, plan.columns.get_loc('Stock_Objetivo')] = salida_futura
-        
-        rec_erp = plan['Recepciones_ERP'].iloc[i]
-        necesidad_real = plan['Salidas_Brutas'].iloc[i] + salida_futura - stock_corriente - rec_erp
-        entradas_sugeridas = max(0.0, necesidad_real)
-        
-        plan.iloc[i, plan.columns.get_loc('Entradas_Netas')] = entradas_sugeridas
-        stock_corriente = stock_corriente + entradas_sugeridas + rec_erp - plan['Salidas_Brutas'].iloc[i]
-        plan.iloc[i, plan.columns.get_loc('Stock_Final')] = stock_corriente
-        
+    media_reciente = float(salidas[-3:].mean()) if n > 0 else 0.0
+    cob = int(cobertura_meses)
+
+    for i in range(n):
+        fut_slice = salidas[i + 1 : i + 1 + cob]
+        faltantes = max(0, cob - len(fut_slice))
+        salida_futura = float(fut_slice.sum()) + faltantes * media_reciente
+
+        stk_ini[i] = stock_corriente
+        stk_obj[i] = salida_futura
+
+        nec_real = salidas[i] + salida_futura - stock_corriente - rec_erp[i]
+        ent_sug = max(0.0, nec_real)
+
+        entradas[i] = ent_sug
+        stock_corriente = stock_corriente + ent_sug + rec_erp[i] - salidas[i]
+        stk_fin[i] = stock_corriente
+
+    plan = pd.DataFrame({
+        'Salidas_Brutas': salidas,
+        'Recepciones_ERP': rec_erp,
+        'Stock_Inicial': stk_ini,
+        'Stock_Objetivo': stk_obj,
+        'Entradas_Netas': entradas,
+        'Stock_Final': stk_fin
+    }, index=idx)
+
     demanda_futura_media = plan['Salidas_Brutas'].rolling(window=3, min_periods=1).mean().shift(-1)
-    if len(plan) > 0:
+    if n > 0:
         demanda_futura_media.iloc[-1] = media_reciente
-    plan['DOH'] = np.where(demanda_futura_media > 0, (plan['Stock_Final'] / demanda_futura_media) * 30, 0)
+    plan['DOH'] = np.where(demanda_futura_media > 0, (plan['Stock_Final'] / demanda_futura_media) * 30.0, 0.0)
     plan['DOH'] = plan['DOH'].fillna(0).round(0)
     return plan
 
 
 @st.cache_data(show_spinner=False)
-def generar_mps_global(df_v=None, df_stk=None, aj_df=None, horiz=None, cob_fg=None, prod_erp=None, _v_cache=99):
-    if df_v is None: df_v = globals().get('df')
-    if df_stk is None: df_stk = globals().get('df_stock')
-    if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
-    if horiz is None: horiz = globals().get('horizonte', 12)
-    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 1)
-    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', {})
+def generar_mps_global(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=101):
+    """Genera el MPS Global leyendo directamente la matriz de forecast precalculada (sin re-entrenar modelos)."""
+    if horiz is None: horiz = horizonte
+    if cob_fg is None: cob_fg = cobertura_fg
+    if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
 
     mps_dict = {}
-    if df_v is None or df_v.empty:
+    mat_fcst = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat_fcst is None or mat_fcst.empty:
         return mps_dict
 
-    fecha_max_global = pd.to_datetime(df_v['Date']).max().replace(day=1)
-    idx_futuro_global = pd.date_range(start=fecha_max_global + pd.DateOffset(months=1), periods=horiz, freq="MS")
+    mat_h = mat_fcst.iloc[:horiz].copy()
+    aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
+    mapa_aj = {}
+    if aj_df is not None and not aj_df.empty:
+        aj_tmp = aj_df.copy()
+        aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        mapa_aj = aj_tmp.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
-    for sku in df_v['sku cod'].unique():
-        serie_sku = df_v[df_v['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        media_positiva = float(serie_sku[serie_sku > 0].mean()) if (serie_sku > 0).any() else 0.0
-        fcst_vals = calcular_forecast(serie_sku, horiz)
-        vals = np.maximum(fcst_vals.values, media_positiva * 0.5) if media_positiva > 0 else fcst_vals.values
-        df_fcst = pd.DataFrame({'Consenso': vals}, index=idx_futuro_global)
+    idx_fechas = mat_h.index
+    for sku in mat_h.columns:
+        vals_con = mat_h[sku].values.copy()
+        if mapa_aj:
+            for m_i, f_dt in enumerate(idx_fechas):
+                if (sku, f_dt) in mapa_aj:
+                    vals_con[m_i] = float(mapa_aj[(sku, f_dt)])
 
-        if aj_df is not None and not aj_df.empty:
-            aj_sku = aj_df[aj_df['sku cod'] == sku].copy()
-            if not aj_sku.empty:
-                aj_sku['Date'] = pd.to_datetime(aj_sku['Date'], dayfirst=True, errors='coerce')
-                for f_dt, r in aj_sku.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                    if f_dt.replace(day=1) in df_fcst.index:
-                        df_fcst.at[f_dt.replace(day=1), 'Consenso'] = r['override_value']
-
+        serie_con = pd.Series(vals_con, index=idx_fechas)
         stk_inicial, cob_meses, _ = obtener_parametros_stock(sku, cob_fg)
+        serie_erp = pd.Series([dict_prd_erp.get((sku, idx), 0.0) for idx in idx_fechas], index=idx_fechas)
 
-        serie_erp = pd.Series(0.0, index=df_fcst.index)
-        for idx in df_fcst.index:
-            serie_erp[idx] = prod_erp.get((sku, idx), 0.0)
-
-        df_plan = calcular_necesidades_netas(df_fcst['Consenso'], stk_inicial, cob_meses, serie_erp)
+        df_plan = calcular_necesidades_netas(serie_con, stk_inicial, cob_meses, serie_erp)
         df_plan['sku cod'] = sku
         df_plan['sku desc'] = dict_sku_desc.get(sku, str(sku))
         mps_dict[sku] = df_plan
+
     return mps_dict
 
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(df_v=None, df_stk=None, df_b=None, aj_df=None, horiz=None, cob_fg=None, cob_rm=None, prod_erp=None, cmp_erp=None, _v_cache=99):
-    if df_v is None: df_v = globals().get('df')
-    if df_stk is None: df_stk = globals().get('df_stock')
-    if df_b is None: df_b = globals().get('df_bom')
-    if aj_df is None: aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
-    if horiz is None: horiz = globals().get('horizonte', 12)
-    if cob_fg is None: cob_fg = globals().get('cobertura_fg', 1)
-    if cob_rm is None: cob_rm = globals().get('cobertura_rm', 2)
-    if prod_erp is None: prod_erp = globals().get('dict_prd_erp', {})
-    if cmp_erp is None: cmp_erp = globals().get('dict_cmp_erp', {})
+def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _v_cache=101):
+    """Explosión BOM 100 % vectorizada mediante merge matricial."""
+    if horiz is None: horiz = horizonte
+    if cob_fg is None: cob_fg = cobertura_fg
+    if cob_rm is None: cob_rm = cobertura_rm
+    if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
 
-    mps_g = generar_mps_global(df_v, df_stk, aj_df, horiz, cob_fg, prod_erp, _v_cache=_v_cache)
-    if df_b is None or df_b.empty or not mps_g:
+    mps_g = generar_mps_global(horiz=horiz, cob_fg=cob_fg, metodo_fcst=metodo_fcst, _v_cache=_v_cache)
+    if df_bom is None or df_bom.empty or not mps_g:
         return pd.DataFrame()
-    
-    lista_req = []
-    for sku in mps_g:
-        sub_bom = df_b[df_b['sku cod'].astype(str).str.strip() == str(sku).strip()]
-        for _, row in sub_bom.iterrows():
-            rm_c = row['rm cod']
-            if pd.notna(rm_c):
-                cant = float(pd.to_numeric(row['Cantidad'], errors='coerce')) if pd.notna(row['Cantidad']) else 0.0
-                if cant > 0:
-                    lista_req.append(pd.DataFrame({
-                        'Date': mps_g[sku].index,
-                        'Necesidad_Bruta': (mps_g[sku]['Entradas_Netas'] + mps_g[sku]['Recepciones_ERP']) * cant,
-                        'rm cod': str(rm_c).strip()
-                    }))
-                
-    if not lista_req:
+
+    df_mps_all = pd.concat(mps_g.values()).rename_axis('Date').reset_index()
+    df_mps_all['Prod_Total'] = df_mps_all['Entradas_Netas'] + df_mps_all['Recepciones_ERP']
+    df_mps_all['sku_clean'] = df_mps_all['sku cod'].astype(str).str.strip()
+
+    df_b_clean = df_bom.copy()
+    df_b_clean['sku_clean'] = df_b_clean['sku cod'].astype(str).str.strip()
+    df_b_clean['rm_clean'] = df_b_clean['rm cod'].astype(str).str.strip()
+    df_b_clean['cant_num'] = pd.to_numeric(df_b_clean['Cantidad'], errors='coerce').fillna(0.0)
+    df_b_clean = df_b_clean[df_b_clean['cant_num'] > 0]
+
+    df_explosion = pd.merge(df_mps_all[['Date', 'sku_clean', 'Prod_Total']], df_b_clean[['sku_clean', 'rm_clean', 'cant_num']], on='sku_clean', how='inner')
+    if df_explosion.empty:
         return pd.DataFrame()
-    df_req_all = pd.concat(lista_req)
-    
+
+    df_explosion['Necesidad_Bruta'] = df_explosion['Prod_Total'] * df_explosion['cant_num']
+    df_req_all = df_explosion.groupby(['Date', 'rm_clean'], as_index=False)['Necesidad_Bruta'].sum()
+
     lista_compras_g = []
-    for rm_cod, df_rm in df_req_all.groupby(['Date', 'rm cod'])['Necesidad_Bruta'].sum().reset_index().groupby('rm cod'):
+    for rm_cod, df_rm in df_req_all.groupby('rm_clean'):
         stk, cob, lt = obtener_parametros_stock(rm_cod, cob_rm)
-            
-        serie_erp = pd.Series(0.0, index=df_rm['Date'])
-        for idx in df_rm['Date']:
-            serie_erp[idx] = cmp_erp.get((rm_cod, idx), 0.0)
-        
-        plan = calcular_necesidades_netas(df_rm.set_index('Date')['Necesidad_Bruta'], stk, cob, serie_erp)
+        df_rm_sorted = df_rm.sort_values('Date').set_index('Date')
+        serie_erp = pd.Series([dict_cmp_erp.get((rm_cod, idx), 0.0) for idx in df_rm_sorted.index], index=df_rm_sorted.index)
+
+        plan = calcular_necesidades_netas(df_rm_sorted['Necesidad_Bruta'], stk, cob, serie_erp)
         plan['Lanzamiento_Pedidos'] = plan['Entradas_Netas'].shift(-lt).fillna(plan['Entradas_Netas'])
         plan['rm cod'] = rm_cod
         plan['rm desc'] = dict_rm_desc.get(rm_cod, str(rm_cod))
         plan['LT_Meses'] = lt
         lista_compras_g.append(plan.reset_index())
-        
-    return pd.concat(lista_compras_g) if lista_compras_g else pd.DataFrame()
+
+    return pd.concat(lista_compras_g, ignore_index=True) if lista_compras_g else pd.DataFrame()
 
 
 # ==========================================
-# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE
+# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE VECTORIZADO
 # ==========================================
 @st.cache_data(show_spinner=False)
-def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, outl, s_vol, s_pre, s_cos):
+def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos):
+    mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat is None or mat.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    cols_validas = [s for s in skus_filtrados if s in mat.columns]
+    if not cols_validas:
+        return pd.DataFrame(), pd.DataFrame()
+
+    vols_sku = mat[cols_validas].iloc[:horiz].sum(axis=0)
     l_base, l_wi = [], []
-    for sku in df_f['sku cod'].unique():
-        serie = df_f[df_f['sku cod'] == sku].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-        fcst = calcular_forecast(limpiar_anomalias(serie) if outl else serie, horiz)
-        p, m = dict_p.get(sku, 0), dict_m.get(sku, 0)
+    for sku, vol in vols_sku.items():
+        p, m = dict_p.get(sku, 0.0), dict_m.get(sku, 0.0)
         c_base = p - m
-        mon = str(dict_c.get(sku, 'EUR')).strip().upper()
+        mon = str(dict_c.get(sku, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
-        vol = fcst.sum()
         l_base.append({'Revenue': vol * p * t_fx, 'Margin': vol * m * t_fx})
         l_wi.append({
-            'Revenue': vol * (1 + s_vol / 100) * p * (1 + s_pre / 100) * t_fx,
-            'Margin': vol * (1 + s_vol / 100) * (p * (1 + s_pre / 100) - c_base * (1 + s_cos / 100)) * t_fx
+            'Revenue': vol * (1 + s_vol / 100.0) * p * (1 + s_pre / 100.0) * t_fx,
+            'Margin': vol * (1 + s_vol / 100.0) * (p * (1 + s_pre / 100.0) - c_base * (1 + s_cos / 100.0)) * t_fx
         })
     return pd.DataFrame(l_base), pd.DataFrame(l_wi)
 
 
 @st.cache_data(show_spinner=False)
-def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, max_date_global, horiz=12):
-    """Calcula KPIs N12M (Consenso) y el desglose exacto del Puente Financiero Waterfall (L12M -> N12M)."""
-    inicio_fcst = max_date_global.replace(day=1) + pd.DateOffset(months=1)
-    rango_futuro = pd.date_range(start=inicio_fcst, periods=horiz, freq="MS")
-    min_date_12m = max_date_global - pd.DateOffset(months=11)
+def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12):
+    """Calcula de forma vectorizada los KPIs N12M y el Puente Financiero Waterfall (L12M -> N12M)."""
+    mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat is None or mat.empty or df_f.empty:
+        return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
 
+    min_date_12m = max_date_global - pd.DateOffset(months=11)
+    vols_l12 = df_f[(df_f['Date'] >= min_date_12m) & (df_f['Date'] <= max_date_global)].groupby('sku cod')['volume'].sum().to_dict()
     mapa_abc = dict(zip(abc_df['sku cod'], abc_df['ABC'])) if (abc_df is not None and not abc_df.empty and 'ABC' in abc_df.columns) else {}
 
-    aj_clean = pd.DataFrame()
+    mapa_aj = {}
     if aj_df is not None and not aj_df.empty:
         aj_clean = aj_df.copy()
         aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
+
+    mat_h = mat.iloc[:horiz]
+    idx_fut = mat_h.index
 
     v_total_con, r_total_con, m_total_con = 0.0, 0.0, 0.0
     delta_rev_a, delta_rev_bc, delta_rev_fva = 0.0, 0.0, 0.0
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
     for sku in df_f['sku cod'].unique():
-        sub_sku = df_f[df_f['sku cod'] == sku]
-        vol_l12_sku = sub_sku[(sub_sku['Date'] >= min_date_12m) & (sub_sku['Date'] <= max_date_global)]['volume'].sum()
+        if sku not in mat_h.columns:
+            continue
+        vol_l12_sku = float(vols_l12.get(sku, 0.0))
+        serie_est = mat_h[sku].values.copy()
+        serie_con = serie_est.copy()
+        if mapa_aj:
+            for m_i, f_dt in enumerate(idx_fut):
+                if (sku, f_dt) in mapa_aj:
+                    serie_con[m_i] = float(mapa_aj[(sku, f_dt)])
 
-        serie = sub_sku.groupby('Date')['volume'].sum().resample("MS").sum()
-        serie_completa = serie.reindex(pd.date_range(start=serie.index.min(), end=max_date_global.replace(day=1), freq="MS"), fill_value=0)
-        fcst_est = calcular_forecast(limpiar_anomalias(serie_completa) if outl else serie_completa, horiz)
-        fcst_est.index = rango_futuro
-        fcst_con = fcst_est.copy()
-
-        if not aj_clean.empty:
-            sub_aj = aj_clean[aj_clean['sku cod'] == sku]
-            if not sub_aj.empty:
-                for f_dt, r_val in sub_aj.dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().items():
-                    if f_dt in fcst_con.index:
-                        fcst_con.at[f_dt] = float(r_val)
-
-        vol_est_sku = float(fcst_est.sum())
-        vol_con_sku = float(fcst_con.sum())
+        vol_est_sku = float(serie_est.sum())
+        vol_con_sku = float(serie_con.sum())
 
         p, mg = dict_p.get(sku, 0.0), dict_m.get(sku, 0.0)
         mon = str(dict_c.get(sku, 'GBP')).strip().upper()
@@ -1296,9 +1490,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
 
         d_est_vol = vol_est_sku - vol_l12_sku
         d_fva_vol = vol_con_sku - vol_est_sku
-        clase_abc = mapa_abc.get(sku, 'B')
-
-        if clase_abc == 'A':
+        if mapa_abc.get(sku, 'B') == 'A':
             delta_rev_a += d_est_vol * p * t_fx
             delta_mar_a += d_est_vol * mg * t_fx
         else:
@@ -1322,7 +1514,7 @@ def generar_pdf_executive_sop_deck(
     vol_n12, rev_n12, mar_n12,
     vol_bud=None, rev_bud=None, mar_bud=None
 ):
-    """Genera el Executive S&OP Deck multipágina en formato PDF corporativo."""
+    """Genera el Executive S&OP Deck multipágina incluyendo el Action Log del Comité."""
     if FPDF is None:
         return None
 
@@ -1331,7 +1523,7 @@ def generar_pdf_executive_sop_deck(
 
     # --- PÁGINA 1: RESUMEN EJECUTIVO, P&L Y FIABILIDAD DEL MODELO ---
     pdf.add_page()
-    pdf.set_fill_color(30, 62, 91)  # #1E3E5B Corporativo
+    pdf.set_fill_color(30, 62, 91)
     pdf.rect(0, 0, 210, 32, 'F')
     pdf.set_font("Arial", 'B', 16)
     pdf.set_text_color(255, 255, 255)
@@ -1342,13 +1534,12 @@ def generar_pdf_executive_sop_deck(
     pdf.cell(0, 6, txt=_pdf_safe(f"AB Agri Global Supply Chain | Generated: {ahora_str} | Scope: Country={pais_f} | Customer={cli_f} | SKU={sku_f}"), ln=True, align='C')
     pdf.ln(12)
 
-    # 1. KPIs Comerciales y Financieros (L12M vs Budget vs N12M)
     pdf.set_text_color(30, 62, 91)
     pdf.set_font("Arial", 'B', 13)
     pdf.cell(0, 9, txt=_pdf_safe("1. Consolidated P&L: L12M vs. Annual Budget vs. N12M Consensus (GBP)"), ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 6, txt=_pdf_safe(f"   - Active Portfolio Scope: {total_skus} SKUs (FG) | {total_clientes} Active Customers"), ln=True)
+    pdf.cell(0, 6, txt=_pdf_safe(f"   - Active Portfolio Scope: {total_skus} SKUs (FG) | {total_clientes} Active Customers | Model: {modelo_fcst_sel}"), ln=True)
 
     v_b = vol_bud if vol_bud is not None else vol_l12 * 1.05
     r_b = rev_bud if rev_bud is not None else rev_l12 * 1.05
@@ -1385,9 +1576,8 @@ def generar_pdf_executive_sop_deck(
     pdf.cell(36, 8, _pdf_safe(f"GBP {m_b:,.0f}"), 1, 0, 'R')
     pdf.cell(36, 8, _pdf_safe(f"GBP {mar_n12:,.0f}"), 1, 0, 'R')
     pdf.cell(36, 8, _pdf_safe(f"GBP {gap_mar_b:+,.0f}"), 1, 1, 'R')
-    pdf.ln(6)
+    pdf.ln(5)
 
-    # 2. Fiabilidad del Modelo de Demanda
     pdf.set_text_color(30, 62, 91)
     pdf.set_font("Arial", 'B', 13)
     pdf.cell(0, 9, txt=_pdf_safe("2. Demand Model Statistical Reliability (L12M)"), ln=True)
@@ -1400,95 +1590,52 @@ def generar_pdf_executive_sop_deck(
         tot_cambios = len(df_fva_hist)
         delta_neto_fva = pd.to_numeric(df_fva_hist['Delta_Kg'], errors='coerce').fillna(0).sum()
         pdf.cell(0, 6, txt=_pdf_safe(f"   - Consensus Governance (FVA Cloud): {tot_cambios} logged entries | Net Impact: {delta_neto_fva:+,.0f} Kg"), ln=True)
-    pdf.ln(5)
+    pdf.ln(4)
 
-    # 3. Top Alertas de Excepciones en Mes 1 (PT y MP)
     pdf.set_text_color(30, 62, 91)
     pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("3. Month 1 Operational Exception Radar (Stockouts DOH<15d / Excess DOH>60d)"), ln=True)
+    pdf.cell(0, 9, txt=_pdf_safe("3. Month 1 Operational Exception Radar & RCCP Line Saturation"), ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 9)
 
     mps_deck = generar_mps_global()
-    mrp_deck = generar_mrp_global()
     if mps_deck:
         df_mps_d = pd.concat(mps_deck.values()).rename_axis('Date').reset_index()
         df_mps_d['Date'] = pd.to_datetime(df_mps_d['Date'])
         m1_dt = sorted(df_mps_d['Date'].unique())[0]
-        df_alert_pt = df_mps_d[(df_mps_d['Date'] == m1_dt) & ((df_mps_d['DOH'] < 15) | (df_mps_d['DOH'] > 60))].sort_values('DOH').head(6)
-        if df_alert_pt.empty:
-            pdf.cell(0, 6, txt=_pdf_safe("   - Finished Goods (FG): No critical coverage alerts in M1."), ln=True)
-        else:
-            pdf.set_font("Arial", 'B', 9)
-            pdf.cell(0, 6, txt=_pdf_safe(f"   - Top Finished Goods Alerts (Month {m1_dt.strftime('%Y-%m')}):"), ln=True)
-            pdf.set_font("Arial", '', 9)
-            for _, r_pt in df_alert_pt.iterrows():
-                est_al = "STOCKOUT (<15d)" if r_pt['DOH'] < 15 else "EXCESS (>60d)"
-                pdf.cell(0, 5, txt=_pdf_safe(f"     * [{r_pt['sku cod']}] {str(r_pt['sku desc'])[:28]} -> {est_al} | DOH: {r_pt['DOH']:.0f}d | End Stock: {r_pt['Stock_Final']:,.0f} Kg"), ln=True)
+        df_alert_pt = df_mps_d[(df_mps_d['Date'] == m1_dt) & ((df_mps_d['DOH'] < 15) | (df_mps_d['DOH'] > 60))].sort_values('DOH').head(5)
+        for _, r_pt in df_alert_pt.iterrows():
+            est_al = "STOCKOUT (<15d)" if r_pt['DOH'] < 15 else "EXCESS (>60d)"
+            pdf.cell(0, 5, txt=_pdf_safe(f"   * FG [{r_pt['sku cod']}] {str(r_pt['sku desc'])[:28]} -> {est_al} | DOH: {r_pt['DOH']:.0f}d | End Stock: {r_pt['Stock_Final']:,.0f} Kg"), ln=True)
 
-    if mrp_deck is not None and not mrp_deck.empty:
-        mrp_deck['Date'] = pd.to_datetime(mrp_deck['Date'])
-        m1_rm = sorted(mrp_deck['Date'].unique())[0]
-        df_alert_mp = mrp_deck[(mrp_deck['Date'] == m1_rm) & ((mrp_deck['DOH'] < 15) | (mrp_deck['DOH'] > 60))].sort_values('DOH').head(5)
-        if not df_alert_mp.empty:
-            pdf.set_font("Arial", 'B', 9)
-            pdf.cell(0, 6, txt=_pdf_safe(f"   - Top Raw Material Alerts (Month {m1_rm.strftime('%Y-%m')}):"), ln=True)
-            pdf.set_font("Arial", '', 9)
-            for _, r_mp in df_alert_mp.iterrows():
-                est_mp = "STOCKOUT (<15d)" if r_mp['DOH'] < 15 else "EXCESS PO (>60d)"
-                pdf.cell(0, 5, txt=_pdf_safe(f"     * [{r_mp['rm cod']}] {str(r_mp['rm desc'])[:28]} -> {est_mp} | DOH: {r_mp['DOH']:.0f}d | Release PO: {r_mp['Lanzamiento_Pedidos']:,.0f} Kg"), ln=True)
-    pdf.ln(5)
-
-    # 4. Capacidad de Planta (RCCP) y Racionalización MTO/MTS
-    pdf.set_text_color(30, 62, 91)
-    pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("4. Line Saturation (RCCP) & Working Capital Optimization (MTS -> MTO)"), ln=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 9)
-
-    if mps_deck and df_rutas is not None and df_cal is not None:
-        df_mps_c = pd.concat(mps_deck.values()).rename_axis('Date').reset_index()
-        df_mps_c['Carga_Kg'] = df_mps_c['Entradas_Netas'] + df_mps_c['Recepciones_ERP']
-        df_req_c = pd.merge(df_mps_c[df_mps_c['Carga_Kg'] > 0], df_rutas, on='sku cod', how='inner')
-        if not df_req_c.empty:
-            df_req_c['Horas_Nec'] = df_req_c['Carga_Kg'] / pd.to_numeric(df_req_c['Kilos_por_Hora'], errors='coerce').fillna(3500).replace(0, 1)
-            df_cal_c = df_cal.copy()
-            df_cal_c['Date'] = pd.to_datetime(df_cal_c['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-            df_req_c['Date'] = pd.to_datetime(df_req_c['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-            df_cap_c = pd.merge(df_req_c.groupby(['Date', 'Maquina'])['Horas_Nec'].sum().reset_index(), df_cal_c, on=['Date', 'Maquina'], how='left').fillna({'Horas_Disponibles': 740})
-            df_cap_c['Util'] = (df_cap_c['Horas_Nec'] / pd.to_numeric(df_cap_c['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)) * 100
-            res_maq = df_cap_c.groupby('Maquina')['Util'].agg(['mean', 'max']).reset_index()
-            for _, r_m in res_maq.iterrows():
-                estado_l = "BOTTLENECK (>100%)" if r_m['max'] > 100 else ("HIGH LOAD (>85%)" if r_m['max'] > 85 else "OK")
-                pdf.cell(0, 5, txt=_pdf_safe(f"   - Line {r_m['Maquina']}: Avg Utilization = {r_m['mean']:.1f}% | Peak = {r_m['max']:.1f}% [{estado_l}]"), ln=True)
-
-    if df_abcxyz_global is not None and not df_abcxyz_global.empty and df_stock is not None and not df_stock.empty:
-        df_aud_p = pd.merge(
-            df_abcxyz_global[['sku cod', 'sku desc', 'Clase']],
-            df_stock[['sku cod', 'stock_disponible', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
-            on='sku cod', how='inner'
-        )
-        if not df_aud_p.empty:
-            df_aud_p['Cat_Up'] = df_aud_p['Categoria'].astype(str).str.strip().str.upper()
-            mask_lib = df_aud_p['Clase'].isin(['CZ', 'BZ', 'CY', 'CX']) & (df_aud_p['Cat_Up'] == 'MTS')
-            df_lib = df_aud_p[mask_lib].copy()
-            df_lib['WC_Lib'] = pd.to_numeric(df_lib['stock_disponible'], errors='coerce').fillna(0) * pd.to_numeric(df_lib['Coste_Unitario'], errors='coerce').fillna(0) * fx_eur_gbp
-            ahorro_total = df_lib['WC_Lib'].sum()
-            pdf.ln(2)
-            pdf.set_font("Arial", 'B', 10)
-            pdf.set_text_color(0, 110, 50)
-            pdf.cell(0, 7, txt=_pdf_safe(f"   >>> WORKING CAPITAL RELEASE (MTS -> MTO): GBP {ahorro_total:,.0f} potential across {len(df_lib)} erratic SKUs."), ln=True)
+    # 5. Action Log del Comité S&OP
+    df_act_pdf = github_leer_csv(ACTION_LOG_FILE, COLS_ACTION_LOG)
+    if not df_act_pdf.empty:
+        pdf.ln(4)
+        pdf.set_text_color(30, 62, 91)
+        pdf.set_font("Arial", 'B', 13)
+        pdf.cell(0, 9, txt=_pdf_safe("4. Executive S&OP Committee Action Log & Decisions"), ln=True)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Arial", '', 9)
+        for _, r_a in df_act_pdf.head(6).iterrows():
+            pdf.cell(0, 5, txt=_pdf_safe(f"   - [{r_a.get('Estado', '')}] {r_a.get('Area_S&OP', '')}: {str(r_a.get('Accion_Acordada', ''))[:55]} (Owner: {r_a.get('Responsable', '')} | GBP {pd.to_numeric(r_a.get('Impacto_GBP', 0), errors='coerce'):,.0f})"), ln=True)
 
     return bytes(pdf.output())
 
 
 # ==========================================
-# PREPARACIÓN DATOS BASE
+# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1)
 # ==========================================
 df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
 serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
 serie_modelo = limpiar_anomalias(serie_real) if usar_limpieza_outliers else serie_real
-df_comparativo = pd.DataFrame({"Estadistico": calcular_forecast(serie_modelo, horizonte), "Consenso": calcular_forecast(serie_modelo, horizonte)})
+
+if sku_sel != "TODOS" and pais_sel == "TODOS" and cliente_sel == "TODOS":
+    fcst_base_serie = obtener_fcst_sku_rapido(sku_sel, horizonte, modelo_fcst_sel)
+else:
+    fcst_base_serie = calcular_forecast_serie_unica(serie_modelo, horizonte, modelo_fcst_sel)
+
+df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_base_serie.copy()})
 df_comparativo.index.name = 'Date'
 
 ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
@@ -1518,160 +1665,58 @@ tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, t
 ])
 
 # ==========================================
-# MODULO 0: GUÍA DE USO + CALENDARIO DE GOBERNANZA S&OP
+# MODULO 0: GUÍA DE USO + CALENDARIO S&OP + ACTION LOG DEL COMITÉ
 # ==========================================
 with tab_guia:
     st.header(tr(
-        "📖 Manual Corporativo y Arquitectura de la Plataforma S&OP",
-        "📖 Corporate S&OP Platform Manual & Architecture",
-        "📖 Podręcznik Korporacyjny i Architektura Platformy S&OP",
-        "📖 Koncernmanual og S&OP-platformarkitektur"
+        "📖 Manual Corporativo y Arquitectura de la Plataforma S&OP / IBP",
+        "📖 Corporate S&OP / IBP Platform Manual & Architecture",
+        "📖 Podręcznik Korporacyjny i Architektura Platformy S&OP / IBP",
+        "📖 Koncernmanual og S&OP / IBP-platformarkitektur"
     ))
     st.markdown(tr(
-        "Esta plataforma integra de extremo a extremo el ciclo mensual de **Sales & Operations Planning (S&OP)** y **Sales & Operations Execution (S&OE)**, conectando la previsión estadística de demanda con la planificación maestra de producción (MPS), explosión de materiales (MRP), mapeo de red E2E (Sankey), validación de capacidad en planta (RCCP), valoración financiera consolidada en **GBP (£)** y persistencia permanente en la nube (**GitHub Cloud**).",
-        "This platform provides end-to-end integration of the monthly **Sales & Operations Planning (S&OP)** and **Sales & Operations Execution (S&OE)** cycle, connecting statistical demand forecasting with Master Production Scheduling (MPS), Material Requirements Planning (MRP), E2E Supply Network mapping (Sankey), Rough-Cut Capacity Planning (RCCP), consolidated financial valuation in **GBP (£)**, and permanent persistence in **GitHub Cloud**.",
-        "Platforma integruje cały miesięczny cykl **Sales & Operations Planning (S&OP)** oraz **S&OE** — od prognozowania popytu (Holt-Winters), przez plan główny produkcji (MPS), eksplozję BOM (MRP), wizualizację sieci dostaw (Sankey) i weryfikację zdolności produkcyjnych (RCCP), po konsolidację finansową w **GBP (£)** oraz zapis w chmurze **GitHub Cloud**.",
-        "Denne platform integrerer hele den månedlige **Sales & Operations Planning (S&OP)** og **S&OE** cyklus — fra statistisk efterspørgselsprognose til produktionsplanlægning (MPS), materialeeksplosion (MRP), E2E-netværksvisualisering (Sankey), kapacitetsplanlægning (RCCP), finansiel konsolidering i **GBP (£)** og permanent lagring i **GitHub Cloud**."
-    ))
-
-    st.divider()
-    st.subheader(tr(
-        "🛡️ Arquitectura de Datos y Gobernanza Transversal (Barra Lateral)",
-        "🛡️ Data Architecture & Cross-Functional Governance (Sidebar)",
-        "🛡️ Architektura Danych i Zarządzanie (Pasek Boczny)",
-        "🛡️ Dataarkitektur og Governance (Sidebjælke)"
-    ))
-    st.markdown(tr(
-        """
-* **📥 Descarga de 8 Plantillas Oficiales (.xlsx):** Genera de un clic un libro Excel con las 8 hojas estándar y las cabeceras exactas requeridas por el sistema para evitar errores de formato al exportar desde el ERP.
-* **🚨 Validador Estricto de Esquemas:** Cada archivo cargado (`Histórico Ventas`, `Ajustes Consenso`, `Stock Actual`, `BOM`, `Rutas`, `Calendario`, `ERP Compras` y `ERP Producción`) pasa por un control estricto de cabeceras. Si falta alguna columna obligatoria o tiene un nombre distinto, el sistema bloquea la tabla e informa exactamente qué columna debe corregirse.
-* **🧪 Modo Demostración Híbrido (1-Clic):** Permite cargar instantáneamente las 8 tablas con datos sintéticos realistas. Es **híbrido**: puedes activar las 8 tablas Demo y arrastrar encima únicamente tu archivo real de Ventas o de Stock para probar cruces parciales.
-* **🔐 Control de Acceso por Roles y Auditoría en GitHub:** Gestión de permisos diferenciada por usuario (*Administrador Global* vs. *Manager de Producción*). Cada inicio de sesión queda registrado de forma permanente en `audit_log_accesos.csv` en GitHub con fecha/hora CET, usuario y rol.
-        """,
-        """
-* **📥 8 Official Templates Download (.xlsx):** One-click generation of an Excel workbook containing all 8 standard sheets and exact column headers required by the engine, preventing ERP export formatting errors.
-* **🚨 Strict Schema Validator:** Every uploaded file (`Sales History`, `Consensus Overrides`, `Current Inventory`, `BOM`, `Routing`, `Calendar`, `ERP POs`, and `ERP Production Orders`) undergoes strict column verification. If any mandatory column is missing or misnamed, the system halts ingestion and highlights the exact missing column.
-* **🧪 Hybrid Demo Mode (1-Click):** Instantly loads all 8 tables with realistic synthetic data. It is **hybrid**: you can activate all 8 Demo tables and upload a single real Excel file on top to override just that specific table.
-* **🔐 Role-Based Access Control & GitHub Audit Log:** Differentiated module permissions (*Global Administrator* vs. *Production Manager*). Every user login is permanently recorded in `audit_log_accesos.csv` in GitHub with CET timestamp, username, and role.
-        """,
-        """
-* **📥 Pobieranie 8 Oficjalnych Szablonów (.xlsx):** Generuje jednym kliknięciem skoroszyt Excel z 8 arkuszami i dokładnymi nagłówkami kolumn wymaganymi przez system.
-* **🚨 Ścisła Walidacja Schematu Danych:** Każdy przesyłany plik przechodzi rygorystyczną kontrolę nazw kolumn. W przypadku braku kolumny system wyświetla czytelny komunikat błędu.
-* **🧪 Hybrydowy Tryb Demo (1-Klik):** Błyskawicznie ładuje 8 tabel demonstracyjnych z możliwością nadpisania dowolnej tabeli własnym plikiem Excel.
-* **🔐 Kontrola Dostępu (RBAC) i Dziennik Audytu GitHub:** Uprawnienia zależne od roli oraz trwały zapis każdego logowania w pliku `audit_log_accesos.csv` na GitHubie.
-        """,
-        """
-* **📥 Download af 8 Officielle Skabeloner (.xlsx):** Genererer med ét klik en Excel-projektmappe med de 8 standardark og præcise kolonneoverskrifter.
-* **🚨 Striks Skemavalidering:** Hver uploadet fil kontrolleres for eksakte kolonnenavne. Hvis en kolonne mangler, vises en præcis fejlmeddelelse.
-* **🧪 Hybrid Demotilstand (1-Klik):** Indlæser straks 8 demotabeller, hvor du frit kan overskrive enkelte tabeller med dine egne Excel-filer.
-* **🔐 Rollebaseret Adgang & GitHub Adgangslog:** Differentierede rettigheder og permanent logning af alle logins i `audit_log_accesos.csv` på GitHub.
-        """
+        "Esta plataforma integra de extremo a extremo el ciclo mensual de **Integrated Business Planning (IBP)**, **Sales & Operations Planning (S&OP)** y **Sales & Operations Execution (S&OE)** con cálculo matricial vectorizado para grandes volúmenes de datos.",
+        "This platform provides end-to-end integration of the monthly **Integrated Business Planning (IBP)**, **S&OP**, and **S&OE** cycle powered by vectorized matrix algebra for large enterprise datasets."
     ))
 
     st.divider()
     st.subheader(tr(
         "🧭 Guía Detallada de los 10 Módulos Operativos y Ejecutivos",
-        "🧭 Detailed Guide to the 10 Operational & Executive Modules",
-        "🧭 Szczegółowy Opis 10 Modułów Operacyjnych i Zarządczych",
-        "🧭 Detaljeret Gennemgang af de 10 Operationelle og Executive Moduler"
+        "🧭 Detailed Guide to the 10 Operational & Executive Modules"
     ))
 
     st.markdown(tr(
         """
-1. **📊 1. Demanda (Pronóstico Estadístico, Consenso Cloud y Auditoría FVA)**
-   * **Motor Estadístico Holt-Winters:** Proyecta los próximos meses (1 a 24 meses) capturando nivel, tendencia aditiva y estacionalidad anual (12 meses), con limpieza previa opcional de valores atípicos mediante rango intercuartílico (**IQR**).
-   * **Edición Interactiva y Macro Factor:** Permite modificar celda a celda el pronóstico cuando filtras un País, Cliente y SKU, o aplicar una variación porcentual masiva (*Macro Factor*) a toda la cartera de un cliente.
-   * **Persistencia en GitHub Cloud y Snapshot Mensual:** El botón `💾 Guardar Consenso (RAM + GitHub)` sincroniza los ajustes en la nube (`2_Ajustes_Consenso_Cloud.csv`). El botón `📸 Congelar Snapshot Ciclo S&OP` guarda la foto fija antes de cerrar el mes.
-   * **Evaluador Post-Mortem de FVA (*Forecast Value Added*):** Cruza automáticamente los *overrides* y *snapshots* históricos guardados en GitHub contra las ventas reales cerradas, midiendo si la intervención humana redujo el error estadístico (`🟢 Aportó Valor`) o lo empeoró (`🔴 Destruyó Valor`).
-
-2. **🏭 2. Producción (Plan Maestro de Producción - MPS)**
-   * **Cálculo de Necesidades Netas de Producto Terminado (PT):** Cruza la demanda de consenso con el inventario inicial (`stock_disponible`), la política del artículo (`MTS` con cobertura objetivo en meses vs. `MTO` con cobertura cero) y las órdenes de producción en firme ya lanzadas en el ERP (`8_ERP_Produccion`).
-   * **Fórmula Core MPS:** `Nuevas Órdenes a Fabricar = máx(0, Demanda Consenso + Stock Objetivo - Stock Inicial - Recepciones ERP)`.
-   * **Semáforo de Cobertura (DOH - *Days on Hand*):** Calcula los días de inventario al cierre de cada mes sobre la demanda futura móvil (`< 15 días` rojo, `15 a 60 días` verde, `> 60 días` naranja).
-
-3. **🧩 3. Compras (Explosión MRP, Pegging Interactivo y Red de Suministro E2E Sankey)**
-   * **Explosión Multinivel por Receta (BOM) y Lead Time (`LT_Meses`):** Toma el plan total de fabricación de PT (`Nuevas Órdenes + ERP Firme`), lo multiplica por la dosificación unitaria (`Cantidad`) en `4_BOM`, descuenta stock y POs abiertas (`7_ERP_Compras_POs`) y desfasa el lanzamiento según el *Lead Time*.
-   * **🔗 Pegging Interactivo (MP → PT → Clientes y Margen en Riesgo):** Selecciona cualquier materia prima crítica para visualizar qué Productos Terminados la llevan, qué clientes los compran y cuántas **£ de Revenue y Margen Bruto** dependen de ella.
-   * **🕸️ Visualización de la Red de Suministro (Diagrama Sankey):** Mapea visualmente cómo fluyen los kilos desde las Materias Primas (`rm cod`), pasando por las Líneas de Planta (`Maquina`), hasta los SKUs de Producto Terminado y los Países de destino.
-
-4. **⚙️ 4. Capacidad (Planificación de Capacidad a Grueso Modo - RCCP)**
-   * **Conversión de Kilos a Horas de Línea:** Cruza las necesidades totales de fabricación del MPS con las velocidades de producción (`Kilos_por_Hora`) de cada línea industrial (`Extrusión`, `Mezcla`, `Pellet`, `Premix`) definidas en `5_Rutas_Routing`.
-   * **Mapa de Calor de Saturación (%):** Compara las horas requeridas frente a las `Horas_Disponibles` del calendario de planta (`6_Calendario`), alertando en rojo cuando una línea supera el **100 % de utilización**.
-
-5. **💷 5. Finanzas (Valoración P&L Multidivisa y Proyección de Working Capital en GBP)**
-   * **Consolidación Corporativa en Libras Esterlinas (£):** Convierte ingresos y márgenes históricos y proyectados desde `EUR`, `DKK` y `PLN` a `GBP` aplicando los tipos de cambio configurables en la barra lateral, con análisis multinivel (*Consolidado Global*, *Por País*, *Por Cliente* o *Por SKU*).
-   * **Valoración de Capital Circulante (Working Capital PT + MP):** Valora financieramente la proyección mensual del inventario final de Producto Terminado y de Materia Prima (`Coste_Unitario`).
-
-6. **🚀 6. Ejecución ERP & S&OE (Restricciones MOQ / Lotes Múltiplos y Master Pack)**
-   * **⚡ Parametrización Logística S&OE (MOQ y Lotes Múltiplos):** Permite configurar el **Lote Mínimo (MOQ)** y el **Lote Múltiplo de Redondeo** (ej. tamaño de mezcladora industrial o camión completo de proveedor) tanto para Producto Terminado como para Materia Prima, transformando la necesidad teórica en una **Orden Logística Real redondeada**.
-   * **📦 Exportación Master Pack S&OP (.xlsx):** Descarga en un único libro Excel multipestaña los 5 entregables operativos del ciclo, incluyendo las cantidades ya redondeadas por MOQ/Lote Múltiplo listas para cargar en el ERP.
-
-7. **🔠 7. ABC/XYZ (Segmentación Estratégica y Optimizador MTO vs. MTS)**
-   * **Clasificación Cruzada y Matriz de Burbujas:** Segmenta toda la cartera por volumen acumulado (**A**: 80 %, **B**: 15 %, **C**: 5 %) y volatilidad mensual (**X**: $\\text{CV} \\le 0.5$, **Y**: $0.5 < \\text{CV} \\le 1.0$, **Z**: $\\text{CV} > 1.0$), cruzando riesgo frente a margen unitario (£).
-   * **💡 Optimizador Estratégico MTS vs. MTO:** Audita la política actual del archivo de Stock contra la clase ABC/XYZ recomendada, cuantificando exactamente cuántas **£ de Working Capital** se liberarían pasando referencias erráticas (`CZ`, `BZ`, `CY`) de `MTS` a `MTO`.
-
-8. **🚨 8. Excepciones (Radar de Gestión por Excepción - *Management by Exception*)**
-   * **Vigilancia Dual en Mes 1 (PT y MP) y Recomendación Táctica:** Aísla en dos paneles paralelos los Productos Terminados y las Materias Primas que incumplen los umbrales de seguridad en el Mes 1 (`DOH < 15 días` o `DOH > 60 días`), asignando la acción correctiva sugerida.
-
-9. **🔀 9. What-If (Simulador de Escenarios de Estrés y P&L Directivo)**
-   * **Sensibilidad Financiera en Tiempo Real:** Permite aplicar simultáneamente tres *shocks* porcentuales sobre la cartera filtrada (**Volumen %**, **Precio de Venta %** y **Coste MP / COGS %**), recalculando el P&L en GBP y exportando un informe ejecutivo en **PDF**.
-
-10. **📊 10. Dashboard (Triple Comparativa Budget vs. Forecast vs. Real, Puente Waterfall y Dossier PDF)**
-    * **🎯 Comparativa Triple (L12M Real vs. Annual Budget vs. N12M Consenso):** Permite fijar el objetivo de crecimiento presupuestario (*Annual Budget Target %*) y mide el **Gap to Budget** en Volumen (Kg), Revenue (£) y Margen Bruto (£).
-    * **🌉 Puente Financiero S&OP (*Waterfall Bridge Chart* en GBP):** Desglosa visualmente la transición de ingresos y margen bruto entre `L12M` y `N12M` separando **Crecimiento Estadístico Core (Clase A)**, **Efecto Mix Tail (Clase B/C)** y **Ajustes Comerciales de Consenso (FVA)**.
-    * **📑 Exportación Executive S&OP Deck (.pdf):** Genera de un clic el dossier directivo completo en PDF incluyendo el cumplimiento contra Presupuesto (*Gap vs. Budget*).
+1. **📊 1. Demanda (Torneo Auto-ML Best-Fit, Consenso Cloud y Post-Mortem FVA):** Compite automáticamente entre **3 algoritmos** (*Holt-Winters Estacional*, *Media Móvil Ponderada Amortiguada WMA* y *Croston TSB Intermitente*) seleccionando el de menor WAPE por SKU. Incluye guardado directo en GitHub Cloud, Snapshots mensuales y evaluación Post-Mortem contra ventas reales.
+2. **🏭 2. Producción (Plan Maestro de Producción - MPS):** Calcula las necesidades netas de fabricación (`Demanda + Stock Obj - Stock Inicial - ERP Firme`) con semáforo de cobertura **DOH**.
+3. **🧩 3. Compras (MRP, Pegging, Red Sankey E2E y Simulador de Reformulación BOM):** Explosión de materiales con *Lead Time*, trazabilidad inversa de margen en riesgo (**Pegging**), diagrama de flujo **Sankey E2E** y **Simulador de Cambio de Fórmula (Phase-in / Sustitución de MP)**.
+4. **⚙️ 4. Capacidad (RCCP y Nivelación Automática de Carga Finita / Pre-Build):** Convierte kilos a horas por línea industrial, detecta cuellos de botella (`>100 %`) y permite **auto-nivelar la capacidad adelantando producción (*Pre-Build*)** hacia meses previos con holgura.
+5. **💷 5. Finanzas (P&L Consolidado y Working Capital en GBP):** Valoración multimoneda (`EUR`, `DKK`, `PLN` $\\rightarrow$ `GBP`) de ingresos, márgenes y capital circulante (PT + MP).
+6. **🚀 6. Ejecución ERP & S&OE (Restricciones Logísticas MOQ / Lotes Múltiplos y Master Pack):** Redondea las órdenes del Mes 1 a lotes reales de mezcladora y camión completo, exportando el **Master Pack S&OP (.xlsx)**.
+7. **🔠 7. ABC/XYZ (Segmentación, Racionalización MTO/MTS y Stock de Seguridad Científico):** Matriz de burbujas Riesgo vs. Rentabilidad, auditoría `MTS` $\\rightarrow$ `MTO` y cálculo estadístico de **Stock de Seguridad por Nivel de Servicio Objetivo ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)**.
+8. **🚨 8. Excepciones (Radar Management by Exception):** Vigilancia dual en Mes 1 (`DOH < 15d` y `DOH > 60d`) para PT y MP.
+9. **🔀 9. What-If (Simulador de Escenarios Financieros):** Sensibilidad a shocks de Volumen, Precio y Coste MP con informe PDF.
+10. **📊 10. Dashboard (Triple Comparativa Budget, Puente Waterfall, Radar Churn y PDF Deck):** Control contra Presupuesto Anual, gráfico **Waterfall Bridge**, **Radar de Riesgo de Fuga de Clientes (Churn)** y exportación del **Executive S&OP Deck (.pdf)**.
         """,
         """
-1. **📊 1. Demand (Statistical Forecasting, Cloud Consensus & FVA Audit):** Holt-Winters engine with IQR outlier cleaning, interactive editing, *Macro Factor*, GitHub Cloud persistence (`2_Ajustes_Consenso_Cloud.csv`), monthly *Snapshots*, and *Post-Mortem FVA* evaluation against actual sales.
-2. **🏭 2. Production (Master Production Schedule - MPS):** Computes FG net requirements (`New Orders = Consensus Demand + Target Stock - Initial Stock - Firm ERP Receipts`) with **DOH** traffic-light alerts (`<15d` red, `15-60d` green, `>60d` orange).
-3. **🧩 3. Purchasing (MRP BOM Explosion, Interactive Pegging & E2E Sankey Network):** Explodes MPS requirements via `4_BOM`, offsets open POs and Lead Times, traces **Pegging** (RM → FG → Customers & Margin at Risk), and maps the **End-to-End Supply Network via a Sankey Diagram**.
-4. **⚙️ 4. Capacity (Rough-Cut Capacity Planning - RCCP):** Converts MPS kilos into machine hours (`Kilos_por_Hora`) and crosses against plant `Horas_Disponibles` (`6_Calendario`), flagging bottlenecks over **100% utilization**.
-5. **💷 5. Finance (Multi-Currency P&L Valuation & Working Capital in GBP):** Consolidates historical and projected Revenue, Gross Margin, and Working Capital (FG + RM) in **GBP (£)**.
-6. **🚀 6. ERP Execution & S&OE (MOQ / Lot Multiples & Master Pack Export):** Applies real operational constraints (**Minimum Order Quantity MOQ** and **Lot Size Multiples**) to round Month 1 FG production orders and RM purchase orders into logistical lots, exporting the 5-tab **S&OP Master Pack (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Strategic Segmentation & MTO vs. MTS Optimizer):** Crosses cumulative volume (ABC) and volatility (XYZ) in a Risk vs. Margin bubble matrix, quantifying **GBP Working Capital** released by switching erratic SKUs (`CZ`, `BZ`, `CY`) from `MTS` to `MTO`.
-8. **🚨 8. Exceptions (Management by Exception Radar):** Dual Month 1 radar for FG and RM breaching safety thresholds (`DOH < 15d` or `DOH > 60d`) with automated corrective actions.
-9. **🔀 9. What-If (Stress-Testing Simulator & Executive P&L Report):** Real-time sensitivity to Volume, Price, and COGS shocks with instant **PDF** executive report generation.
-10. **📊 10. Dashboard (Triple Budget vs. Forecast vs. Actual Comparison, Waterfall Bridge & PDF Deck):** Tracks FA, Bias, WAPE, **Annual Budget Target vs. N12M Consensus Gap**, **GBP Waterfall Bridge**, and exports the full **Executive S&OP Deck (.pdf)**.
-        """,
-        """
-1. **📊 1. Popyt (Prognoza Holt-Winters, Konsensus w Chmurze i Audyt FVA):** Zaawansowane prognozowanie z czyszczeniem odchyleń (IQR), zapisem w GitHubie oraz oceną *Post-Mortem FVA* względem sprzedaży rzeczywistej.
-2. **🏭 2. Produkcja (Główny Plan Produkcji - MPS):** Oblicza potrzeby netto wyrobów gotowych z sygnalizacją pokrycia **DOH**.
-3. **🧩 3. Zakupy (MRP, Pegging i Sieć Dostaw Sankey):** Eksplozja BOM, czasy dostaw (*Lead Time*), śledzenie **Pegging** oraz interaktywny wykres **Sankey E2E** (Surowce → Linie → SKU → Rynki).
-4. **⚙️ 4. Zdolności (RCCP):** Przelicza kilogramy na roboczogodziny linii i porównuje z kalendarzem dostępności zakładu (`>100%`).
-5. **💷 5. Finanse (P&L i Kapitał Obrotowy w GBP):** Konsolidacja przychodów, marży i zapasów w **GBP (£)**.
-6. **🚀 6. Realizacja ERP & S&OE (MOQ, Wielokrotności Partii i Master Pack):** Uwzględnia minimalne wielkości zamówienia (**MOQ**) oraz partie produkcyjne/zakupowe w Miesiącu 1 i eksportuje 5-arkuszowy **Master Pack S&OP (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Segmentacja i Optymalizator MTO/MTS):** Macierz Ryzyko vs. Marża oraz wyliczenie oszczędności kapitału obrotowego (**£**) przy zmianie z `MTS` na `MTO`.
-8. **🚨 8. Wyjątki:** Automatyczny radar braków (`DOH < 15`) i nadwyżek (`DOH > 60`) w Miesiącu 1.
-9. **🔀 9. What-If:** Symulator szoków wolumenu, cen i kosztów surowców z raportem PDF.
-10. **📊 10. Dashboard (Budżet vs. Prognoza vs. Wykonanie, Most Waterfall i PDF):** Porównanie **L12M vs. Budżet vs. N12M**, wykres **Waterfall Bridge** w GBP oraz pełny **Executive S&OP Deck (.pdf)**.
-        """,
-        """
-1. **📊 1. Efterspørgsel (Holt-Winters Prognose, Cloud-konsensus & FVA-audit):** Statistisk prognose med IQR-outlier-rensning, *Snapshots* i GitHub og *Post-Mortem FVA*-evaluering.
-2. **🏭 2. Produktion (MPS):** Beregner nettobehov for færdigvarer med **DOH**-trafiklys.
-3. **🧩 3. Indkøb (MRP, Pegging & E2E Sankey-netværk):** Eksploderer MPS-planen via styklisten (`4_BOM`), viser **Pegging** samt **Sankey-netværksdiagram** (Råvarer → Linjer → SKU → Markeder).
-4. **⚙️ 4. Kapacitet (RCCP):** Omregner kilo til maskintimer og krydser mod fabrikskalenderen (`>100%`).
-5. **💷 5. Økonomi (P&L & Arbejdskapital i GBP):** Konsoliderer omsætning, bruttomargin og lagerbinding i **GBP (£)**.
-6. **🚀 6. ERP Udførelse & S&OE (MOQ / Partistørrelser & Master Pack):** Anvender **MOQ** og partimultipla på Måned 1-ordrer og eksporterer **Master Pack S&OP (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Segmentering & MTO/MTS-optimering):** Boblematrix og beregning af frigjort arbejdskapital (**£**) ved skift fra `MTS` til `MTO`.
-8. **🚨 8. Undtagelser:** Isolerer kritiske alarmer i Måned 1 (`DOH < 15` og `DOH > 60`).
-9. **🔀 9. What-If:** Stresstest af P&L ved ændringer i volumen, priser og råvareomkostninger inkl. PDF.
-10. **📊 10. Dashboard (Budget vs. Prognose vs. Faktisk, Waterfall Bridge & S&OP Deck PDF):** Sammenligner **L12M vs. Budget vs. N12M**, **Waterfall Bridge** i GBP samt eksport af **Executive S&OP Deck (.pdf)**.
+1. **📊 1. Demand (Auto-ML Best-Fit Tournament, Cloud Consensus & Post-Mortem FVA):** Automatically competes across **3 algorithms** (*Holt-Winters Seasonal*, *Damped WMA*, and *Croston TSB Intermittent*), picking the lowest-WAPE winner per SKU. Includes GitHub Cloud sync, monthly Snapshots, and Post-Mortem FVA evaluation.
+2. **🏭 2. Production (Master Production Schedule - MPS):** Computes net FG production requirements with **DOH** traffic-light alerts.
+3. **🧩 3. Purchasing (MRP, Pegging, E2E Sankey Network & BOM Reformulation Simulator):** Multi-level BOM explosion, interactive **Pegging**, **E2E Sankey flow**, and **BOM Formulation Change Simulator (RM substitution / dosage reduction)**.
+4. **⚙️ 4. Capacity (RCCP & Automated Finite Capacity Leveling / Pre-Build):** Converts kilos to machine hours, flags bottlenecks (`>100%`), and runs **automated Pre-Build leveling** to shift excess load to prior months with spare capacity.
+5. **💷 5. Finance (Consolidated P&L & Working Capital in GBP):** Multi-currency valuation (`EUR`, `DKK`, `PLN` $\\rightarrow$ `GBP`).
+6. **🚀 6. ERP Execution & S&OE (MOQ / Lot Multiples & Master Pack Export):** Rounds Month 1 orders to mixer batch and truckload multiples, exporting the 5-tab **S&OP Master Pack (.xlsx)**.
+7. **🔠 7. ABC/XYZ (Segmentation, MTO/MTS Optimizer & Scientific Safety Stock):** Bubble matrix, `MTS` $\\rightarrow$ `MTO` cash release, and **Cycle Service Level Safety Stock ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)**.
+8. **🚨 8. Exceptions:** Dual Month 1 radar (`DOH < 15d` and `DOH > 60d`).
+9. **🔀 9. What-If:** Volume, Price, and COGS stress-testing with PDF report.
+10. **📊 10. Dashboard (Triple Budget Control, Waterfall Bridge, Customer Churn Radar & PDF Deck):** Tracks Budget Gap, **GBP Waterfall Bridge**, **Customer Churn & Concentration Risk**, and exports the **Executive S&OP Deck (.pdf)**.
         """
     ))
 
-    # ==========================================
-    # MEJORA #1: CALENDARIO INTERACTIVO DE GOBERNANZA DEL CICLO S&OP (WORKFLOW & SIGN-OFF)
-    # ==========================================
+    # --- CALENDARIO INTERACTIVO DE GOBERNANZA DEL CICLO S&OP ---
     st.divider()
     st.subheader(tr(
         "🗓️ Calendario de Gobernanza del Ciclo Mensual S&OP (Workflow & Sign-Off)",
-        "🗓️ Monthly S&OP Cycle Governance Calendar (Workflow & Sign-Off)",
-        "🗓️ Kalendarz Zarządzania Cyklem S&OP (Workflow & Sign-Off)",
-        "🗓️ Månedlig S&OP Governance-kalender (Workflow & Sign-Off)"
-    ))
-    st.caption(tr(
-        "Coordina las 5 etapas oficiales del proceso S&OP mensual entre Comercial, Compras, Operaciones, Finanzas y Dirección General. El estado de avance se sincroniza permanentemente en GitHub Cloud.",
-        "Coordinate the 5 official stages of the monthly S&OP process across Commercial, Procurement, Operations, Finance, and Executive Leadership. Progress syncs permanently to GitHub Cloud."
+        "🗓️ Monthly S&OP Cycle Governance Calendar (Workflow & Sign-Off)"
     ))
 
     mes_actual_base = pd.Timestamp.today().replace(day=1)
@@ -1681,7 +1726,7 @@ with tab_guia:
             "Etapa S&OP": tr("1. Limpieza de Datos y Revisión de Cartera", "1. Data Gathering & Portfolio Review"),
             "Dias_Mes": "Días 1 - 5", "Dia_Inicio": 1, "Dia_Fin": 5,
             "Owner": "S&OP Manager / IT",
-            "Entregable_Clave": tr("Carga de 8 Tablas ERP y Baseline Estadístico", "8 ERP Tables Upload & Statistical Baseline"),
+            "Entregable_Clave": tr("Carga de 8 Tablas ERP y Torneo Auto-ML", "8 ERP Tables Upload & Auto-ML Tournament"),
             "Estado": "✅ Completado", "Notas_Comite": "Datos validados sin errores de esquema."
         },
         {
@@ -1697,7 +1742,7 @@ with tab_guia:
             "Etapa S&OP": tr("3. Revisión de Suministro, MRP y Capacidad Planta", "3. Supply, MRP & Plant Capacity Review (RCCP)"),
             "Dias_Mes": "Días 11 - 16", "Dia_Inicio": 11, "Dia_Fin": 16,
             "Owner": "Operations & Procurement",
-            "Entregable_Clave": tr("Saturación RCCP (Pestaña 4) y Pegging MP (Pestaña 3)", "RCCP Saturation (Tab 4) & RM Pegging (Tab 3)"),
+            "Entregable_Clave": tr("Nivelación Pre-Build RCCP (Pestaña 4) y Pegging MP", "Pre-Build RCCP Leveling (Tab 4) & RM Pegging"),
             "Estado": "⏳ Pendiente", "Notas_Comite": "Validar turnos en Línea 3 Pellet y POs críticas."
         },
         {
@@ -1749,7 +1794,7 @@ with tab_guia:
     fig_gantt.add_vline(x=hoy_ms, line_width=2, line_dash="dash", line_color="#D9534F", annotation_text=tr("Hoy", "Today"))
     fig_gantt.update_yaxes(autorange="reversed", title="")
     fig_gantt.update_xaxes(title=tr("Calendario del Mes en Curso", "Current Month Timeline"))
-    fig_gantt.update_layout(**LAYOUT_STYLE, height=340, margin=dict(l=10, r=10, t=40, b=10))
+    fig_gantt.update_layout(**LAYOUT_STYLE, height=320, margin=dict(l=10, r=10, t=40, b=10))
     st.plotly_chart(fig_gantt, use_container_width=True)
 
     df_cal_edit = st.data_editor(
@@ -1777,26 +1822,109 @@ with tab_guia:
         st.success(tr("✅ Estado del calendario S&OP actualizado y guardado en GitHub.", "✅ S&OP Calendar status updated and saved to GitHub."))
         st.rerun()
 
+    # ==========================================
+    # MEJORA #6: TRACKER DE DECISIONES Y ACCIONES DEL COMITÉ S&OP (ACTION LOG)
+    # ==========================================
+    st.divider()
+    st.subheader(tr(
+        "📋 Registro Ejecutivo de Decisiones y Acciones del Comité S&OP (Action Log & Risk Register)",
+        "📋 Executive S&OP Committee Action Log & Risk Register"
+    ))
+    st.caption(tr(
+        "Registra los acuerdos tácticos y estratégicos de cada reunión S&OP con responsable, fecha límite e impacto estimado en GBP (£). Se sincroniza en GitHub y se incluye automáticamente en el Executive S&OP Deck PDF.",
+        "Log tactical and strategic decisions from each S&OP meeting with owner, due date, and estimated GBP (£) impact. Syncs to GitHub and prints automatically in the Executive S&OP Deck PDF."
+    ))
+
+    acciones_defecto = [
+        {
+            "ID": "ACT-01", "Fecha_Alta": mes_actual_base.strftime("%Y-%m-%d"),
+            "Area_S&OP": "03. Supply & RCCP",
+            "Accion_Acordada": "Adelantar 12.000 Kg de ADICARE EVOLUTION H (Pre-Build) en Línea 3 Pellet para evitar cuello de botella.",
+            "Responsable": "Borja Del Rio", "Fecha_Limite": (mes_actual_base + pd.Timedelta(days=15)).strftime("%Y-%m-%d"),
+            "Impacto_GBP": 18500, "Estado": "🔄 En Curso"
+        },
+        {
+            "ID": "ACT-02", "Fecha_Alta": mes_actual_base.strftime("%Y-%m-%d"),
+            "Area_S&OP": "04. Working Capital",
+            "Accion_Acordada": "Pasar referencias erráticas Clase CZ/BZ de política MTS a MTO según auditoría de Pestaña 7.",
+            "Responsable": "Ángel Mancebo", "Fecha_Limite": (mes_actual_base + pd.Timedelta(days=22)).strftime("%Y-%m-%d"),
+            "Impacto_GBP": 34200, "Estado": "⏳ Pendiente"
+        },
+        {
+            "ID": "ACT-03", "Fecha_Alta": mes_actual_base.strftime("%Y-%m-%d"),
+            "Area_S&OP": "02. Demand & Margin",
+            "Accion_Acordada": "Validar sustitución parcial del 10% en FORMIATO DE CALCIO por alternativa homologada en BOM.",
+            "Responsable": "Technical & Procurement", "Fecha_Limite": (mes_actual_base + pd.Timedelta(days=25)).strftime("%Y-%m-%d"),
+            "Impacto_GBP": 14800, "Estado": "✅ Completado"
+        }
+    ]
+
+    df_act_log = github_leer_csv(ACTION_LOG_FILE, COLS_ACTION_LOG)
+    if df_act_log.empty or not set(COLS_ACTION_LOG).issubset(df_act_log.columns):
+        df_act_log = pd.DataFrame(acciones_defecto)
+
+    df_act_edit = st.data_editor(
+        df_act_log[COLS_ACTION_LOG],
+        num_rows="dynamic",
+        column_config={
+            "ID": st.column_config.TextColumn(label="ID", width="small"),
+            "Fecha_Alta": st.column_config.TextColumn(label=tr("Alta", "Created"), width="small"),
+            "Area_S&OP": st.column_config.SelectboxColumn(
+                label=tr("Área S&OP", "S&OP Area"),
+                options=["01. Data & Portfolio", "02. Demand & Margin", "03. Supply & RCCP", "04. Working Capital", "05. Executive Sign-Off"],
+                required=True
+            ),
+            "Accion_Acordada": st.column_config.TextColumn(label=tr("Decisión / Acción Acordada", "Agreed Action / Decision"), width="large"),
+            "Responsable": st.column_config.TextColumn(label="Owner"),
+            "Fecha_Limite": st.column_config.TextColumn(label=tr("Fecha Límite", "Due Date")),
+            "Impacto_GBP": st.column_config.NumberColumn(label=tr("Impacto (£)", "Impact (£)"), format="£ %d"),
+            "Estado": st.column_config.SelectboxColumn(
+                label=tr("Estado", "Status"),
+                options=["⏳ Pendiente", "🔄 En Curso", "✅ Completado", "🚨 Bloqueado"],
+                required=True
+            )
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+
+    ac_k1, ac_k2, ac_k3 = st.columns([1, 1, 2])
+    ac_k1.metric(tr("Acciones Activas", "Active Actions"), f"{len(df_act_edit)}")
+    impacto_tot_act = pd.to_numeric(df_act_edit["Impacto_GBP"], errors="coerce").fillna(0).sum()
+    ac_k2.metric(tr("Valor en Juego en Comité (£)", "Total Value at Stake (£)"), f"£ {impacto_tot_act:,.0f}")
+    with ac_k3:
+        if st.button(tr("💾 Guardar Action Log del Comité en GitHub", "💾 Save Committee Action Log to GitHub"), use_container_width=True):
+            github_guardar_csv(df_act_edit, ACTION_LOG_FILE, f"Action Log updated by {usuario_actual}")
+            st.success(tr("✅ Action Log guardado en GitHub e incluido en el PDF Ejecutivo.", "✅ Action Log saved to GitHub and included in the Executive PDF."))
+            st.rerun()
+
 # ==========================================
-# MODULO 1: DEMANDA + SNAPSHOT S&OP + EVALUADOR POST-MORTEM FVA
+# MODULO 1: DEMANDA + TORNEO AUTO-ML + SNAPSHOT S&OP + POST-MORTEM FVA
 # ==========================================
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Demanda.", "🔒 You do not have permission to access the Demand module.", "🔒 Brak uprawnień do modułu Popytu.", "🔒 Du har ikke adgang til Efterspørgselsmodulet."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Demanda.", "🔒 You do not have permission to access the Demand module."))
     else:
-        st.subheader(f"{tr('Pronóstico de Demanda', 'Demand Forecast', 'Prognoza Popytu', 'Efterspørgselsprognose')}: {sku_sel}")
+        st.subheader(f"{tr('Pronóstico de Demanda', 'Demand Forecast')}: {sku_sel}  |  🤖 {modelo_fcst_sel}")
+        if sku_sel != "TODOS" and sku_sel in dict_meta_torneo:
+            info_m = dict_meta_torneo[sku_sel]
+            st.caption(
+                f"🏆 **Auto-ML Winner [{sku_sel}]:** `{info_m['Ganador']}` "
+                f"(WAPE Backtest: Holt-Winters `{info_m['WAPE_HW']}%` | Damped WMA `{info_m['WAPE_WMA']}%` | Croston TSB `{info_m['WAPE_Croston']}%`)"
+            )
+
         fig_demanda = go.Figure()
         if not df_grouped.empty:
-            fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name=tr('Histórico Real', 'Actual History', 'Historia Rzeczywista', 'Faktisk Historik'), line=dict(color='#A0B2C6', width=2)))
-        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name=tr('Forecast Estadístico', 'Statistical Forecast', 'Prognoza Statystyczna', 'Statistisk Prognose'), line=dict(color='gray', width=2, dash='dot')))
-        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name=tr('Forecast Consenso', 'Consensus Forecast', 'Prognoza Konsensusu', 'Konsensusprognose'), line=dict(color='#1E3E5B', width=4)))
+            fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name=tr('Histórico Real', 'Actual History'), line=dict(color='#A0B2C6', width=2)))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name=f"{tr('Estadístico', 'Statistical')} ({modelo_fcst_sel})", line=dict(color='gray', width=2, dash='dot')))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name=tr('Forecast Consenso', 'Consensus Forecast'), line=dict(color='#1E3E5B', width=4)))
         
         fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_demanda, use_container_width=True)
         
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.markdown(f"#### {tr('Tabla Editable / Editar Consenso', 'Editable Table / Edit Consensus', 'Tabela Edytowalna / Edytuj Konsensus', 'Redigerbar Tabel / Rediger Konsensus')}")
+            st.markdown(f"#### {tr('Tabla Editable / Editar Consenso', 'Editable Table / Edit Consensus')}")
             df_display = df_comparativo.copy()
             df_display.index = df_display.index.strftime('%Y-%m')
             
@@ -1804,8 +1932,8 @@ with tab_demanda:
                 df_editado = st.data_editor(
                     df_display,
                     column_config={
-                        "Estadistico": st.column_config.NumberColumn(label=tr("Estadístico", "Statistical", "Statystyczna", "Statistisk"), disabled=True, format="%.2f"),
-                        "Consenso": st.column_config.NumberColumn(label=tr("Consenso", "Consensus", "Konsensus", "Konsensus"), step=1, format="%.2f")
+                        "Estadistico": st.column_config.NumberColumn(label=tr("Estadístico", "Statistical"), disabled=True, format="%.2f"),
+                        "Consenso": st.column_config.NumberColumn(label=tr("Consenso", "Consensus"), step=1, format="%.2f")
                     },
                     use_container_width=True
                 )
@@ -1817,7 +1945,7 @@ with tab_demanda:
             btn_c1, btn_c2, btn_c3 = st.columns(3)
             with btn_c1:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                    if st.button(tr("💾 Guardar Consenso (RAM + GitHub)", "💾 Save Consensus (RAM + GitHub)", "💾 Zapisz Konsensus (RAM + GitHub)", "💾 Gem Konsensus (RAM + GitHub)"), use_container_width=True, type="primary"):
+                    if st.button(tr("💾 Guardar Consenso (RAM + GitHub)", "💾 Save Consensus (RAM + GitHub)"), use_container_width=True, type="primary"):
                         if st.session_state['df_ajustes'] is not None:
                             df_aj = st.session_state['df_ajustes'].copy()
                             df_prev_sku = df_aj[(df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel)].copy()
@@ -1864,16 +1992,16 @@ with tab_demanda:
                             ok_cloud = github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Consensus override by {usuario_actual} on {sku_sel}")
                             registrar_evento_fva_consenso(eventos_fva)
                             if ok_cloud:
-                                st.success(tr("✅ Guardado en RAM y sincronizado en GitHub Cloud", "✅ Saved in RAM and synced to GitHub Cloud", "✅ Zapisano w RAM i GitHub Cloud", "✅ Gemt i RAM og GitHub Cloud"))
+                                st.success(tr("✅ Guardado en RAM y sincronizado en GitHub Cloud", "✅ Saved in RAM and synced to GitHub Cloud"))
                             else:
-                                st.success(tr("✅ Guardado en RAM y almacenamiento local", "✅ Saved in RAM and local storage", "✅ Zapisano lokalnie", "✅ Gemt lokalt"))
+                                st.success(tr("✅ Guardado en RAM y almacenamiento local", "✅ Saved in RAM and local storage"))
                             st.rerun()
                 else:
-                    st.info(tr("⚠️ Selecciona País, Cliente y SKU para editar celdas.", "⚠️ Select Country, Customer, and SKU to edit cells.", "⚠️ Wybierz Kraj, Klienta i SKU, aby edytować.", "⚠️ Vælg Land, Kunde og SKU for at redigere."))
+                    st.info(tr("⚠️ Selecciona País, Cliente y SKU para editar celdas.", "⚠️ Select Country, Customer, and SKU to edit cells."))
                     
             with btn_c2:
-                if st.button(tr("📸 Congelar Snapshot Ciclo S&OP", "📸 Freeze S&OP Cycle Snapshot", "📸 Zamroź Snapshot S&OP", "📸 Frys S&OP Snapshot"), use_container_width=True):
-                    with st.spinner(tr("Congelando foto fija del ciclo S&OP en GitHub...", "Freezing S&OP cycle snapshot in GitHub...", "Zapisywanie migawki w GitHub...", "Fryser S&OP-snapshot i GitHub...")):
+                if st.button(tr("📸 Congelar Snapshot Ciclo S&OP", "📸 Freeze S&OP Cycle Snapshot"), use_container_width=True):
+                    with st.spinner(tr("Congelando foto fija del ciclo S&OP en GitHub...", "Freezing S&OP cycle snapshot in GitHub...")):
                         n_reg = congelar_snapshot_ciclo_sop(df_final)
                         st.success(f"📸 Snapshot OK ({n_reg} rows).")
                         st.rerun()
@@ -1884,7 +2012,7 @@ with tab_demanda:
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         st.session_state['df_ajustes'].to_excel(writer, index=False, sheet_name='Sheet1')
                     st.download_button(
-                        label=tr("📥 Descargar Ajustes (.xlsx)", "📥 Download Overrides (.xlsx)", "📥 Pobierz Korekty (.xlsx)", "📥 Download Justeringer (.xlsx)"),
+                        label=tr("📥 Descargar Ajustes (.xlsx)", "📥 Download Overrides (.xlsx)"),
                         data=output.getvalue(),
                         file_name="2_Ajustes_Consenso.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1892,13 +2020,13 @@ with tab_demanda:
                     )
                 
         with col2:
-            st.markdown(f"#### {tr('Pronóstico Matricial (Macro Factor)', 'Matrix Forecasting (Macro Factor)', 'Prognozowanie Macierzowe (Macro Factor)', 'Matrix-prognose (Macro Factor)')}")
-            pais_macro = st.selectbox(tr("País:", "Country:", "Kraj:", "Land:"), sorted(df['País'].dropna().unique()), key="macro_pais")
-            cli_macro = st.selectbox(tr("Cliente:", "Customer:", "Klient:", "Kunde:"), sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
-            pct_macro = st.number_input(tr("Variación % (ej. 15, -20):", "Variation % (e.g. 15, -20):", "Zmiana % (np. 15, -20):", "Variation % (f.eks. 15, -20):"), value=15.0, step=5.0, format="%.1f")
-            if st.button(tr("🚀 Aplicar Macro Factor", "🚀 Apply Macro Factor", "🚀 Zastosuj Macro Factor", "🚀 Anvend Macro Factor"), use_container_width=True):
+            st.markdown(f"#### {tr('Pronóstico Matricial (Macro Factor)', 'Matrix Forecasting (Macro Factor)')}")
+            pais_macro = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()), key="macro_pais")
+            cli_macro = st.selectbox(tr("Cliente:", "Customer:"), sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
+            pct_macro = st.number_input(tr("Variación % (ej. 15, -20):", "Variation % (e.g. 15, -20):"), value=15.0, step=5.0, format="%.1f")
+            if st.button(tr("🚀 Aplicar Macro Factor", "🚀 Apply Macro Factor"), use_container_width=True):
                 if pais_macro and cli_macro:
-                    with st.spinner(tr("Sincronizando en RAM y GitHub...", "Syncing to RAM and GitHub...", "Synchronizacja...", "Synkroniserer...")):
+                    with st.spinner(tr("Sincronizando en RAM y GitHub...", "Syncing to RAM and GitHub...")):
                         exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
                         if exito:
                             st.success("Done & Synced!")
@@ -1907,39 +2035,60 @@ with tab_demanda:
                             st.error(msg)
 
             st.markdown("---")
-            if st.button(tr("🧹 Limpiar Overrides Activos (Cloud)", "🧹 Clear Active Overrides (Cloud)", "🧹 Wyczyść Aktywne Korekty (Chmura)", "🧹 Ryd Aktive Justeringer (Cloud)"), use_container_width=True):
+            if st.button(tr("🧹 Limpiar Overrides Activos (Cloud)", "🧹 Clear Active Overrides (Cloud)"), use_container_width=True):
                 df_vacio_aj = pd.DataFrame(columns=COLS_AJUSTES)
                 st.session_state['df_ajustes'] = df_vacio_aj
                 github_guardar_csv(df_vacio_aj, CLOUD_AJUSTES_FILE, f"Reset active overrides by {usuario_actual}")
-                st.success(tr("✅ Overrides activos reseteados.", "✅ Active overrides cleared.", "✅ Wyczyszczono korekty.", "✅ Aktive justeringer nulstillet."))
+                st.success(tr("✅ Overrides activos reseteados.", "✅ Active overrides cleared."))
                 st.rerun()
 
         st.divider()
+        with st.expander(tr("🏆 Tabla del Torneo Multi-Modelo Auto-ML (Selección del Mejor Algoritmo por SKU)", "🏆 Multi-Model Auto-ML Tournament Table (Best-Fit Algorithm per SKU)"), expanded=False):
+            st.caption(tr(
+                "Muestra el error histórico de validación (WAPE %) de los 3 motores estadísticos en cada SKU y el algoritmo ganador asignado por el modo Auto-ML Best-Fit.",
+                "Displays the backtest validation error (WAPE %) across all 3 statistical engines per SKU and the winning algorithm assigned by Auto-ML Best-Fit."
+            ))
+            filas_torneo = []
+            for s_c, m_info in dict_meta_torneo.items():
+                filas_torneo.append({
+                    "sku cod": s_c,
+                    "Descripción SKU": dict_sku_desc.get(s_c, s_c),
+                    "Algoritmo Ganador (Best-Fit)": m_info["Ganador"],
+                    "WAPE Holt-Winters (%)": m_info["WAPE_HW"],
+                    "WAPE Damped WMA (%)": m_info["WAPE_WMA"],
+                    "WAPE Croston TSB (%)": m_info["WAPE_Croston"],
+                    "Mejor WAPE (%)": m_info["WAPE_Min"]
+                })
+            if filas_torneo:
+                df_torneo_show = pd.DataFrame(filas_torneo).sort_values("Mejor WAPE (%)").reset_index(drop=True)
+                st.dataframe(
+                    df_torneo_show.style.format({
+                        "WAPE Holt-Winters (%)": "{:.1f}%",
+                        "WAPE Damped WMA (%)": "{:.1f}%",
+                        "WAPE Croston TSB (%)": "{:.1f}%",
+                        "Mejor WAPE (%)": "{:.1f}%"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
         with st.expander(tr(
             "📋 Historial de Cambios de Consenso, Snapshots & Evaluador Post-Mortem FVA",
-            "📋 Consensus Change History, Snapshots & Post-Mortem FVA Evaluator",
-            "📋 Historia Zmian Konsensusu, Snapshoty i Ocena Post-Mortem FVA",
-            "📋 Konsensushistorik, Snapshots & Post-Mortem FVA-evaluering"
+            "📋 Consensus Change History, Snapshots & Post-Mortem FVA Evaluator"
         ), expanded=False):
-            st.caption(tr(
-                "1) Registro inmutable en GitHub de todos los ajustes manuales y Snapshots congelados. 2) Cruce automático contra Ventas Reales cuando el mes ya está cerrado en el histórico.",
-                "1) Immutable GitHub log of all manual overrides and frozen Snapshots. 2) Automated cross-check against Actual Sales once the month closes in history.",
-                "1) Niezmienny rejestr zmian i migawek w GitHub. 2) Automatyczne porównanie z rzeczywistą sprzedażą po zamknięciu miesiąca.",
-                "1) Uforanderlig GitHub-log over alle manuelle justeringer og snapshots. 2) Automatisk krydstjek mod faktisk salg."
-            ))
             col_fva1, col_fva2 = st.columns([1, 4])
             with col_fva1:
-                if st.button(tr("🔄 Refrescar Log FVA", "🔄 Refresh FVA Log", "🔄 Odśwież Dziennik FVA", "🔄 Opdater FVA-log"), use_container_width=True):
-                    st.session_state["df_fva_logs"] = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
+                if st.button(tr("🔄 Refrescar Log FVA", "🔄 Refresh FVA Log"), use_container_width=True):
+                    st.session_state["df_fva_logs"] = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG, forzar_recarga=True)
             df_fva_view = st.session_state.get("df_fva_logs", github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG))
             if df_fva_view is None or df_fva_view.empty:
-                st.info(tr("Aún no se han registrado modificaciones manuales ni Snapshots de consenso en la nube.", "No manual overrides or consensus snapshots logged in the cloud yet.", "Brak zarejestrowanych zmian w chmurze.", "Ingen manuelle ændringer eller snapshots registreret endnu."))
+                st.info(tr("Aún no se han registrado modificaciones manuales ni Snapshots de consenso en la nube.", "No manual overrides or consensus snapshots logged in the cloud yet."))
             else:
                 fva_c1, fva_c2, fva_c3 = st.columns(3)
-                fva_c1.metric(tr("Registros / Snapshots en Log", "Logged Entries / Snapshots", "Wpisy w Dzienniku", "Registrerede Snapshots"), f"{len(df_fva_view)}")
-                fva_c2.metric(tr("SKUs Intervenidos", "Modified SKUs", "Zmodyfikowane SKU", "Berørte SKU'er"), f"{df_fva_view['sku cod'].nunique()}")
+                fva_c1.metric(tr("Registros / Snapshots en Log", "Logged Entries / Snapshots"), f"{len(df_fva_view)}")
+                fva_c2.metric(tr("SKUs Intervenidos", "Modified SKUs"), f"{df_fva_view['sku cod'].nunique()}")
                 delta_sum_fva = pd.to_numeric(df_fva_view['Delta_Kg'], errors='coerce').fillna(0).sum()
-                fva_c3.metric(tr("Volumen Neto Añadido (FVA)", "Net Volume Added (FVA)", "Dodany Wolumen Netto (FVA)", "Nettovolumen Tilføjet (FVA)"), f"{delta_sum_fva:+,.0f} Kg")
+                fva_c3.metric(tr("Volumen Neto Añadido (FVA)", "Net Volume Added (FVA)"), f"{delta_sum_fva:+,.0f} Kg")
 
                 st.dataframe(
                     df_fva_view.iloc[::-1].style.format({
@@ -1953,15 +2102,14 @@ with tab_demanda:
                 )
                 csv_fva = df_fva_view.iloc[::-1].to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
-                    label=tr("📥 Descargar Auditoría FVA (.csv)", "📥 Download FVA Audit Log (.csv)", "📥 Pobierz Audyt FVA (.csv)", "📥 Download FVA-log (.csv)"),
+                    label=tr("📥 Descargar Auditoría FVA (.csv)", "📥 Download FVA Audit Log (.csv)"),
                     data=csv_fva,
                     file_name=f"Audit_FVA_Consenso_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv"
                 )
 
-                # --- EVALUADOR POST-MORTEM DE FVA (FOTO CONGELADA VS VENTA REAL CERRADA) ---
                 st.markdown("---")
-                st.markdown(f"#### {tr('🎯 Evaluación Post-Mortem de FVA (Foto Congelada vs. Venta Real Cerrada)', '🎯 Post-Mortem FVA Evaluation (Frozen Snapshot vs. Closed Actual Sales)', '🎯 Ocena Post-Mortem FVA (Snapshot vs. Sprzedaż Rzeczywista)', '🎯 Post-Mortem FVA-evaluering (Snapshot vs. Faktisk Salg)')}")
+                st.markdown(f"#### {tr('🎯 Evaluación Post-Mortem de FVA (Foto Congelada vs. Venta Real Cerrada)', '🎯 Post-Mortem FVA Evaluation (Frozen Snapshot vs. Closed Actual Sales)')}")
 
                 df_snap = df_fva_view.copy()
                 df_snap['Date_Mes'] = pd.to_datetime(df_snap['Date'], errors='coerce').dt.to_period('M').dt.to_timestamp()
@@ -1982,9 +2130,7 @@ with tab_demanda:
                 if df_postmortem.empty:
                     st.info(tr(
                         "ℹ️ Todavía no hay cruce entre las fechas futuras guardadas en el Log FVA y los meses cerrados de tu archivo '1. Histórico Ventas'.",
-                        "ℹ️ No overlap yet between future dates stored in the FVA Log and closed months in '1. Sales History'.",
-                        "ℹ️ Brak pokrycia między datami w dzienniku FVA a zamkniętymi miesiącami w historii sprzedaży.",
-                        "ℹ️ Endnu intet overlap mellem datoer i FVA-loggen og lukkede måneder i salgshistorikken."
+                        "ℹ️ No overlap yet between future dates stored in the FVA Log and closed months in '1. Sales History'."
                     ))
                 else:
                     est_fijo = pd.to_numeric(df_postmortem['Forecast_Estadistico'], errors='coerce').fillna(0)
@@ -1996,8 +2142,8 @@ with tab_demanda:
                     df_postmortem['FVA_Neto_Kg'] = df_postmortem['Error_Abs_Estadistico'] - df_postmortem['Error_Abs_Consenso']
                     df_postmortem['Veredicto_S&OP'] = np.where(
                         df_postmortem['FVA_Neto_Kg'] > 0,
-                        tr('🟢 Aportó Valor (Mejoró al Modelo)', '🟢 Added Value (Beat Model)', '🟢 Wartość Dodana', '🟢 Tilføjede Værdi'),
-                        np.where(df_postmortem['FVA_Neto_Kg'] < 0, tr('🔴 Destruyó Valor (Peor que el Modelo)', '🔴 Destroyed Value (Worse than Model)', '🔴 Pogorszył Wynik', '🔴 Forringede Værdi'), '⚪ Neutral')
+                        tr('🟢 Aportó Valor (Mejoró al Modelo)', '🟢 Added Value (Beat Model)'),
+                        np.where(df_postmortem['FVA_Neto_Kg'] < 0, tr('🔴 Destruyó Valor (Peor que el Modelo)', '🔴 Destroyed Value (Worse than Model)'), '⚪ Neutral')
                     )
 
                     pm1, pm2, pm3 = st.columns(3)
@@ -2008,9 +2154,9 @@ with tab_demanda:
                     wape_con_pm = (err_con_tot / real_tot_pm * 100) if real_tot_pm > 0 else 0.0
                     fva_global_pct = wape_est_pm - wape_con_pm
 
-                    pm1.metric(tr("Error WAPE Modelo Base", "Baseline Model WAPE", "Błąd WAPE Modelu", "Basismodel WAPE"), f"{wape_est_pm:.1f}%")
-                    pm2.metric(tr("Error WAPE Consenso", "Consensus WAPE", "Błąd WAPE Konsensusu", "Konsensus WAPE"), f"{wape_con_pm:.1f}%", f"{-fva_global_pct:+.1f}% vs Base", delta_color="inverse")
-                    pm3.metric(tr("FVA Neto Acumulado (Kg)", "Cumulative Net FVA (Kg)", "Skumulowane FVA Netto (Kg)", "Akkumuleret Netto FVA (Kg)"), f"{df_postmortem['FVA_Neto_Kg'].sum():+,.0f} Kg")
+                    pm1.metric(tr("Error WAPE Modelo Base", "Baseline Model WAPE"), f"{wape_est_pm:.1f}%")
+                    pm2.metric(tr("Error WAPE Consenso", "Consensus WAPE"), f"{wape_con_pm:.1f}%", f"{-fva_global_pct:+.1f}% vs Base", delta_color="inverse")
+                    pm3.metric(tr("FVA Neto Acumulado (Kg)", "Cumulative Net FVA (Kg)"), f"{df_postmortem['FVA_Neto_Kg'].sum():+,.0f} Kg")
 
                     df_pm_show = df_postmortem[[
                         'Date', 'País', 'customer cod', 'sku cod', 'Usuario',
@@ -2036,10 +2182,10 @@ with tab_demanda:
 # ==========================================
 with tab_prod:
     if "tab2" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Producción.", "🔒 You do not have permission to access the Production module.", "🔒 Brak uprawnień do modułu Produkcji.", "🔒 Du har ikke adgang til Produktionsmodulet."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Producción.", "🔒 You do not have permission to access the Production module."))
     else:
         if df_stock is None or sku_sel == "TODOS":
-            st.info(tr("👈 Sube el archivo '3. Stock Actual' y selecciona un SKU específico en el filtro 4.", "👈 Upload '3. Current Inventory' file and select a specific SKU in filter 4.", "👈 Prześlij plik '3. Aktualny Zapas' i wybierz konkretne SKU w filtrze 4.", "👈 Upload '3. Nuværende Lager' og vælg en specifik SKU i filter 4."))
+            st.info(tr("👈 Sube el archivo '3. Stock Actual' y selecciona un SKU específico en el filtro 4.", "👈 Upload '3. Current Inventory' file and select a specific SKU in filter 4."))
         else:
             st.subheader(f"Master Production Schedule (MPS): [{sku_sel}] {dict_sku_desc.get(sku_sel, sku_sel)}")
             stock_sku_fg, cob_real_fg, _ = obtener_parametros_stock(sku_sel, cobertura_fg)
@@ -2053,14 +2199,14 @@ with tab_prod:
             c1, c2, c3 = st.columns(3)
             c1.metric(t["kpi_fab"], f"{df_plan_fg['Entradas_Netas'].sum():,.0f} Kg")
             c2.metric("ERP Pipeline", f"{df_plan_fg['Recepciones_ERP'].sum():,.0f} Kg")
-            c3.metric(t["kpi_doh"], f"{df_plan_fg['DOH'].mean():.0f} {tr('Días', 'Days', 'Dni', 'Dage')}")
+            c3.metric(t["kpi_doh"], f"{df_plan_fg['DOH'].mean():.0f} {tr('Días', 'Days')}")
             st.markdown("<br>", unsafe_allow_html=True)
             
             fig_prod = go.Figure()
-            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Salidas_Brutas'], name=tr('Demanda', 'Demand', 'Popyt', 'Efterspørgsel'), marker_color='#E5E9ED'))
+            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Salidas_Brutas'], name=tr('Demanda', 'Demand'), marker_color='#E5E9ED'))
             fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Recepciones_ERP'], name='ERP Pipeline', marker_color='#A0B2C6'))
-            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Entradas_Netas'], name=tr('Nuevas Órdenes', 'New Orders', 'Nowe Zlecenia', 'Nye Ordrer'), marker_color='#1E3E5B'))
-            fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f"Stock FG ({tr('Obj', 'Target', 'Cel', 'Mål')}: {cob_real_fg}m)", line=dict(color='#88FFBB', width=3)))
+            fig_prod.add_trace(go.Bar(x=df_plan_fg.index, y=df_plan_fg['Entradas_Netas'], name=tr('Nuevas Órdenes', 'New Orders'), marker_color='#1E3E5B'))
+            fig_prod.add_trace(go.Scatter(x=df_plan_fg.index, y=df_plan_fg['Stock_Final'], mode='lines+markers', name=f"Stock FG ({tr('Obj', 'Target')}: {cob_real_fg}m)", line=dict(color='#88FFBB', width=3)))
             
             fig_prod.update_layout(**LAYOUT_STYLE, barmode='stack', hovermode="x unified")
             st.plotly_chart(fig_prod, use_container_width=True)
@@ -2075,40 +2221,40 @@ with tab_prod:
             )
 
 # ==========================================
-# MODULO 3: COMPRAS (MRP) + PEGGING + DIAGRAMA SANKEY E2E
+# MODULO 3: COMPRAS (MRP) + PEGGING + SANKEY E2E + SIMULADOR REFORMULACIÓN BOM
 # ==========================================
 with tab_bom:
     if "tab3" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Compras (MRP).", "🔒 You do not have permission to access the Purchasing (MRP) module.", "🔒 Brak uprawnień do modułu Zakupów (MRP).", "🔒 Du har ikke adgang til Indkøbsmodulet (MRP)."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Compras (MRP).", "🔒 You do not have permission to access the Purchasing (MRP) module."))
     else:
-        st.subheader(tr("Planificación de Compras (MRP)", "MRP / Purchasing Plan", "Planowanie Zakupów (MRP)", "Indkøbsplanlægning (MRP)"))
+        st.subheader(tr("Planificación de Compras (MRP)", "MRP / Purchasing Plan"))
         if df_bom is None or df_stock is None:
-            st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar.", "👈 Prześlij pliki '3. Aktualny Zapas' i '4. BOM' w pasku bocznym.", "👈 Upload '3. Nuværende Lager' & '4. BOM' i sidebjælken."))
+            st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar."))
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:", "🔍 Filtruj Surowiec:", "🔍 Filtrer Råvare:"), lista_rms)
+            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms)
             
-            if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)", "🚀 Uruchom Eksplozję BOM (MRP)", "🚀 Kør BOM-eksplosion (MRP)")):
-                with st.spinner(tr("Procesando explosión BOM...", "Processing BOM explosion...", "Przetwarzanie BOM...", "Behandler BOM...")):
+            if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)")):
+                with st.spinner(tr("Procesando explosión BOM vectorizada...", "Processing vectorized BOM explosion...")):
                     df_viz = generar_mrp_global()
                     
                     if df_viz is None or df_viz.empty or 'rm cod' not in df_viz.columns:
-                        st.warning(tr("⚠️ No se han generado necesidades de compra.", "⚠️ No purchasing requirements generated.", "⚠️ Brak wygenerowanych potrzeb zakupowych.", "⚠️ Ingen indkøbsbehov genereret."))
+                        st.warning(tr("⚠️ No se han generado necesidades de compra.", "⚠️ No purchasing requirements generated."))
                     else:
                         if rm_sel != "TODAS":
                             df_viz = df_viz[df_viz['rm cod'] == rm_sel]
                             
                         if df_viz.empty:
-                            st.warning(tr("Sin demanda para el material seleccionado.", "No demand for the selected material.", "Brak popytu dla wybranego materiału.", "Ingen efterspørgsel for det valgte materiale."))
+                            st.warning(tr("Sin demanda para el material seleccionado.", "No demand for the selected material."))
                         else:
                             df_viz['MP_Visual'] = "[" + df_viz['rm cod'].astype(str) + "] " + df_viz['rm desc'].fillna('')
                             
                             top_mps = df_viz.groupby('MP_Visual')['Entradas_Netas'].sum().nlargest(9).index
                             df_plot_rm = df_viz[df_viz['MP_Visual'].isin(top_mps)] if rm_sel == "TODAS" else df_viz
-                            titulo_graf = tr("Llegadas a Fábrica - Top 9 Materias Primas Críticas", "Factory Arrivals - Top 9 Critical Raw Materials", "Dostawy do Fabryki - Top 9 Surowców", "Fabriksleverancer - Top 9 Råvarer") if rm_sel == "TODAS" else f"MRP - {rm_sel}"
+                            titulo_graf = tr("Llegadas a Fábrica - Top 9 Materias Primas Críticas", "Factory Arrivals - Top 9 Critical Raw Materials") if rm_sel == "TODAS" else f"MRP - {rm_sel}"
                             
-                            lbl_new = tr('Nuevas (Teóricas)', 'New Orders (Planned)', 'Nowe (Planowane)', 'Nye (Planlagte)')
-                            lbl_erp = tr('ERP (Firme)', 'ERP (Firm PO)', 'ERP (Potwierdzone)', 'ERP (Faste PO)')
+                            lbl_new = tr('Nuevas (Teóricas)', 'New Orders (Planned)')
+                            lbl_erp = tr('ERP (Firme)', 'ERP (Firm PO)')
 
                             fig_rm = px.bar(
                                 pd.melt(
@@ -2140,16 +2286,9 @@ with tab_bom:
                             )
 
             st.divider()
-            st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)', '🔗 Śledzenie Wsteczne (Pegging: Surowiec → Wyroby Gotowe → Marża)', '🔗 Sporbarhed (Pegging: Råvare → Færdigvare → Dækningsbidrag i Risiko)')}")
-            st.caption(tr(
-                "Selecciona cualquier Materia Prima para identificar qué SKUs dependen de ella, qué clientes los compran y cuánto Revenue/Margen Bruto en GBP está expuesto.",
-                "Select any Raw Material to identify dependent Finished Goods, buying customers, and exposed Revenue/Gross Margin in GBP.",
-                "Wybierz dowolny surowiec, aby sprawdzić zależne wyroby gotowe, klientów oraz zagrożoną marżę w GBP.",
-                "Vælg en råvare for at se afhængige færdigvarer, kunder og eksponeret omsætning/margin i GBP."
-            ))
-
+            st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)')}")
             lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:", "🧬 Wybierz Surowiec (Pegging):", "🧬 Vælg Råvare til Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
+            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
 
             if rm_peg_sel:
                 mps_peg = generar_mps_global()
@@ -2185,9 +2324,9 @@ with tab_bom:
                 else:
                     df_pegging = pd.DataFrame(filas_peg).sort_values(by="Margen Bruto en Riesgo (£)", ascending=False).reset_index(drop=True)
                     kp1, kp2, kp3 = st.columns(3)
-                    kp1.metric(tr("PTs Dependientes", "Dependent FGs", "Zależne WG", "Afhængige FG'er"), f"{len(df_pegging)} SKUs")
-                    kp2.metric(tr("Consumo Total MP (Horizonte)", "Total RM Consumption", "Całkowite Zużycie SM", "Samlet RM-forbrug"), f"{df_pegging['Consumo MP Requerido (Kg)'].sum():,.0f} Kg")
-                    kp3.metric(tr("Margen Bruto Protegido (£)", "Protected Gross Margin (£)", "Chroniona Marża Brutto (£)", "Beskyttet Dækningsbidrag (£)"), f"£ {df_pegging['Margen Bruto en Riesgo (£)'].sum():,.0f}")
+                    kp1.metric(tr("PTs Dependientes", "Dependent FGs"), f"{len(df_pegging)} SKUs")
+                    kp2.metric(tr("Consumo Total MP (Horizonte)", "Total RM Consumption"), f"{df_pegging['Consumo MP Requerido (Kg)'].sum():,.0f} Kg")
+                    kp3.metric(tr("Margen Bruto Protegido (£)", "Protected Gross Margin (£)"), f"£ {df_pegging['Margen Bruto en Riesgo (£)'].sum():,.0f}")
 
                     st.dataframe(
                         df_pegging.style.format({
@@ -2201,188 +2340,269 @@ with tab_bom:
                         hide_index=True
                     )
 
-            # --- MEJORA #3: VISUALIZACIÓN DE LA RED DE SUMINISTRO E2E (SANKEY) ---
+                    # ==========================================
+                    # MEJORA #2: SIMULADOR DE REFORMULACIÓN Y SUSTITUCIÓN DE MP (BOM CHANGE CONTROL)
+                    # ==========================================
+                    st.markdown("---")
+                    st.markdown(f"#### {tr('🧪 Gobernanza de Reformulación y Sustitución de Materia Prima (BOM Change Control)', '🧪 BOM Formulation Change Control & Raw Material Substitution Simulator')}")
+                    st.caption(tr(
+                        "Simula el impacto en compras (Kg) y en Margen Bruto (£) al reducir o sustituir un porcentaje de este ingrediente por una materia prima alternativa a partir de un mes de entrada en vigor (Phase-In).",
+                        "Simulate the purchasing volume (Kg) and Gross Margin (£) impact of reducing or substituting a percentage of this ingredient with an alternative raw material starting from a Phase-In month."
+                    ))
+
+                    coste_rm_actual = 0.85
+                    if df_stock is not None and not df_stock.empty:
+                        c_match = df_stock.loc[df_stock['sku cod'].astype(str).str.strip() == str(rm_peg_sel).strip(), 'Coste_Unitario'].values
+                        if len(c_match) > 0 and pd.notna(c_match[0]):
+                            coste_rm_actual = float(c_match[0])
+
+                    b_sim1, b_sim2, b_sim3 = st.columns(3)
+                    with b_sim1:
+                        pct_sust_bom = st.slider(
+                            tr("% Sustitución / Reducción de Dosificación en Receta:", "% Substitution / Dosage Reduction in BOM:"),
+                            min_value=0, max_value=100, value=15, step=5
+                        )
+                    with b_sim2:
+                        coste_rm_alt = st.number_input(
+                            tr("Coste Unitario MP Alternativa (EUR/Kg):", "Alternative RM Unit Cost (EUR/Kg):"),
+                            min_value=0.0, max_value=500.0, value=round(coste_rm_actual * 0.80, 2), step=0.05
+                        )
+                    with b_sim3:
+                        mes_phase_in = st.slider(
+                            tr("Mes de Entrada en Vigor (Phase-In Month 1..H):", "Effective Phase-In Month (1..H):"),
+                            min_value=1, max_value=int(horizonte), value=2
+                        )
+
+                    fraccion_horizonte = max(0.0, float(horizonte - mes_phase_in + 1) / float(horizonte))
+                    consumo_actual_tot = float(df_pegging['Consumo MP Requerido (Kg)'].sum())
+                    kilos_sustituidos = consumo_actual_tot * (pct_sust_bom / 100.0) * fraccion_horizonte
+                    ahorro_eur_por_kg = coste_rm_actual - coste_rm_alt
+                    impacto_margen_gbp_bom = kilos_sustituidos * ahorro_eur_por_kg * fx_eur_gbp
+
+                    bs1, bs2, bs3 = st.columns(3)
+                    bs1.metric(tr("Coste Actual MP (EUR/Kg)", "Current RM Cost (EUR/Kg)"), f"€ {coste_rm_actual:,.2f}/Kg")
+                    bs2.metric(tr("Volumen MP Sustituido (Phase-Out)", "Substituted RM Volume (Phase-Out)"), f"-{kilos_sustituidos:,.0f} Kg")
+                    bs3.metric(tr("Impacto Neto en Margen Bruto (£)", "Net Gross Margin Impact (£)"), f"£ {impacto_margen_gbp_bom:+,.0f}")
+
             st.divider()
-            st.markdown(f"### {tr('🕸️ Visualización de la Red de Suministro E2E (Diagrama Sankey)', '🕸️ End-to-End Supply Network Visualization (Sankey Diagram)', '🕸️ Wizualizacja Sieci Dostaw E2E (Diagram Sankeya)', '🕸️ E2E Forsyningsnetværk (Sankey-diagram)')}")
-            st.caption(tr(
-                "Mapea el flujo físico de volúmenes proyectados en el horizonte S&OP desde las Materias Primas (🧩), pasando por las Líneas Industriales de Planta (⚙️) y los Productos Terminados (📦), hasta los Mercados de Destino (🌍).",
-                "Maps the physical flow of projected S&OP volumes from Raw Materials (🧩), through Industrial Plant Lines (⚙️) and Finished Goods (📦), to Destination Markets (🌍)."
-            ))
+            st.markdown(f"### {tr('🕸️ Visualización de la Red de Suministro E2E (Diagrama Sankey)', '🕸️ End-to-End Supply Network Visualization (Sankey Diagram)')}")
             fig_sk = construir_diagrama_sankey_red(generar_mps_global(), df_bom, df_rutas, df)
             if fig_sk is not None:
                 st.plotly_chart(fig_sk, use_container_width=True)
 
 # ==========================================
-# MODULO 4: CAPACIDAD (RCCP)
+# MODULO 4: CAPACIDAD (RCCP) + AUTO-NIVELACIÓN DE CAPACIDAD FINITA (PRE-BUILD)
 # ==========================================
 with tab_cap:
     if "tab4" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Capacidad.", "🔒 You do not have permission to access the Capacity module.", "🔒 Brak uprawnień do modułu Zdolności.", "🔒 Du har ikke adgang til Kapacitetsmodulet."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Capacidad.", "🔒 You do not have permission to access the Capacity module."))
     else:
-        st.subheader(tr("Planificación de Capacidad (RCCP)", "Capacity Planning (RCCP)", "Planowanie Zdolności Produkcyjnych (RCCP)", "Kapacitetsplanlægning (RCCP)"))
+        st.subheader(tr("Planificación de Capacidad (RCCP) & Nivelación Finita", "Capacity Planning (RCCP) & Finite Leveling"))
         if df_rutas is None or df_cal is None:
-            st.info(tr("👈 Sube '5. Rutas / Routing' y '6. Calendario' en la barra lateral.", "👈 Upload '5. Production Routing' & '6. Plant Calendar' in the sidebar.", "👈 Prześlij pliki 5. Marszruty i 6. Kalendarz.", "👈 Upload '5. Produktionsruter' & '6. Fabriks-kalender' i sidebjælken."))
+            st.info(tr("👈 Sube '5. Rutas / Routing' y '6. Calendario' en la barra lateral.", "👈 Upload '5. Production Routing' & '6. Plant Calendar' in the sidebar."))
         else:
             lista_maquinas = ["TODOS"] + sorted(df_rutas['Maquina'].dropna().astype(str).unique().tolist())
-            maq_sel = st.selectbox(tr("⚙️ Filtrar Línea / Máquina:", "⚙️ Filter Line / Work Center:", "⚙️ Filtruj Linię:", "⚙️ Filtrer Linje:"), lista_maquinas)
+            col_c_top1, col_c_top2 = st.columns([2, 2])
+            with col_c_top1:
+                maq_sel = st.selectbox(tr("⚙️ Filtrar Línea / Máquina:", "⚙️ Filter Line / Work Center:"), lista_maquinas)
+            with col_c_top2:
+                umbral_prebuild = st.slider(tr("🎯 Techo Máximo de Utilización para Pre-Build (%):", "🎯 Max Utilization Cap for Pre-Build Leveling (%):"), 70, 120, 95, step=5)
             
-            if st.button(tr("⚖️ Calcular Saturación de Planta", "⚖️ Calculate Plant Saturation", "⚖️ Oblicz Obciążenie Linii", "⚖️ Beregn Kapacitetsudnyttelse")):
-                with st.spinner(tr("Calculando cargas RCCP...", "Calculating RCCP loads...", "Obliczanie obciążenia RCCP...", "Beregner RCCP-belastning...")):
-                    mps_g = generar_mps_global()
-                    if mps_g:
-                        df_mps_concat = pd.concat(mps_g.values()).rename_axis('Date').reset_index()
-                        df_mps_concat['Carga_Total_Kg'] = df_mps_concat['Entradas_Netas'] + df_mps_concat['Recepciones_ERP']
-                        df_mps_pos = df_mps_concat[df_mps_concat['Carga_Total_Kg'] > 0].copy()
+            mps_g = generar_mps_global()
+            if mps_g:
+                df_mps_concat = pd.concat(mps_g.values()).rename_axis('Date').reset_index()
+                df_mps_concat['Carga_Total_Kg'] = df_mps_concat['Entradas_Netas'] + df_mps_concat['Recepciones_ERP']
+                df_mps_pos = df_mps_concat[df_mps_concat['Carga_Total_Kg'] > 0].copy()
 
-                        df_rutas_clean = df_rutas.copy()
-                        df_rutas_clean['sku cod'] = df_rutas_clean['sku cod'].astype(str).str.strip()
-                        df_mps_pos['sku cod'] = df_mps_pos['sku cod'].astype(str).str.strip()
+                df_rutas_clean = df_rutas.copy()
+                df_rutas_clean['sku cod'] = df_rutas_clean['sku cod'].astype(str).str.strip()
+                df_mps_pos['sku cod'] = df_mps_pos['sku cod'].astype(str).str.strip()
 
-                        df_req = pd.merge(df_mps_pos, df_rutas_clean, on='sku cod', how='inner')
+                df_req = pd.merge(df_mps_pos, df_rutas_clean, on='sku cod', how='inner')
 
-                        if df_req.empty:
-                            st.warning(tr("⚠️ Ningún SKU con necesidad de producción cruza con la tabla '5. Rutas / Routing'.", "⚠️ No SKU with production requirements matches '5. Production Routing'."))
-                        else:
-                            df_req['Kilos_por_Hora'] = pd.to_numeric(df_req['Kilos_por_Hora'], errors='coerce').fillna(1).replace(0, 1)
-                            df_req['Horas_Necesarias'] = df_req['Carga_Total_Kg'] / df_req['Kilos_por_Hora']
+                if df_req.empty:
+                    st.warning(tr("⚠️ Ningún SKU con necesidad de producción cruza con la tabla '5. Rutas / Routing'.", "⚠️ No SKU with production requirements matches '5. Production Routing'."))
+                else:
+                    df_req['Kilos_por_Hora'] = pd.to_numeric(df_req['Kilos_por_Hora'], errors='coerce').fillna(1).replace(0, 1)
+                    df_req['Horas_Necesarias'] = df_req['Carga_Total_Kg'] / df_req['Kilos_por_Hora']
 
-                            df_cal_clean = df_cal.copy()
-                            df_cal_clean['Date'] = pd.to_datetime(df_cal_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-                            df_cal_clean['Horas_Disponibles'] = pd.to_numeric(df_cal_clean['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)
-                            df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+                    df_cal_clean = df_cal.copy()
+                    df_cal_clean['Date'] = pd.to_datetime(df_cal_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+                    df_cal_clean['Horas_Disponibles'] = pd.to_numeric(df_cal_clean['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)
+                    df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
 
-                            if maq_sel == "TODOS":
-                                df_capacidad = pd.merge(
-                                    df_req.groupby(['Date', 'Maquina'])['Horas_Necesarias'].sum().reset_index(),
-                                    df_cal_clean,
-                                    on=['Date', 'Maquina'],
-                                    how='left'
-                                ).fillna({'Horas_Disponibles': 740})
-                                
-                                df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100
-                                df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
-                                df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
-                                
-                                st.markdown(f"#### {tr('% Utilización por Línea', '% Line Utilization', '% Wykorzystania Linii', '% Linjeudnyttelse')}")
-                                try:
-                                    st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
-                                except Exception:
-                                    st.dataframe(df_pivot.style.format("{:.1f}%"), use_container_width=True)
-                            else:
-                                df_req_maq = df_req[df_req['Maquina'] == maq_sel]
-                                if not df_req_maq.empty:
-                                    fig_cap = px.bar(
-                                        df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(),
-                                        x='Date',
-                                        y='Horas_Necesarias',
-                                        color='sku desc',
-                                        title=f"{tr('Carga vs Capacidad', 'Load vs Capacity', 'Obciążenie vs Zdolność', 'Belastning vs Kapacitet')}: {maq_sel}"
-                                    )
-                                    df_cal_maq = df_cal_clean[df_cal_clean['Maquina'] == maq_sel]
-                                    merged_line = pd.merge(
-                                        df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(),
-                                        df_cal_maq,
-                                        on='Date',
-                                        how='left'
-                                    ).fillna({'Horas_Disponibles': 740})
-                                    
-                                    fig_cap.add_trace(go.Scatter(
-                                        x=merged_line['Date'],
-                                        y=merged_line['Horas_Disponibles'],
-                                        mode='lines',
-                                        name='Max Hours',
-                                        line=dict(color='red', width=3, dash='dash')
-                                    ))
-                                    fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title=tr("Horas", "Hours", "Godziny", "Timer"), barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
-                                    st.plotly_chart(fig_cap, use_container_width=True)
-                                else:
-                                    st.warning(f"{tr('No hay demanda asignada para la línea', 'No demand assigned to line')}: {maq_sel}")
+                    df_capacidad = pd.merge(
+                        df_req.groupby(['Date', 'Maquina']).agg(
+                            Horas_Necesarias=('Horas_Necesarias', 'sum'),
+                            Kilos_Totales=('Carga_Total_Kg', 'sum'),
+                            Tasa_Media_KPH=('Kilos_por_Hora', 'mean')
+                        ).reset_index(),
+                        df_cal_clean,
+                        on=['Date', 'Maquina'],
+                        how='left'
+                    ).fillna({'Horas_Disponibles': 740})
+                    
+                    df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100.0
+
+                    if maq_sel == "TODOS":
+                        df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
+                        df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
+                        
+                        st.markdown(f"#### {tr('1. Matriz de Utilización Original (Sin Nivelar %)', '1. Original Unconstrained Utilization Matrix (%)')}")
+                        try:
+                            st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
+                        except Exception:
+                            st.dataframe(df_pivot.style.format("{:.1f}%"), use_container_width=True)
+                    else:
+                        df_req_maq = df_req[df_req['Maquina'] == maq_sel]
+                        if not df_req_maq.empty:
+                            fig_cap = px.bar(
+                                df_req_maq.groupby(['Date', 'sku desc'])['Horas_Necesarias'].sum().reset_index(),
+                                x='Date', y='Horas_Necesarias', color='sku desc',
+                                title=f"{tr('Carga vs Capacidad', 'Load vs Capacity')}: {maq_sel}"
+                            )
+                            df_cal_maq = df_cal_clean[df_cal_clean['Maquina'] == maq_sel]
+                            merged_line = pd.merge(
+                                df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(),
+                                df_cal_maq, on='Date', how='left'
+                            ).fillna({'Horas_Disponibles': 740})
+                            
+                            fig_cap.add_trace(go.Scatter(
+                                x=merged_line['Date'], y=merged_line['Horas_Disponibles'],
+                                mode='lines', name='Max Hours', line=dict(color='red', width=3, dash='dash')
+                            ))
+                            fig_cap.update_layout(**LAYOUT_STYLE, yaxis_title=tr("Horas", "Hours"), barmode='stack', colorway=['#1E3E5B', '#88FFBB', '#A0B2C6'])
+                            st.plotly_chart(fig_cap, use_container_width=True)
+
+                    # ==========================================
+                    # MEJORA #3: ALGORITMO DE NIVELACIÓN AUTOMÁTICA DE CAPACIDAD FINITA (PRE-BUILD)
+                    # ==========================================
+                    st.divider()
+                    st.markdown(f"### {tr('⚖️ Motor de Nivelación Automática de Capacidad Finita (Pre-Build & Line Balancing)', '⚖️ Automated Finite Capacity Leveling Engine (Pre-Build & Line Balancing)')}")
+                    st.caption(tr(
+                        f"Desplaza automáticamente las horas que superan el techo del **{umbral_prebuild}%** hacia meses anteriores con capacidad libre (Pre-Build de referencias MTS), eliminando cuellos de botella y cuantificando el Working Capital temporal requerido.",
+                        f"Automatically shifts machine hours exceeding the **{umbral_prebuild}%** cap backward into earlier months with spare capacity (MTS Pre-Build), eliminating bottlenecks and quantifying the temporary Working Capital required."
+                    ))
+
+                    filas_niveladas = []
+                    movimientos_prebuild = []
+                    for maq_k, grp_m in df_capacidad.sort_values('Date').groupby('Maquina'):
+                        fechas_m = grp_m['Date'].tolist()
+                        h_nec = grp_m['Horas_Necesarias'].values.astype(float).copy()
+                        h_disp = grp_m['Horas_Disponibles'].values.astype(float).copy()
+                        kph_m = grp_m['Tasa_Media_KPH'].values.astype(float).copy()
+                        h_cap = h_disp * (float(umbral_prebuild) / 100.0)
+
+                        # Barrido hacia atrás (Backward Pre-Build Leveling)
+                        for idx_t in range(len(h_nec) - 1, 0, -1):
+                            if h_nec[idx_t] > h_cap[idx_t]:
+                                exceso_h = h_nec[idx_t] - h_cap[idx_t]
+                                holgura_prev = max(0.0, h_cap[idx_t - 1] - h_nec[idx_t - 1])
+                                desplazado_h = min(exceso_h, holgura_prev)
+                                if desplazado_h > 0.1:
+                                    h_nec[idx_t] -= desplazado_h
+                                    h_nec[idx_t - 1] += desplazado_h
+                                    kilos_mov = desplazado_h * kph_m[idx_t]
+                                    movimientos_prebuild.append({
+                                        "Línea / Máquina": maq_k,
+                                        "Mes Pico (Origen)": pd.to_datetime(fechas_m[idx_t]).strftime('%Y-%m'),
+                                        "Mes Pre-Build (Adelanto)": pd.to_datetime(fechas_m[idx_t - 1]).strftime('%Y-%m'),
+                                        "Horas Adelantadas": round(desplazado_h, 1),
+                                        "Volumen Pre-Build (Kg)": round(kilos_mov, 0),
+                                        "Sobrecoste WC Temporal (£)": round(kilos_mov * 1.85 * 0.015, 0)
+                                    })
+
+                        for idx_t, f_dt in enumerate(fechas_m):
+                            filas_niveladas.append({
+                                "Date": f_dt,
+                                "Maquina": maq_k,
+                                "Utilizacion_Nivelada": (h_nec[idx_t] / h_disp[idx_t]) * 100.0 if h_disp[idx_t] > 0 else 0.0
+                            })
+
+                    df_cap_niv = pd.DataFrame(filas_niveladas)
+                    df_piv_niv = df_cap_niv.pivot(index='Maquina', columns='Date', values='Utilizacion_Nivelada').fillna(0)
+                    df_piv_niv.columns = pd.to_datetime(df_piv_niv.columns).strftime('%Y-%m')
+
+                    st.markdown(f"#### {tr('2. Matriz de Utilización Nivelada tras Pre-Build (%)', '2. Leveled Utilization Matrix after Pre-Build (%)')}")
+                    try:
+                        st.dataframe(df_piv_niv.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
+                    except Exception:
+                        st.dataframe(df_piv_niv.style.format("{:.1f}%"), use_container_width=True)
+
+                    if movimientos_prebuild:
+                        df_mov_pb = pd.DataFrame(movimientos_prebuild)
+                        pb1, pb2, pb3 = st.columns(3)
+                        pb1.metric(tr("Adelantos Pre-Build Sugeridos", "Suggested Pre-Build Shifts"), f"{len(df_mov_pb)}")
+                        pb2.metric(tr("Volumen Total Adelantado (Kg)", "Total Shifted Volume (Kg)"), f"{df_mov_pb['Volumen Pre-Build (Kg)'].sum():,.0f} Kg")
+                        pb3.metric(tr("Coste Financiero Pre-Build (£)", "Pre-Build Holding Cost (£)"), f"£ {df_mov_pb['Sobrecoste WC Temporal (£)'].sum():,.0f}")
+                        st.dataframe(
+                            df_mov_pb.style.format({
+                                "Horas Adelantadas": "{:.1f} h",
+                                "Volumen Pre-Build (Kg)": "{:,.0f} Kg",
+                                "Sobrecoste WC Temporal (£)": "£ {:,.0f}"
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.success(tr(f"✅ Ninguna línea supera el techo del {umbral_prebuild}% o no requiere adelantos Pre-Build.", f"✅ No line exceeds the {umbral_prebuild}% cap."))
 
 # ==========================================
 # MODULO 5: FINANZAS
 # ==========================================
 with tab_fin:
     if "tab5" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Finanzas.", "🔒 You do not have permission to access the Finance module.", "🔒 Brak uprawnień do modułu Finansów.", "🔒 Du har ikke adgang til Økonomimodulet."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Finanzas.", "🔒 You do not have permission to access the Finance module."))
     else:
-        st.subheader(tr("Valoración Financiera y Working Capital (GBP)", "Financial Valuation & Working Capital (GBP)", "Wycena Finansowa i Kapitał Obrotowy (GBP)", "Finansiel Værdiansættelse & Arbejdskapital (GBP)"))
+        st.subheader(tr("Valoración Financiera y Working Capital (GBP)", "Financial Valuation & Working Capital (GBP)"))
         if not dict_price:
             st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
         else:
             col1, col2 = st.columns(2)
             with col1:
                 opciones_pl = ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"]
-                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:", "📊 Poziom Analizy:", "📊 Analyseniveau:"), opciones_pl)
+                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:"), opciones_pl)
                 filtro_pl = None
                 if nivel_pl == "Por País":
-                    filtro_pl = st.selectbox(tr("País:", "Country:", "Kraj:", "Land:"), sorted(df['País'].dropna().unique()))
+                    filtro_pl = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()))
                 elif nivel_pl == "Por Cliente":
-                    filtro_pl = st.selectbox(tr("Cliente:", "Customer:", "Klient:", "Kunde:"), sorted(df['customer cod'].dropna().unique()))
+                    filtro_pl = st.selectbox(tr("Cliente:", "Customer:"), sorted(df['customer cod'].dropna().unique()))
                 elif nivel_pl == "Por SKU":
                     filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
             with col2:
-                vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:", "📦 Widok Kapitału Obrotowego:", "📦 Arbejdskapitalvisning:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
+                vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
                 
-            if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital", "📈 Oblicz P&L i Kapitał Obrotowy", "📈 Beregn P&L & Arbejdskapital")):
-                with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...", "Przetwarzanie P&L w GBP...", "Behandler P&L i GBP...")):
+            if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital")):
+                with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...")):
                     if nivel_pl == "Por País":
                         df_fin_target = df[df['País'] == filtro_pl]
-                        group_cols = ['País', 'sku cod']
                     elif nivel_pl == "Por Cliente":
                         df_fin_target = df[df['customer cod'] == filtro_pl]
-                        group_cols = ['customer cod', 'sku cod']
                     elif nivel_pl == "Por SKU":
                         df_fin_target = df[df['sku cod'] == filtro_pl]
-                        group_cols = ['sku cod']
                     else:
                         df_fin_target = df
-                        group_cols = ['sku cod']
 
-                    lista_pl = []
-                    for keys, df_grupo in df_fin_target.groupby(group_cols):
-                        sku = keys[-1] if isinstance(keys, tuple) else keys
-                        pais = keys[0] if nivel_pl == "Por País" else "Varios"
-                        cli = keys[0] if nivel_pl == "Por Cliente" else "Varios"
+                    df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP']].sum().reset_index()
+                    df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
 
-                        df_hist = df_grupo.groupby('Date')[['Rev_GBP', 'Mar_GBP']].sum().resample("MS").sum().fillna(0).reset_index()
-                        df_hist = df_hist.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
-                        df_hist['País'], df_hist['Cliente'], df_hist['SKU'] = pais, cli, sku
-                        lista_pl.append(df_hist)
-
-                        serie_vol = df_grupo.groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
-                        df_fcst = pd.DataFrame({'Consenso': calcular_forecast(limpiar_anomalias(serie_vol) if usar_limpieza_outliers else serie_vol, horizonte)})
-                        
-                        aj_filtro = st.session_state['df_ajustes']
-                        if nivel_pl == "Por País":
-                            aj_filtro = aj_filtro[(aj_filtro['País'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        elif nivel_pl == "Por Cliente":
-                            aj_filtro = aj_filtro[(aj_filtro['customer cod'] == filtro_pl) & (aj_filtro['sku cod'] == sku)]
-                        else:
-                            aj_filtro = aj_filtro[aj_filtro['sku cod'] == sku]
-
-                        if not aj_filtro.empty:
-                            aj_filtro = aj_filtro.copy()
-                            aj_filtro['Date'] = pd.to_datetime(aj_filtro['Date'], dayfirst=True, errors='coerce')
-                            for f, r in aj_filtro.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-                                if f.replace(day=1) in df_fcst.index:
-                                    df_fcst.at[f.replace(day=1), 'Consenso'] = r['override_value']
-                        
-                        precio, margen = dict_price.get(sku, 0), dict_margin.get(sku, 0)
-                        df_res = pd.DataFrame({
-                            'Date': df_fcst.index, 'País': pais, 'Cliente': cli, 'SKU': sku,
-                            'Revenue_GBP': df_fcst['Consenso'].values * precio,
-                            'Margin_GBP': df_fcst['Consenso'].values * margen
-                        })
-                        lista_pl.append(df_res)
-                        
-                    df_plot_pl = pd.concat(lista_pl) if lista_pl else pd.DataFrame()
                     skus_validos = df_fin_target['sku cod'].unique()
-                    titulo_estrategico = filtro_pl if nivel_pl != "Consolidado Global" else tr("Consolidado Global", "Global Consolidated", "Skonsolidowany", "Globalt Konsolideret")
-                    
-                    if not df_plot_pl.empty:
-                        df_plot_pl = df_plot_pl.groupby('Date')[['Revenue_GBP', 'Margin_GBP']].sum().reset_index()
-                    
                     mps_g = generar_mps_global()
+                    filas_fcst_pl = []
+                    for sku in skus_validos:
+                        if sku in mps_g:
+                            s_con = mps_g[sku]['Salidas_Brutas']
+                            p, m = dict_price.get(sku, 0.0), dict_margin.get(sku, 0.0)
+                            filas_fcst_pl.append(pd.DataFrame({
+                                'Date': s_con.index,
+                                'Revenue_GBP': s_con.values * p,
+                                'Margin_GBP': s_con.values * m
+                            }))
+
+                    df_fcst_pl = pd.concat(filas_fcst_pl).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum() if filas_fcst_pl else pd.DataFrame()
+                    df_plot_pl = pd.concat([df_hist_pl, df_fcst_pl], ignore_index=True).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
+                    titulo_estrategico = filtro_pl if nivel_pl != "Consolidado Global" else tr("Consolidado Global", "Global Consolidated")
+                    
                     lista_wc_pt = [
                         pd.DataFrame({
                             'Date': mps_g[sku].index,
@@ -2474,9 +2694,9 @@ with tab_fin:
 # ==========================================
 with tab_ejec:
     if "tab6" not in modulos_permitidos:
-        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.", "🔒 You do not have permission to access the ERP Execution module.", "🔒 Brak uprawnień do modułu Realizacji ERP.", "🔒 Du har ikke adgang til ERP-modulet."))
+        st.warning(tr("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.", "🔒 You do not have permission to access the ERP Execution module."))
     else:
-        st.subheader(tr("🚀 Plan de Ejecución Inmediata & S&OE (Lanzamientos al ERP con MOQ / Lotes)", "🚀 Immediate ERP Execution & S&OE Plan (Order Releases with MOQ / Lot Multiples)", "🚀 Plan Natychmiastowej Realizacji ERP i S&OE (MOQ / Partie)", "🚀 Plan for Øjeblikkelig ERP-udførelse & S&OE (MOQ / Partier)"))
+        st.subheader(tr("🚀 Plan de Ejecución Inmediata & S&OE (Lanzamientos al ERP con MOQ / Lotes)", "🚀 Immediate ERP Execution & S&OE Plan (Order Releases with MOQ / Lot Multiples)"))
         mps_exec = generar_mps_global()
         mrp_exec = generar_mrp_global()
 
@@ -2490,14 +2710,9 @@ with tab_ejec:
             mes_objetivo = hoy_mes if hoy_mes in fechas_disp else fechas_disp[0]
             base_date = pd.to_datetime(mes_objetivo)
 
-            st.info(f"📅 **{tr('Mes Objetivo de Ejecución (Nuevos Lanzamientos)', 'Target Execution Month (New Releases)', 'Miesiąc Docelowy Realizacji', 'Målmåned for Udførelse')}:** {base_date.strftime('%Y-%m')}")
+            st.info(f"📅 **{tr('Mes Objetivo de Ejecución (Nuevos Lanzamientos)', 'Target Execution Month (New Releases)')}:** {base_date.strftime('%Y-%m')}")
 
-            # --- MEJORA #4: PARAMETRIZACIÓN LOGÍSTICA S&OE (MOQ Y LOTES MÚLTIPLOS) ---
             with st.expander(tr("⚡ Reglas de Loteado Operativo S&OE (Pedido Mínimo MOQ y Lote Múltiplo Industrial/Logístico)", "⚡ S&OE Operational Lot Sizing Rules (MOQ & Industrial/Logistical Lot Multiples)"), expanded=True):
-                st.caption(tr(
-                    "Ajusta las necesidades netas teóricas del Mes 1 a lotes reales de fabricación (capacidad de mezcladora/pelletizadora) y lotes logísticos de compra a proveedor (Big-Bags / Camión Completo).",
-                    "Round Month 1 theoretical net requirements up to real industrial batch sizes (mixer/pelletizer capacity) and supplier logistical lots (Big-Bags / Full Truckload)."
-                ))
                 soe_c1, soe_c2, soe_c3, soe_c4 = st.columns(4)
                 with soe_c1:
                     moq_pt_kg = st.number_input(tr("🏭 MOQ Fabricación PT (Kg):", "🏭 FG Production MOQ (Kg):"), min_value=0, max_value=100000, value=2000, step=500)
@@ -2508,7 +2723,7 @@ with tab_ejec:
                 with soe_c4:
                     mult_mp_kg = st.number_input(tr("🚚 Lote Múltiplo MP (Palet/Camión Kg):", "🚚 RM Lot Multiple (Pallet/Truck Kg):"), min_value=1, max_value=50000, value=1000, step=500)
 
-            st.markdown(f"### {tr('🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP', '🏭 NEW Production Orders to Release in ERP', '🏭 NOWE Zlecenia Produkcyjne do Uruchomienia w ERP', '🏭 NYE Produktionsordrer til Frigivelse i ERP')}")
+            st.markdown(f"### {tr('🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP', '🏭 NEW Production Orders to Release in ERP')}")
             df_fab_lanzar = df_mps_all[(df_mps_all['Date'] == mes_objetivo) & (df_mps_all['Entradas_Netas'] > 0)].copy()
 
             if df_fab_lanzar.empty:
@@ -2544,7 +2759,7 @@ with tab_ejec:
                     hide_index=True
                 )
 
-            st.markdown(f"### {tr('🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores', '🛒 NEW Purchase Orders (POs) to Release to Suppliers', '🛒 NOWE Zamówienia Zakupu (PO) do Dostawców', '🛒 NYE Indkøbsordrer (PO) til Leverandører')}")
+            st.markdown(f"### {tr('🛒 NUEVOS Pedidos de Compra a lanzar a Proveedores', '🛒 NEW Purchase Orders (POs) to Release to Suppliers')}")
             df_cmp_lanzar = pd.DataFrame()
             if mrp_exec is None or mrp_exec.empty:
                 st.info(tr("👈 Carga el archivo de BOM y Stock para calcular los lanzamientos de compra.", "👈 Upload BOM and Stock files to calculate PO releases."))
@@ -2583,12 +2798,7 @@ with tab_ejec:
                     st.dataframe(styler_cmp, use_container_width=True, hide_index=True)
 
             st.divider()
-            st.markdown(f"### {tr('📦 Exportar Master Pack S&OP Corporativo (Multi-Pestaña)', '📦 Export Corporate S&OP Master Pack (Multi-Tab Excel)', '📦 Eksportuj Pakiet Główny S&OP (.xlsx)', '📦 Eksporter S&OP Master Pack (.xlsx)')}")
-            st.caption(tr(
-                "Descarga en un único libro Excel el Plan Maestro de Producción (MPS), el Plan de Compras (MRP), las Órdenes S&OE Redondeadas a Lanzar en M1 y la Segmentación ABC/XYZ.",
-                "Download in a single multi-sheet Excel workbook the Master Production Schedule (MPS), Purchasing Plan (MRP), S&OE Rounded M1 Order Releases, and ABC/XYZ Segmentation."
-            ))
-
+            st.markdown(f"### {tr('📦 Exportar Master Pack S&OP Corporativo (Multi-Pestaña)', '📦 Export Corporate S&OP Master Pack (Multi-Tab Excel)')}")
             buf_master = io.BytesIO()
             with pd.ExcelWriter(buf_master, engine="openpyxl") as writer:
                 df_mps_export = df_mps_all.copy()
@@ -2610,7 +2820,7 @@ with tab_ejec:
                     df_abcxyz_global.to_excel(writer, index=False, sheet_name="5_Segmentacion_ABC_XYZ")
 
             st.download_button(
-                label=tr("📥 Descargar Master Pack S&OP Completo (.xlsx)", "📥 Download Full S&OP Master Pack (.xlsx)", "📥 Pobierz Pełny Pakiet S&OP (.xlsx)", "📥 Download Komplet S&OP Master Pack (.xlsx)"),
+                label=tr("📥 Descargar Master Pack S&OP Completo (.xlsx)", "📥 Download Full S&OP Master Pack (.xlsx)"),
                 data=buf_master.getvalue(),
                 file_name=f"Master_Pack_SOP_{base_date.strftime('%Y_%m')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2619,13 +2829,13 @@ with tab_ejec:
             )
 
 # ==========================================
-# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS
+# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + STOCK DE SEGURIDAD CIENTÍFICO (CSL %)
 # ==========================================
 with tab_abc:
     if "tab7" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.", "🔒 You do not have permission to access ABC/XYZ segmentation."))
     else:
-        st.subheader(tr("🔠 Segmentación Estratégica ABC / XYZ", "🔠 Strategic ABC / XYZ Segmentation", "🔠 Segmentacja Strategiczna ABC / XYZ", "🔠 Strategisk ABC / XYZ Segmentering"))
+        st.subheader(tr("🔠 Segmentación Estratégica ABC / XYZ", "🔠 Strategic ABC / XYZ Segmentation"))
         
         if df_abcxyz_global is not None and not df_abcxyz_global.empty:
             df_abcxyz_show = df_abcxyz_global.copy()
@@ -2633,12 +2843,7 @@ with tab_abc:
                 df_abcxyz_show['sku desc'] = df_abcxyz_show['sku cod'].map(dict_sku_desc).fillna(df_abcxyz_show['sku cod'].astype(str))
             
             if dict_margin:
-                st.markdown(f"### {tr('🫧 Matriz de Riesgo vs Rentabilidad', '🫧 Risk vs. Profitability Matrix', '🫧 Macierz Ryzyka i Rentowności', '🫧 Risiko vs. Rentabilitetsmatrix')}")
-                st.markdown(tr(
-                    "Identifica visualmente las 'Estrellas' (rentables y estables) frente a los 'Tóxicos' (bajo margen y altamente erráticos).",
-                    "Visually identify 'Stars' (profitable and stable) vs. 'Toxic SKUs' (low margin and highly erratic)."
-                ))
-                
+                st.markdown(f"### {tr('🫧 Matriz de Riesgo vs Rentabilidad', '🫧 Risk vs. Profitability Matrix')}")
                 df_abcxyz_show['Margen Unitario'] = df_abcxyz_show['sku cod'].map(dict_margin).replace([np.inf, -np.inf], 0).fillna(0.0)
                 df_plot = df_abcxyz_show[df_abcxyz_show['volume'] > 0].copy()
                 df_plot['CV'] = pd.to_numeric(df_plot['CV'], errors='coerce').replace([np.inf, -np.inf], 0).fillna(0.0)
@@ -2674,13 +2879,13 @@ with tab_abc:
 
             col_mat1, col_mat2 = st.columns([1, 2])
             with col_mat1:
-                st.markdown(f"#### {tr('Distribución de SKUs', 'SKU Distribution', 'Rozkład SKU', 'SKU-fordeling')}")
+                st.markdown(f"#### {tr('Distribución de SKUs', 'SKU Distribution')}")
                 resumen_matriz = df_abcxyz_show.groupby(['ABC', 'XYZ'])['sku cod'].count().unstack().fillna(0).astype(int)
                 resumen_matriz = resumen_matriz.reindex(index=['A', 'B', 'C'], columns=['X', 'Y', 'Z'], fill_value=0)
                 st.dataframe(resumen_matriz.style.background_gradient(cmap='Blues'), use_container_width=True)
                 
             with col_mat2:
-                st.markdown(f"#### {tr('Detalle de Clasificación', 'Classification Detail', 'Szczegóły Klasyfikacji', 'Klassifikationsdetaljer')}")
+                st.markdown(f"#### {tr('Detalle de Clasificación', 'Classification Detail')}")
                 filtro_clase = st.multiselect(tr("Filtrar por Clase (ej. AX, CZ):", "Filter by Class (e.g. AX, CZ):"), sorted(df_abcxyz_show['Clase'].unique()))
                 df_show_abc = df_abcxyz_show if not filtro_clase else df_abcxyz_show[df_abcxyz_show['Clase'].isin(filtro_clase)]
 
@@ -2692,18 +2897,28 @@ with tab_abc:
                 )
 
             st.divider()
-            st.markdown(f"### {tr('💡 Optimizador Estratégico de Inventario (Racionalización MTS vs. MTO)', '💡 Strategic Inventory Optimizer (MTS vs. MTO Rationalization)', '💡 Optymalizator Strategii Zapasów (MTS vs. MTO)', '💡 Strategisk Lageroptimering (MTS vs. MTO)')}")
+            st.markdown(f"### {tr('💡 Optimizador Estratégico de Inventario (Racionalización MTS vs. MTO & Stock de Seguridad Científico)', '💡 Strategic Inventory Optimizer (MTS vs. MTO & Scientific Safety Stock by Service Level)')}")
             st.caption(tr(
-                "Cruza la volatilidad/volumen (ABC/XYZ) con tu archivo '3. Stock Actual' para detectar SKUs erráticos (CZ, BZ, CY) configurados como MTS y cuantificar cuánta caja (£) liberarías pasándolos a Make-to-Order (MTO).",
-                "Cross-references ABC/XYZ volatility against '3. Current Inventory' to detect erratic SKUs (CZ, BZ, CY) configured as MTS and quantify Working Capital (£) released by switching them to Make-to-Order (MTO)."
+                "1) Detecta SKUs erráticos (CZ, BZ, CY) configurados como MTS para pasarlos a MTO. 2) Calcula el Stock de Seguridad estadístico óptimo según el Nivel de Servicio Objetivo (CSL %) por Clase ABC.",
+                "1) Detects erratic SKUs (CZ, BZ, CY) configured as MTS to switch to MTO. 2) Computes the optimal statistical Safety Stock based on Target Cycle Service Level (CSL %) per ABC Class."
             ))
 
             if df_stock is None or df_stock.empty:
-                st.info(tr("👈 Sube el archivo '3. Stock Actual' para auditar la política MTO/MTS y cuantificar el ahorro de Working Capital.", "👈 Upload '3. Current Inventory' to audit MTO/MTS policy and quantify Working Capital savings."))
+                st.info(tr("👈 Sube el archivo '3. Stock Actual' para auditar la política MTO/MTS y el Stock de Seguridad Científico.", "👈 Upload '3. Current Inventory' to audit MTO/MTS policy and Scientific Safety Stock."))
             else:
+                # --- MEJORA #4: STOCK DE SEGURIDAD DINÁMICO POR NIVEL DE SERVICIO (CSL %) ---
+                csl_c1, csl_c2, csl_c3 = st.columns(3)
+                mapa_z = {85: 1.04, 90: 1.28, 92: 1.41, 95: 1.65, 97: 1.88, 98: 2.05, 99: 2.33}
+                with csl_c1:
+                    csl_a = st.select_slider(tr("🎯 Nivel Servicio Clase A (CSL %):", "🎯 Class A Service Level (CSL %):"), options=[90, 92, 95, 97, 98, 99], value=98)
+                with csl_c2:
+                    csl_b = st.select_slider(tr("🎯 Nivel Servicio Clase B (CSL %):", "🎯 Class B Service Level (CSL %):"), options=[85, 90, 92, 95, 97, 98], value=95)
+                with csl_c3:
+                    csl_c = st.select_slider(tr("🎯 Nivel Servicio Clase C (CSL %):", "🎯 Class C Service Level (CSL %):"), options=[85, 90, 92, 95], value=90)
+
                 df_audit = pd.merge(
-                    df_abcxyz_show[['sku cod', 'sku desc', 'ABC', 'XYZ', 'Clase', 'volume', 'CV', 'Margen Unitario']],
-                    df_stock[['sku cod', 'stock_disponible', 'Cobertura_Meses', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
+                    df_abcxyz_show[['sku cod', 'sku desc', 'ABC', 'XYZ', 'Clase', 'volume', 'mean', 'std', 'CV', 'Margen Unitario']],
+                    df_stock[['sku cod', 'stock_disponible', 'Cobertura_Meses', 'LT_Meses', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
                     on='sku cod',
                     how='inner'
                 )
@@ -2714,7 +2929,7 @@ with tab_abc:
                     df_audit['Categoria_Actual'] = df_audit['Categoria'].astype(str).str.strip().str.upper()
                     df_audit['Coste_Unitario'] = pd.to_numeric(df_audit['Coste_Unitario'], errors='coerce').fillna(0.0)
                     df_audit['stock_disponible'] = pd.to_numeric(df_audit['stock_disponible'], errors='coerce').fillna(0.0)
-                    df_audit['Cobertura_Meses'] = pd.to_numeric(df_audit['Cobertura_Meses'], errors='coerce').fillna(0.0)
+                    df_audit['LT_Meses'] = pd.to_numeric(df_audit['LT_Meses'], errors='coerce').fillna(1.0).clip(lower=0.25)
 
                     condiciones_pol = [
                         df_audit['Clase'].isin(['AX', 'AY', 'BX']),
@@ -2722,6 +2937,18 @@ with tab_abc:
                     ]
                     opciones_pol = ['MTS', 'MTO']
                     df_audit['Politica_Recomendada'] = np.select(condiciones_pol, opciones_pol, default='MTS (Min Cov)')
+
+                    # Factor Z según Clase ABC
+                    df_audit['Z_Factor'] = np.where(
+                        df_audit['ABC'] == 'A', mapa_z[csl_a],
+                        np.where(df_audit['ABC'] == 'B', mapa_z[csl_b], mapa_z[csl_c])
+                    )
+                    # Stock de Seguridad Científico: SS = Z * std_mensual * sqrt(LT_Meses) (0 si se recomienda MTO)
+                    df_audit['SS_Cientifico_Kg'] = np.where(
+                        df_audit['Politica_Recomendada'] == 'MTO',
+                        0.0,
+                        df_audit['Z_Factor'] * pd.to_numeric(df_audit['std'], errors='coerce').fillna(0.0) * np.sqrt(df_audit['LT_Meses'])
+                    ).round(0)
 
                     lbl_mts_mto = tr('🔴 Cambiar MTS → MTO (Liberar Caja)', '🔴 Switch MTS → MTO (Release Cash)')
                     lbl_mto_mts = tr('🟠 Pasar MTO → MTS (Proteger Servicio)', '🟠 Switch MTO → MTS (Protect Service)')
@@ -2738,38 +2965,39 @@ with tab_abc:
                     )
 
                     df_audit['WC_Actual_GBP'] = df_audit['stock_disponible'] * df_audit['Coste_Unitario'] * fx_eur_gbp
-                    df_audit['WC_Liberable_GBP'] = np.where(
-                        df_audit['Estado_Auditoria'] == lbl_mts_mto,
-                        df_audit['WC_Actual_GBP'],
-                        0.0
-                    )
+                    df_audit['WC_Optimo_Cientifico_GBP'] = df_audit['SS_Cientifico_Kg'] * df_audit['Coste_Unitario'] * fx_eur_gbp
+                    df_audit['WC_Liberable_GBP'] = np.maximum(0.0, df_audit['WC_Actual_GBP'] - df_audit['WC_Optimo_Cientifico_GBP'])
 
-                    df_desalineados = df_audit[df_audit['Estado_Auditoria'] != lbl_ok].sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
+                    ca1, ca2, ca3, ca4 = st.columns(4)
+                    ca1.metric(tr("SKUs Auditados", "Audited SKUs"), f"{len(df_audit)}")
+                    ca2.metric(tr("WC Actual en Stock (£)", "Current Stock WC (£)"), f"£ {df_audit['WC_Actual_GBP'].sum():,.0f}")
+                    ca3.metric(tr("WC Óptimo Científico (£)", "Optimal Scientific WC (£)"), f"£ {df_audit['WC_Optimo_Cientifico_GBP'].sum():,.0f}")
+                    ca4.metric(tr("Potencial Total Liberación WC (£)", "Total Releasable WC (£)"), f"£ {df_audit['WC_Liberable_GBP'].sum():,.0f}")
 
-                    ca1, ca2, ca3 = st.columns(3)
-                    ca1.metric(tr("SKUs Auditados en Stock", "Audited SKUs in Stock"), f"{len(df_audit)}")
-                    ca2.metric(tr("SKUs Desalineados (MTS/MTO)", "Misaligned SKUs (MTS/MTO)"), f"{len(df_desalineados)}")
-                    ca3.metric(tr("Working Capital Liberable (£)", "Releasable Working Capital (£)"), f"£ {df_audit['WC_Liberable_GBP'].sum():,.0f}")
-
-                    solo_alertas = st.checkbox(tr("🔍 Mostrar solo SKUs con recomendación de cambio (MTS ↔ MTO)", "🔍 Show only SKUs with recommended policy change (MTS ↔ MTO)"), value=True)
-                    df_mostrar_audit = df_desalineados if solo_alertas else df_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
+                    solo_alertas = st.checkbox(tr("🔍 Mostrar solo SKUs con exceso de stock o cambio MTS ↔ MTO", "🔍 Show only SKUs with excess stock or policy change"), value=False)
+                    df_mostrar_audit = df_audit[(df_audit['Estado_Auditoria'] != lbl_ok) | (df_audit['WC_Liberable_GBP'] > 100)] if solo_alertas else df_audit
+                    df_mostrar_audit = df_mostrar_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
 
                     st.dataframe(
                         df_mostrar_audit[[
                             'sku cod', 'sku desc', 'Clase', 'CV', 'Categoria_Actual',
                             'Politica_Recomendada', 'Estado_Auditoria', 'stock_disponible',
-                            'WC_Actual_GBP', 'WC_Liberable_GBP'
+                            'SS_Cientifico_Kg', 'WC_Actual_GBP', 'WC_Optimo_Cientifico_GBP', 'WC_Liberable_GBP'
                         ]].rename(columns={
                             'Categoria_Actual': tr('Política Actual', 'Current Policy'),
                             'Politica_Recomendada': tr('Política Sugerida', 'Suggested Policy'),
                             'Estado_Auditoria': tr('Diagnóstico S&OP', 'S&OP Diagnosis'),
                             'stock_disponible': tr('Stock Actual (Kg)', 'Current Stock (Kg)'),
-                            'WC_Actual_GBP': 'WC (£)',
+                            'SS_Cientifico_Kg': tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'),
+                            'WC_Actual_GBP': 'WC Actual (£)',
+                            'WC_Optimo_Cientifico_GBP': 'WC Óptimo (£)',
                             'WC_Liberable_GBP': tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)')
                         }).style.format({
                             'CV': '{:.2f}',
                             tr('Stock Actual (Kg)', 'Current Stock (Kg)'): '{:,.0f} Kg',
-                            'WC (£)': '£ {:,.0f}',
+                            tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'): '{:,.0f} Kg',
+                            'WC Actual (£)': '£ {:,.0f}',
+                            'WC Óptimo (£)': '£ {:,.0f}',
                             tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)'): '£ {:,.0f}'
                         }),
                         use_container_width=True,
@@ -2783,12 +3011,7 @@ with tab_exc:
     if "tab8" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Panel de Excepciones.", "🔒 You do not have permission to access the Exceptions Panel."))
     else:
-        st.subheader(tr("🚨 Panel de Excepciones (Management by Exception)", "🚨 Exceptions Panel (Management by Exception)", "🚨 Panel Wyjątków (Management by Exception)", "🚨 Undtagelsespanel (Management by Exception)"))
-        st.caption(tr(
-            "Radar automático de **roturas inminentes** (DOH < 15 días) y **excesos de inventario / reprogramaciones ERP** (DOH > 60 días) para el próximo ciclo.",
-            "Automated radar for **imminent stockouts** (DOH < 15 days) and **excess inventory / ERP rescheduling** (DOH > 60 days) for Month 1."
-        ))
-
+        st.subheader(tr("🚨 Panel de Excepciones (Management by Exception)", "🚨 Exceptions Panel (Management by Exception)"))
         mps_exc = generar_mps_global()
         mrp_exc = generar_mrp_global()
 
@@ -2804,7 +3027,7 @@ with tab_exc:
             col_pt, col_mp = st.columns(2)
 
             with col_pt:
-                st.markdown(f"### {tr('📦 Producto Terminado (PT)', '📦 Finished Goods (FG)', '📦 Wyroby Gotowe (WG)', '📦 Færdigvarer (FG)')}")
+                st.markdown(f"### {tr('📦 Producto Terminado (PT)', '📦 Finished Goods (FG)')}")
                 df_pt_m1 = df_mps_all[
                     (df_mps_all['Date'] == mes_m1) &
                     ((df_mps_all['DOH'] < 15) | (df_mps_all['DOH'] > 60))
@@ -2837,7 +3060,7 @@ with tab_exc:
                     )
 
             with col_mp:
-                st.markdown(f"### {tr('🧩 Materias Primas (MP)', '🧩 Raw Materials (RM)', '🧩 Surowce (SM)', '🧩 Råvarer (RM)')}")
+                st.markdown(f"### {tr('🧩 Materias Primas (MP)', '🧩 Raw Materials (RM)')}")
                 if mrp_exc is None or mrp_exc.empty:
                     st.info(tr("👈 Carga el BOM y Stock para evaluar alertas de MP.", "👈 Upload BOM and Stock to evaluate RM alerts."))
                 else:
@@ -2880,23 +3103,22 @@ with tab_whatif:
     if "tab9" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Simulador What-If.", "🔒 You do not have permission to access the What-If Simulator."))
     else:
-        st.subheader(tr("🔀 Simulador de Escenarios (What-If)", "🔀 What-If Scenario Simulator", "🔀 Symulator Scenariuszy (What-If)", "🔀 What-If Scenariesimulator"))
-        st.markdown(tr("Aplica shocks a los datos filtrados para evaluar el impacto en el P&L consolidado.", "Apply shocks to filtered data to evaluate consolidated P&L impact."))
-        
+        st.subheader(tr("🔀 Simulador de Escenarios (What-If)", "🔀 What-If Scenario Simulator"))
         if not dict_price:
             st.warning("⚠️ No 'revenue' or 'margin' columns in history.")
         else:
             col_w1, col_w2, col_w3 = st.columns(3)
             with col_w1:
-                shock_vol = st.slider(tr("📈 Variación Volumen (%)", "📈 Volume Shock (%)", "📈 Zmiana Wolumenu (%)", "📈 Volumenændring (%)"), -50, 50, 0, step=5)
+                shock_vol = st.slider(tr("📈 Variación Volumen (%)", "📈 Volume Shock (%)"), -50, 50, 0, step=5)
             with col_w2:
-                shock_precio = st.slider(tr("🏷️ Variación Precios (%)", "🏷️ Sales Price Shock (%)", "🏷️ Zmiana Cen (%)", "🏷️ Prisændring (%)"), -30, 30, 0, step=5)
+                shock_precio = st.slider(tr("🏷️ Variación Precios (%)", "🏷️ Sales Price Shock (%)"), -30, 30, 0, step=5)
             with col_w3:
-                shock_coste = st.slider(tr("💸 Variación Costes MP (%)", "💸 RM / COGS Shock (%)", "💸 Zmiana Kosztów SM (%)", "💸 Råvareomkostninger (%)"), -30, 50, 0, step=5)
+                shock_coste = st.slider(tr("💸 Variación Costes MP (%)", "💸 RM / COGS Shock (%)"), -30, 50, 0, step=5)
             st.divider()
             
             if not df_final.empty:
-                df_base, df_sim = motor_simulador_whatif(df_final, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, horizonte, usar_limpieza_outliers, shock_vol, shock_precio, shock_coste)
+                skus_f_wi = tuple(df_final['sku cod'].unique().tolist())
+                df_base, df_sim = motor_simulador_whatif(skus_f_wi, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, horizonte, modelo_fcst_sel, shock_vol, shock_precio, shock_coste)
                 
                 tot_rev_base = df_base['Revenue'].sum() if not df_base.empty else 0
                 tot_mar_base = df_base['Margin'].sum() if not df_base.empty else 0
@@ -2954,24 +3176,24 @@ with tab_whatif:
                     st.download_button(label=tr("📄 Descargar Resumen PDF", "📄 Download PDF Summary"), data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
 
 # ==========================================
-# MODULO 10: DASHBOARD EJECUTIVO + TRIPLE COMPARATIVA BUDGET + WATERFALL BRIDGE + PDF DECK
+# MODULO 10: DASHBOARD EJECUTIVO + TRIPLE BUDGET + WATERFALL + RADAR CHURN & CONCENTRACIÓN + PDF DECK
 # ==========================================
 with tab_kpis:
     if "tab10" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Dashboard de KPIs.", "🔒 You do not have permission to access the Executive Dashboard."))
     else:
-        st.subheader(tr("📊 Dashboard Ejecutivo y KPIs Globales", "📊 Executive Dashboard & Global KPIs", "📊 Panel Zarządczy i Globalne KPI", "📊 Executive Dashboard & Globale KPI'er"))
+        st.subheader(tr("📊 Dashboard Ejecutivo y KPIs Globales", "📊 Executive Dashboard & Global KPIs"))
         if df_final is not None and not df_final.empty and dict_price:
-            with st.spinner(tr("Consolidando datos filtrados...", "Consolidating filtered data...", "Konsolidacja danych...", "Konsoliderer data...")):
+            with st.spinner(tr("Consolidando datos filtrados...", "Consolidating filtered data...")):
                 total_skus = df_final['sku cod'].nunique()
                 df_clientes = df_final.groupby('País')['customer cod'].nunique().reset_index()
                 df_clientes.columns = [tr('País', 'Country'), tr('Clientes Activos', 'Active Customers')]
                 total_clientes = df_clientes[tr('Clientes Activos', 'Active Customers')].sum()
                 
-                st.markdown(f"#### {tr('🌍 Estructura Comercial (Datos Filtrados)', '🌍 Commercial Structure (Filtered Scope)', '🌍 Struktura Handlowa', '🌍 Kommerciel Struktur')}")
+                st.markdown(f"#### {tr('🌍 Estructura Comercial (Datos Filtrados)', '🌍 Commercial Structure (Filtered Scope)')}")
                 col_e1, col_e2, col_e3 = st.columns(3)
-                col_e1.metric(tr("SKUs Activos (PT)", "Active SKUs (FG)", "Aktywne SKU (WG)", "Aktive SKU'er (FG)"), f"{total_skus}")
-                col_e2.metric(tr("Total Clientes", "Total Customers", "Liczba Klientów", "Kunder i alt"), f"{total_clientes}")
+                col_e1.metric(tr("SKUs Activos (PT)", "Active SKUs (FG)"), f"{total_skus}")
+                col_e2.metric(tr("Total Clientes", "Total Customers"), f"{total_clientes}")
                 with col_e3:
                     st.dataframe(df_clientes.style.format({tr('Clientes Activos', 'Active Customers'): "{:,.0f}"}), use_container_width=True, hide_index=True)
                 
@@ -2987,11 +3209,11 @@ with tab_kpis:
                     df_final, st.session_state.get('df_ajustes', pd.DataFrame()), df_abcxyz_global,
                     dict_price, dict_margin, dict_currency,
                     fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp,
-                    usar_limpieza_outliers, max_date_global, horiz=12
+                    max_date_global, modelo_fcst_sel, horiz=12
                 )
                 
                 st.divider()
-                st.markdown(f"#### {tr('🎯 Fiabilidad del Modelo de Demanda (Forecast Performance - L12M)', '🎯 Demand Model Reliability (Forecast Performance - L12M)', '🎯 Trafność Modelu Popytu (L12M)', '🎯 Prognosenøjagtighed (L12M)')}")
+                st.markdown(f"#### {tr('🎯 Fiabilidad del Modelo de Demanda (Forecast Performance - L12M)', '🎯 Demand Model Reliability (Forecast Performance - L12M)')}")
                 fa_val, bias_val, wape_val = calcular_kpis_forecast(df_final, usar_limpieza_outliers)
                 
                 col_k1, col_k2, col_k3 = st.columns(3)
@@ -2999,16 +3221,8 @@ with tab_kpis:
                 col_k2.metric("Forecast Bias", f"{bias_val:+.1f}%", tr("+ = Infrademanda / - = Sobredemanda", "+ = Under-forecast / - = Over-forecast"))
                 col_k3.metric("WAPE (Error Absoluto)", f"{wape_val:.1f}%", tr("Desviación porcentual neta", "Weighted Absolute Percentage Error"))
                 
-                # ==========================================
-                # MEJORA #2: COMPARATIVA TRIPLE: REAL L12M vs. BUDGET ANUAL vs. CONSENSO N12M
-                # ==========================================
                 st.divider()
                 st.subheader(tr("🎯 Control Presupuestario S&OP: Ventas Reales (L12M) vs. Budget Anual vs. Plan Consenso (N12M)", "🎯 S&OP Budget Control: Actuals (L12M) vs. Annual Budget vs. Consensus Plan (N12M)"))
-                st.caption(tr(
-                    "Evalúa si el Plan de Consenso proyectado para los próximos 12 meses cubre el objetivo financiero comprometido en el Presupuesto Anual (Budget Target).",
-                    "Evaluate whether the projected Next 12M Consensus Plan meets the financial target committed in the Annual Budget."
-                ))
-
                 b_col1, b_col2 = st.columns([1, 3])
                 with b_col1:
                     budget_growth_pct = st.slider(
@@ -3047,16 +3261,8 @@ with tab_kpis:
                 col_f2_k.metric(tr("Consenso N12M vs. Budget (Rev)", "Consensus N12M vs. Budget (Rev)"), f"£ {rev_12m_fcst:,.0f}", f"{gap_rev_bud:+,.0f} £ vs Budget")
                 col_f3_k.metric(tr("Consenso N12M vs. Budget (Mar)", "Consensus N12M vs. Budget (Mar)"), f"£ {mar_12m_fcst:,.0f}", f"{gap_mar_bud:+,.0f} £ vs Budget")
 
-                # ==========================================
-                # PUENTE FINANCIERO EJECUTIVO (WATERFALL BRIDGE CHART L12M -> N12M)
-                # ==========================================
                 st.divider()
-                st.subheader(tr("🌉 Puente Financiero S&OP: Transición L12M → N12M (Waterfall Bridge en GBP)", "🌉 S&OP Financial Waterfall Bridge: L12M → N12M Transition (GBP)", "🌉 Most Finansowy S&OP (Waterfall L12M → N12M w GBP)", "🌉 Finansiel S&OP Waterfall Bridge: L12M → N12M (GBP)"))
-                st.caption(tr(
-                    "Desglosa la variación proyectada entre los últimos 12 meses (L12M) y los próximos 12 meses (N12M) separando Crecimiento Estadístico Core (Clase A), Mix Tail (Clase B/C) y Ajustes Comerciales de Consenso (FVA).",
-                    "Breaks down the projected variance between Last 12M (L12M) and Next 12M (N12M) into Core Statistical Growth (Class A), Tail Mix (Class B/C), and Commercial Consensus Overrides (FVA)."
-                ))
-
+                st.subheader(tr("🌉 Puente Financiero S&OP: Transición L12M → N12M (Waterfall Bridge en GBP)", "🌉 S&OP Financial Waterfall Bridge: L12M → N12M Transition (GBP)"))
                 wf_col1, wf_col2 = st.columns(2)
                 x_labels_wf = [
                     tr("1. Real L12M", "1. Actual L12M"),
@@ -3067,19 +3273,11 @@ with tab_kpis:
                 ]
 
                 with wf_col1:
-                    y_rev_wf = [
-                        rev_12m_hist,
-                        puente_data["rev_a"],
-                        puente_data["rev_bc"],
-                        puente_data["rev_fva"],
-                        rev_12m_fcst
-                    ]
+                    y_rev_wf = [rev_12m_hist, puente_data["rev_a"], puente_data["rev_bc"], puente_data["rev_fva"], rev_12m_fcst]
                     fig_wf_rev = go.Figure(go.Waterfall(
-                        name="Revenue Bridge",
-                        orientation="v",
+                        name="Revenue Bridge", orientation="v",
                         measure=["absolute", "relative", "relative", "relative", "total"],
-                        x=x_labels_wf,
-                        y=y_rev_wf,
+                        x=x_labels_wf, y=y_rev_wf,
                         text=[f"£ {v:,.0f}" if i in [0, 4] else f"£ {v:+,.0f}" for i, v in enumerate(y_rev_wf)],
                         textposition="outside",
                         connector={"line": {"color": "#A0B2C6", "width": 1.5, "dash": "dot"}},
@@ -3091,19 +3289,11 @@ with tab_kpis:
                     st.plotly_chart(fig_wf_rev, use_container_width=True)
 
                 with wf_col2:
-                    y_mar_wf = [
-                        mar_12m_hist,
-                        puente_data["mar_a"],
-                        puente_data["mar_bc"],
-                        puente_data["mar_fva"],
-                        mar_12m_fcst
-                    ]
+                    y_mar_wf = [mar_12m_hist, puente_data["mar_a"], puente_data["mar_bc"], puente_data["mar_fva"], mar_12m_fcst]
                     fig_wf_mar = go.Figure(go.Waterfall(
-                        name="Margin Bridge",
-                        orientation="v",
+                        name="Margin Bridge", orientation="v",
                         measure=["absolute", "relative", "relative", "relative", "total"],
-                        x=x_labels_wf,
-                        y=y_mar_wf,
+                        x=x_labels_wf, y=y_mar_wf,
                         text=[f"£ {v:,.0f}" if i in [0, 4] else f"£ {v:+,.0f}" for i, v in enumerate(y_mar_wf)],
                         textposition="outside",
                         connector={"line": {"color": "#A0B2C6", "width": 1.5, "dash": "dot"}},
@@ -3115,46 +3305,86 @@ with tab_kpis:
                     st.plotly_chart(fig_wf_mar, use_container_width=True)
 
                 # ==========================================
-                # TABLA ANALÍTICA COMERCIAL (CON SEMÁFORO DE BIAS)
+                # MEJORA #5: RADAR DE RIESGO COMERCIAL, CHURN DE CLIENTES Y CONCENTRACIÓN DE CARTERA
                 # ==========================================
                 st.divider()
-                st.subheader(tr("📋 Rendimiento Comercial y Bias por Cliente y SKU (L12M)", "📋 Commercial Performance & Bias by Customer and SKU (L12M)", "📋 Wyniki Handlowe i Bias wg Klienta i SKU (L12M)", "📋 Kommerciel Performance & Bias pr. Kunde og SKU (L12M)"))
-                st.markdown(tr("Desglose detallado de Volumen, Revenue, Margen y Sesgo Histórico (Bias) con alertas visuales.", "Detailed breakdown of Volume, Revenue, Margin, and Historical Bias with visual alerts."))
+                st.subheader(tr("🛡️ Radar de Riesgo Comercial: Alerta de Fuga de Clientes (Churn L6M) & Monopolio de SKUs", "🛡️ Commercial Risk Radar: Customer Churn Alert (L6M) & Single-Customer SKU Dependency"))
+                st.caption(tr(
+                    "Identifica clientes cuya facturación cae en los últimos 6 meses frente al semestre previo (Riesgo Churn) y detecta SKUs cuya demanda depende en más de un 70% de un único cliente.",
+                    "Identifies customers whose volume is dropping in the last 6 months vs. the prior semester (Churn Risk) and flags SKUs relying >70% on a single customer."
+                ))
 
+                corte_6m = max_date_global - pd.DateOffset(months=6)
+                corte_12m = max_date_global - pd.DateOffset(months=12)
+
+                df_rec_cli = df[df['Date'] >= corte_6m].groupby(['País', 'customer cod', 'customer desc']).agg(Vol_L6M=('volume', 'sum'), Mar_L6M=('Mar_GBP', 'sum')).reset_index()
+                df_ant_cli = df[(df['Date'] < corte_6m) & (df['Date'] >= corte_12m)].groupby(['País', 'customer cod']).agg(Vol_Prev6M=('volume', 'sum')).reset_index()
+                df_churn = pd.merge(df_rec_cli, df_ant_cli, on=['País', 'customer cod'], how='left').fillna({'Vol_Prev6M': 0.0})
+                df_churn['Variacion_L6M_Pct'] = np.where(df_churn['Vol_Prev6M'] > 0, ((df_churn['Vol_L6M'] - df_churn['Vol_Prev6M']) / df_churn['Vol_Prev6M']) * 100.0, 0.0)
+                df_churn['Estado_Cuenta'] = np.where(
+                    df_churn['Variacion_L6M_Pct'] < -10.0,
+                    tr('🔴 Riesgo Fuga (Caída >10%)', '🔴 High Churn Risk (Drop >10%)'),
+                    np.where(df_churn['Variacion_L6M_Pct'] < 0.0, tr('🟠 Enfriamiento Comercial', '🟠 Cooling Account'), tr('🟢 Crecimiento / Estable', '🟢 Growing / Stable'))
+                )
+
+                df_sku_cli = df.groupby(['sku cod', 'customer desc'])['volume'].sum().reset_index()
+                df_sku_tot = df.groupby('sku cod')['volume'].sum().reset_index(name='Vol_Total_SKU')
+                df_conc = pd.merge(df_sku_cli, df_sku_tot, on='sku cod')
+                df_conc['Share_Cliente_Pct'] = np.where(df_conc['Vol_Total_SKU'] > 0, (df_conc['volume'] / df_conc['Vol_Total_SKU']) * 100.0, 0.0)
+                df_conc_top = df_conc.sort_values('Share_Cliente_Pct', ascending=False).drop_duplicates('sku cod')
+                df_conc_top['Descripción SKU'] = df_conc_top['sku cod'].map(dict_sku_desc).fillna('')
+                df_conc_top['Riesgo_Dependencia'] = np.where(
+                    df_conc_top['Share_Cliente_Pct'] >= 70.0,
+                    tr('🔴 Dependencia Crítica (>=70%)', '🔴 Critical Dependency (>=70%)'),
+                    tr('🟢 Diversificado', '🟢 Diversified')
+                )
+
+                r_col1, r_col2 = st.columns(2)
+                with r_col1:
+                    st.markdown(f"#### {tr('📉 Salud de Cuentas y Riesgo Churn (L6M)', '📉 Account Health & Churn Risk (L6M)')}")
+                    st.dataframe(
+                        df_churn[['País', 'customer desc', 'Vol_L6M', 'Mar_L6M', 'Variacion_L6M_Pct', 'Estado_Cuenta']]
+                        .sort_values('Variacion_L6M_Pct')
+                        .rename(columns={'customer desc': tr('Cliente', 'Customer'), 'Vol_L6M': 'Vol L6M (Kg)', 'Mar_L6M': 'Margin L6M (£)', 'Variacion_L6M_Pct': 'Delta L6M (%)'})
+                        .style.format({'Vol L6M (Kg)': '{:,.0f} Kg', 'Margin L6M (£)': '£ {:,.0f}', 'Delta L6M (%)': '{:+.1f}%'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                with r_col2:
+                    st.markdown(f"#### {tr('🎯 Concentración de Cartera por SKU (Pareto Cliente)', '🎯 Portfolio Concentration per SKU (Customer Share)')}")
+                    st.dataframe(
+                        df_conc_top[['sku cod', 'Descripción SKU', 'customer desc', 'Share_Cliente_Pct', 'Riesgo_Dependencia']]
+                        .rename(columns={'customer desc': tr('Cliente Principal', 'Top Customer'), 'Share_Cliente_Pct': 'Share (%)'})
+                        .style.format({'Share (%)': '{:.1f}%'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                st.divider()
+                st.subheader(tr("📋 Rendimiento Comercial y Bias por Cliente y SKU (L12M)", "📋 Commercial Performance & Bias by Customer and SKU (L12M)"))
                 df_granular = df.groupby(['País', 'customer cod', 'customer desc', 'sku cod']).agg(
                     Volumen_Kg=('volume', 'sum'),
                     Revenue_GBP=('Rev_GBP', 'sum'),
                     Margen_GBP=('Mar_GBP', 'sum')
                 ).reset_index().rename(columns={'customer desc': 'Cliente Desc'})
                 
-                df_granular['Margen %'] = np.where(
-                    df_granular['Revenue_GBP'] > 0,
-                    (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100,
-                    0.0
-                )
-                
-                df_reciente = df[df['Date'] >= (df['Date'].max() - pd.DateOffset(months=6))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Reciente')
-                df_antiguo = df[(df['Date'] < (df['Date'].max() - pd.DateOffset(months=6))) & (df['Date'] >= (df['Date'].max() - pd.DateOffset(months=12)))].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Antiguo')
+                df_granular['Margen %'] = np.where(df_granular['Revenue_GBP'] > 0, (df_granular['Margen_GBP'] / df_granular['Revenue_GBP']) * 100, 0.0)
+                df_reciente = df[df['Date'] >= corte_6m].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Reciente')
+                df_antiguo = df[(df['Date'] < corte_6m) & (df['Date'] >= corte_12m)].groupby(['customer cod', 'sku cod'])['volume'].sum().reset_index(name='Vol_Antiguo')
                 
                 df_granular = pd.merge(df_granular, df_reciente, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Reciente': 0})
                 df_granular = pd.merge(df_granular, df_antiguo, on=['customer cod', 'sku cod'], how='left').fillna({'Vol_Antiguo': 0})
-                
-                df_granular['Bias L6M (%)'] = np.where(
-                    df_granular['Vol_Antiguo'] > 0,
-                    ((df_granular['Vol_Reciente'] - df_granular['Vol_Antiguo']) / df_granular['Vol_Antiguo']) * 100,
-                    0.0
-                ).round(1)
-                
+                df_granular['Bias L6M (%)'] = np.where(df_granular['Vol_Antiguo'] > 0, ((df_granular['Vol_Reciente'] - df_granular['Vol_Antiguo']) / df_granular['Vol_Antiguo']) * 100, 0.0).round(1)
                 df_granular['Descripción SKU'] = df_granular['sku cod'].map(dict_sku_desc).fillna('')
                 df_granular = df_granular[['País', 'customer cod', 'Cliente Desc', 'sku cod', 'Descripción SKU', 'Volumen_Kg', 'Revenue_GBP', 'Margen_GBP', 'Margen %', 'Bias L6M (%)']]
                 
                 col_g1, col_g2, col_g3 = st.columns(3)
                 with col_g1:
-                    filtro_pais_g = st.selectbox(tr("País:", "Country:", "Kraj:", "Land:"), ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
+                    filtro_pais_g = st.selectbox(tr("País:", "Country:"), ["TODOS"] + sorted(df_granular['País'].dropna().unique().tolist()), key="g_pais")
                 with col_g2:
-                    filtro_cli_g = st.selectbox(tr("Cliente:", "Customer:", "Klient:", "Kunde:"), ["TODOS"] + sorted(df_granular['Cliente Desc'].dropna().unique().tolist()), key="g_cli")
+                    filtro_cli_g = st.selectbox(tr("Cliente:", "Customer:"), ["TODOS"] + sorted(df_granular['Cliente Desc'].dropna().unique().tolist()), key="g_cli")
                 with col_g3:
-                    search_sku = st.text_input(tr("🔍 Buscar SKU / Descripción:", "🔍 Search SKU / Description:", "🔍 Szukaj SKU / Opisu:", "🔍 Søg SKU / Beskrivelse:"), placeholder="...")
+                    search_sku = st.text_input(tr("🔍 Buscar SKU / Descripción:", "🔍 Search SKU / Description:"), placeholder="...")
                     
                 if filtro_pais_g != "TODOS":
                     df_granular = df_granular[df_granular['País'] == filtro_pais_g]
@@ -3165,7 +3395,7 @@ with tab_kpis:
                     mask = (
                         df_granular['sku cod'].astype(str).str.lower().str.contains(query) |
                         df_granular['Descripción SKU'].astype(str).str.lower().str.contains(query) |
-                        df_granular['Cliente Desc'].astype(str).str.lower().str.contains(query)
+                        df_granular['Cliente Desc'].astype(str).str.contains(query, case=False)
                     )
                     df_granular = df_granular[mask]
                     
@@ -3193,16 +3423,9 @@ with tab_kpis:
                     hide_index=True
                 )
 
-                # ==========================================
-                # GENERADOR AUTOMÁTICO DEL EXECUTIVE S&OP DECK EN PDF
-                # ==========================================
                 if FPDF is not None:
                     st.divider()
-                    st.markdown(f"### {tr('📑 Exportar Dossier Directivo: Executive S&OP Deck (PDF)', '📑 Export Executive S&OP Deck (PDF)', '📑 Eksportuj Raport Zarządczy: Executive S&OP Deck (PDF)', '📑 Eksporter Executive S&OP Deck (PDF)')}")
-                    st.caption(tr(
-                        "Genera al instante el informe ejecutivo para el Comité S&OP consolidando P&L (L12M vs Budget vs N12M en GBP), Forecast Accuracy/Bias/FVA, Alertas de Rotura en M1, Cuellos de Botella en Planta (RCCP) y Liberación de Working Capital.",
-                        "Instantly generate the executive briefing deck for the S&OP Committee consolidating P&L (L12M vs Budget vs N12M in GBP), Forecast Accuracy/Bias/FVA, M1 Stockout Alerts, Plant Bottlenecks (RCCP), and Working Capital Release."
-                    ))
+                    st.markdown(f"### {tr('📑 Exportar Dossier Directivo: Executive S&OP Deck (PDF)', '📑 Export Executive S&OP Deck (PDF)')}")
                     bytes_deck = generar_pdf_executive_sop_deck(
                         pais_sel, cliente_sel, sku_sel, total_skus, total_clientes,
                         fa_val, bias_val, wape_val,
@@ -3212,7 +3435,7 @@ with tab_kpis:
                     )
                     if bytes_deck:
                         st.download_button(
-                            label=tr("📄 Descargar Executive S&OP Deck Completo (.pdf)", "📄 Download Full Executive S&OP Deck (.pdf)", "📄 Pobierz Executive S&OP Deck (.pdf)", "📄 Download Komplet Executive S&OP Deck (.pdf)"),
+                            label=tr("📄 Descargar Executive S&OP Deck Completo (.pdf)", "📄 Download Full Executive S&OP Deck (.pdf)"),
                             data=bytes_deck,
                             file_name=f"Executive_SOP_Deck_{datetime.now().strftime('%Y_%m')}.pdf",
                             mime="application/pdf",
