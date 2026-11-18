@@ -386,7 +386,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     sku_cods = [f"SKU-{i:04d}" for i in range(1, n_skus + 1)]
     sku_descs = [f"PRODUCTO NUTRICION INDUSTRIAL {i:04d}" for i in range(1, n_skus + 1)]
     rm_cods = [f"RM-{j:03d}" for j in range(1, n_rms + 1)]
-    rm_descs = [f"MATERIA PRIMA BASE {j:03d}" for i_r, j in enumerate(range(1, n_rms + 1))]
+    rm_descs = [f"MATERIA PRIMA BASE {j:03d}" for j in range(1, n_rms + 1)]
     cli_cods = [f"CLI-{k:04d}" for k in range(1, n_clientes + 1)]
     cli_descs = [f"Corporacion Agroalimentaria {k:04d}" for k in range(1, n_clientes + 1)]
 
@@ -420,23 +420,26 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "override_value": np.random.randint(8000, 45000, size=300)
     }).drop_duplicates(subset=["Date", "País", "customer cod", "sku cod"])[COLS_AJUSTES]
 
+    # Stock inicial moderado para garantizar necesidades de fabricación y explosión BOM activa en todos los RMs
     df_3_stock = pd.DataFrame({
         "sku cod": sku_cods + rm_cods,
         "sku desc": sku_descs + rm_descs,
-        "stock_disponible": np.random.randint(2000, 80000, size=n_skus + n_rms),
-        "Cobertura_Meses": np.random.choice([0, 1, 2, 3], size=n_skus + n_rms, p=[0.15, 0.5, 0.25, 0.1]),
+        "stock_disponible": np.random.randint(1000, 15000, size=n_skus + n_rms),
+        "Cobertura_Meses": np.random.choice([1, 2], size=n_skus + n_rms, p=[0.65, 0.35]),
         "LT_Meses": np.random.choice([0, 1, 2], size=n_skus + n_rms, p=[0.3, 0.5, 0.2]),
-        "Categoria": np.random.choice(["MTS", "MTO"], size=n_skus + n_rms, p=[0.8, 0.2]),
+        "Categoria": np.random.choice(["MTS", "MTO"], size=n_skus + n_rms, p=[0.85, 0.15]),
         "Coste_Unitario": np.round(np.concatenate([precios_base - margenes_base, np.random.uniform(0.4, 5.0, size=n_rms)]), 2)
     })[COLS_STOCK]
 
     bom_sku_idx = np.repeat(np.arange(n_skus), 5)
-    bom_rm_idx = np.random.randint(0, n_rms, size=len(bom_sku_idx))
+    # Garantizar que los 120 RMs estén presentes en al menos varios SKUs
+    bom_rm_idx = np.arange(len(bom_sku_idx)) % n_rms
+    np.random.shuffle(bom_rm_idx)
     df_4_bom = pd.DataFrame({
         "sku cod": np.array(sku_cods)[bom_sku_idx],
         "rm cod": np.array(rm_cods)[bom_rm_idx],
         "rm desc": np.array(rm_descs)[bom_rm_idx],
-        "Cantidad": np.round(np.random.uniform(0.02, 0.35, size=len(bom_sku_idx)), 4)
+        "Cantidad": np.round(np.random.uniform(0.05, 0.35, size=len(bom_sku_idx)), 4)
     }).drop_duplicates(subset=["sku cod", "rm cod"])[COLS_BOM]
 
     df_5_rutas = pd.DataFrame({
@@ -451,13 +454,13 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     df_7_compras = pd.DataFrame({
         "Date": np.random.choice([mes_m1, mes_m2], size=150),
         "rm cod": np.random.choice(rm_cods, size=150),
-        "Cantidad_Kg": np.random.randint(5000, 40000, size=150)
+        "Cantidad_Kg": np.random.randint(5000, 25000, size=150)
     })[COLS_COMPRAS]
 
     df_8_prod = pd.DataFrame({
         "Date": np.random.choice([mes_m1, mes_m2], size=200),
         "sku cod": np.random.choice(sku_cods, size=200),
-        "Cantidad_Kg": np.random.randint(4000, 35000, size=200)
+        "Cantidad_Kg": np.random.randint(4000, 20000, size=200)
     })[COLS_PROD]
 
     return {
@@ -808,6 +811,7 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
     fecha_corte = fecha_max - pd.DateOffset(months=24)
     d = d[d['Date'] >= fecha_corte].copy()
 
+    d['sku cod'] = d['sku cod'].astype(str).str.strip()
     d['volume'] = pd.to_numeric(d['volume'], errors='coerce').fillna(0.0)
     d['revenue'] = pd.to_numeric(d['revenue'], errors='coerce').fillna(0.0)
     d['margin'] = pd.to_numeric(d['margin'], errors='coerce').fillna(0.0)
@@ -844,6 +848,7 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True)
     df_m = df_in.groupby([pd.Grouper(key='Date', freq='MS'), 'sku cod'])['volume'].sum().unstack(fill_value=0.0)
     idx_full = pd.date_range(start=df_m.index.min(), end=df_m.index.max(), freq="MS")
     df_m = df_m.reindex(idx_full, fill_value=0.0)
+    df_m.columns = [str(c).strip() for c in df_m.columns]
 
     vals = df_m.values.astype(float)
     T, N = vals.shape
@@ -1010,13 +1015,14 @@ df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'
 col_objetivo = 'volume'
 
 if df_bom is not None and not df_bom.empty:
-    dict_rm_desc = dict(zip(df_bom['rm cod'], df_bom['rm desc']))
+    dict_rm_desc = dict(zip(df_bom['rm cod'].astype(str).str.strip(), df_bom['rm desc']))
 else:
     dict_rm_desc = {}
 
 dict_prd_erp = {}
 if df_produccion_erp is not None and not df_produccion_erp.empty:
     df_p_tmp = df_produccion_erp.copy()
+    df_p_tmp['sku cod'] = df_p_tmp['sku cod'].astype(str).str.strip()
     df_p_tmp['Date'] = pd.to_datetime(df_p_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
     df_p_tmp['Cantidad_Kg'] = pd.to_numeric(df_p_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
     dict_prd_erp = df_p_tmp.dropna(subset=['Date']).groupby(['sku cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
@@ -1024,13 +1030,14 @@ if df_produccion_erp is not None and not df_produccion_erp.empty:
 dict_cmp_erp = {}
 if df_compras_erp is not None and not df_compras_erp.empty:
     df_c_tmp = df_compras_erp.copy()
+    df_c_tmp['rm cod'] = df_c_tmp['rm cod'].astype(str).str.strip()
     df_c_tmp['Date'] = pd.to_datetime(df_c_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
     df_c_tmp['Cantidad_Kg'] = pd.to_numeric(df_c_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
     dict_cmp_erp = df_c_tmp.dropna(subset=['Date']).groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
 
 
 # ==========================================
-# 3. FUNCIONES CORE Y MOTOR MATRICIAL 2D (BIG DATA READY)
+# 3. FUNCIONES CORE Y MOTOR MATRICIAL 2D (CON FIRMA DE CACHÉ DATASET_SIGNATURE)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def _indexar_stock_rapido(df_s):
@@ -1057,6 +1064,14 @@ def obtener_parametros_stock(codigo, cob_defecto=2):
     if s_clean in mapa_stock_fast:
         return mapa_stock_fast[s_clean]
     return 0.0, int(cob_defecto), 0
+
+
+# --- HUELLA DIGITAL DEL DATASET ACTIVO PARA INVALIDAR CACHÉ AUTOMÁTICAMENTE ---
+_firma_skus = f"{len(df)}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
+_firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
+_firma_stk = f"{len(df_stock)}_{df_stock['stock_disponible'].sum()}" if (df_stock is not None and not df_stock.empty) else "nostk"
+_firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()}"
+DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}"
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
@@ -1101,8 +1116,9 @@ def calcular_forecast_serie_unica(serie, steps, metodo="Auto-ML Best-Fit"):
 
 def obtener_fcst_sku_rapido(sku_cod, steps, metodo_sel):
     mat = dict_fcst_matrices.get(metodo_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat is not None and sku_cod in mat.columns:
-        return mat[sku_cod].iloc[:steps]
+    s_clean = str(sku_cod).strip()
+    if mat is not None and s_clean in mat.columns:
+        return mat[s_clean].iloc[:steps]
     return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
 
 
@@ -1364,14 +1380,15 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
 
 
 # ==========================================
-# MOTOR MPS Y MRP 100 % MATRICIAL 2D (500+ SKUs EN <0.01 SEGUNDOS)
+# MOTOR MPS Y MRP 100 % MATRICIAL 2D (SINCRONIZADO CON DATASET_SIGNATURE)
 # ==========================================
 @st.cache_data(show_spinner=False)
-def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=105):
-    """Calcula el MPS Global de cientos de SKUs en una única matriz 2D NumPy en menos de 10 ms."""
+def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _sig=None):
+    """Calcula el MPS Global 2D invalidando la caché automáticamente cuando cambia el dataset (_sig)."""
     if horiz is None: horiz = horizonte
     if cob_fg is None: cob_fg = cobertura_fg
     if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
+    if _sig is None: _sig = DATASET_SIGNATURE
 
     mat_fcst = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat_fcst is None or mat_fcst.empty:
@@ -1379,7 +1396,8 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=105):
 
     mat_h = mat_fcst.iloc[:horiz].copy()
     idx_fechas = mat_h.index
-    skus = mat_h.columns.tolist()
+    skus = [str(s).strip() for s in mat_h.columns.tolist()]
+    mat_h.columns = skus
     H, N = mat_h.shape
 
     salidas_2d = np.nan_to_num(mat_h.values.astype(float), nan=0.0)
@@ -1387,6 +1405,7 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=105):
     aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
     if aj_df is not None and not aj_df.empty:
         aj_tmp = aj_df.copy()
+        aj_tmp['sku cod'] = aj_tmp['sku cod'].astype(str).str.strip()
         aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
         piv_aj = aj_tmp.dropna(subset=['Date_M']).pivot_table(index='Date_M', columns='sku cod', values='override_value', aggfunc='sum')
         for c_sku in piv_aj.columns.intersection(mat_h.columns):
@@ -1400,8 +1419,9 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=105):
         sku_to_j = {s: j for j, s in enumerate(skus)}
         fecha_to_i = {f: i for i, f in enumerate(idx_fechas)}
         for (s_k, f_k), v_erp in dict_prd_erp.items():
-            if s_k in sku_to_j and f_k in fecha_to_i:
-                rec_erp_2d[fecha_to_i[f_k], sku_to_j[s_k]] = float(v_erp)
+            s_clean = str(s_k).strip()
+            if s_clean in sku_to_j and f_k in fecha_to_i:
+                rec_erp_2d[fecha_to_i[f_k], sku_to_j[s_clean]] = float(v_erp)
 
     stk_ini_vec = np.zeros(N, dtype=float)
     cob_vec = np.full(N, int(cob_fg), dtype=int)
@@ -1460,14 +1480,15 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _v_cache=105):
 
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _v_cache=105):
-    """Explosión BOM 100% Matricial 2D para cientos de materias primas simultáneas."""
+def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _sig=None):
+    """Explosión BOM 100% Matricial 2D sincronizada con la firma del dataset activo (_sig)."""
     if horiz is None: horiz = horizonte
     if cob_fg is None: cob_fg = cobertura_fg
     if cob_rm is None: cob_rm = cobertura_rm
     if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
+    if _sig is None: _sig = DATASET_SIGNATURE
 
-    df_mps_all = generar_mps_df_2d(horiz=horiz, cob_fg=cob_fg, metodo_fcst=metodo_fcst, _v_cache=_v_cache)
+    df_mps_all = generar_mps_df_2d(horiz=horiz, cob_fg=cob_fg, metodo_fcst=metodo_fcst, _sig=_sig)
     if df_bom is None or df_bom.empty or df_mps_all.empty:
         return pd.DataFrame()
 
@@ -1492,7 +1513,8 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _
     piv_rm = df_explosion.pivot_table(index='Date', columns='rm_clean', values='Necesidad_Bruta', aggfunc='sum').fillna(0.0)
 
     idx_fechas = piv_rm.index
-    rms = piv_rm.columns.tolist()
+    rms = [str(r).strip() for r in piv_rm.columns.tolist()]
+    piv_rm.columns = rms
     H, M = piv_rm.shape
     salidas_rm_2d = piv_rm.values.astype(float)
 
@@ -1501,8 +1523,9 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _
         rm_to_j = {r: j for j, r in enumerate(rms)}
         fecha_to_i = {f: i for i, f in enumerate(idx_fechas)}
         for (r_k, f_k), v_erp in dict_cmp_erp.items():
-            if r_k in rm_to_j and f_k in fecha_to_i:
-                rec_erp_rm_2d[fecha_to_i[f_k], rm_to_j[r_k]] = float(v_erp)
+            r_clean = str(r_k).strip()
+            if r_clean in rm_to_j and f_k in fecha_to_i:
+                rec_erp_rm_2d[fecha_to_i[f_k], rm_to_j[r_clean]] = float(v_erp)
 
     stk_ini_vec = np.zeros(M, dtype=float)
     cob_vec = np.full(M, int(cob_rm), dtype=int)
@@ -1570,7 +1593,8 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _
 # FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE VECTORIZADO
 # ==========================================
 @st.cache_data(show_spinner=False)
-def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos):
+def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, _sig=None):
+    if _sig is None: _sig = DATASET_SIGNATURE
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat is None or mat.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -1595,7 +1619,8 @@ def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk,
 
 
 @st.cache_data(show_spinner=False)
-def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12):
+def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12, _sig=None):
+    if _sig is None: _sig = DATASET_SIGNATURE
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat is None or mat.empty or df_f.empty:
         return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
@@ -1607,6 +1632,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     mapa_aj = {}
     if aj_df is not None and not aj_df.empty:
         aj_clean = aj_df.copy()
+        aj_clean['sku cod'] = aj_clean['sku cod'].astype(str).str.strip()
         aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
         mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
@@ -1810,10 +1836,7 @@ LAYOUT_STYLE = dict(
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
 ])
-# ==============================================================================
-# S&OP / IBP CORPORATE PLATFORM - PARTE 2 DE 2 (MÓDULOS 0 AL 10 OPTIMIZADOS 2D)
-# ==============================================================================
-
+# >>> FIN DE LA PARTE 1 DE 2 
 # ==========================================
 # MODULO 0: GUÍA DE USO + CALENDARIO S&OP + ACTION LOG DEL COMITÉ
 # ==========================================
