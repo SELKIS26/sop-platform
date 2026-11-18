@@ -2696,8 +2696,19 @@ with tab_cap:
                             use_container_width=True,
                             hide_index=True
                         )
+
                     else:
-                        st.success(tr(f"✅ Ninguna línea supera el techo del {umbral_prebuild}% o no requiere adelantos Pre-Build.", f"✅ No line exceeds the {umbral_prebuild}% cap."))
+                        max_util_post = float(df_cap_niv['Utilizacion_Nivelada'].max()) if not df_cap_niv.empty else 0.0
+                        if max_util_post > float(umbral_prebuild):
+                            st.error(tr(
+                                f"🚨 Saturación Estructural Detectada (Pico máx: {max_util_post:.1f}% > {umbral_prebuild}%): Todos los meses previos están al 100% de capacidad y no existe holgura libre para adelantar fabricación (Pre-Build). Acción S&OP requerida: Ampliar turnos en '6. Calendario' o subcontratar/recortar demanda.",
+                                f"🚨 Structural Bottleneck Detected (Peak: {max_util_post:.1f}% > {umbral_prebuild}%): All prior months are already above cap with zero spare capacity for Pre-Build. S&OP Action required: Add shifts in '6. Plant Calendar' or offload volume."
+                            ))
+                        else:
+                            st.success(tr(
+                                f"✅ Capacidad en rango óptimo: Ninguna línea supera el techo del {umbral_prebuild}%.",
+                                f"✅ Capacity within optimal range: No line exceeds the {umbral_prebuild}% cap."
+                            ))
 
 # ==========================================
 # MODULO 5: FINANZAS (100% VECTORIZADO)
