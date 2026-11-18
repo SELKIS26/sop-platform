@@ -1,4 +1,5 @@
 ﻿ID,Fecha_Alta,Area_S&OP,Accion_Acordada,Responsable,Fecha_Limite,Impacto_GBP,Estado
-ACT-01,2026-11-01,03. Supply & RCCP,Adelantar 12.000 Kg de ADICARE EVOLUTION H (Pre-Build) en Línea 3 Pellet para evitar cuello de botella.,Borja Del Rio,2026-11-16,18500,🔄 En Curso
-ACT-02,2026-11-01,04. Working Capital,Pasar referencias erráticas Clase CZ/BZ de política MTS a MTO según auditoría de Pestaña 7.,Ángel Mancebo,2026-11-23,34200,⏳ Pendiente
-ACT-03,2026-11-01,02. Demand & Margin,Validar sustitución parcial del 10% en FORMIATO DE CALCIO por alternativa homologada en BOM.,Technical & Procurement,2026-11-26,14800,✅ Completado
+ACT-01,2026-11-01,03. Supply & RCCP,Adelantar 12.000 Kg de ADICARE EVOLUTION H (Pre-Build) en Línea 3 Pellet para evitar cuello de botella.,Borja Del Rio,2026-11-16,18500.0,🔄 En Curso
+ACT-02,2026-11-01,04. Working Capital,Pasar referencias erráticas Clase CZ/BZ de política MTS a MTO según auditoría de Pestaña 7.,Ángel Mancebo,2026-11-23,34200.0,⏳ Pendiente
+ACT-03,2026-11-01,02. Demand & Margin,Validar sustitución parcial del 10% en FORMIATO DE CALCIO por alternativa homologada en BOM.,Technical & Procurement,2026-11-26,14800.0,✅ Completado
+ACT-04,2026-11-01,02. Demand & Margin,Prueba Log,Ángel Mancebo,2026-12-01,,🔄 En Curso
