@@ -1066,6 +1066,7 @@ if df_compras_erp is not None and not df_compras_erp.empty:
 
 
 # ==========================================
+# ==========================================
 # 3. FUNCIONES CORE Y MOTOR MATRICIAL 2D (CON FIRMA DE CACHÉ DATASET_SIGNATURE)
 # ==========================================
 @st.cache_data(show_spinner=False)
@@ -1623,21 +1624,30 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, s
 
 
 # ==========================================
-# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE VECTORIZADO
+# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE (ESCALADO POR SHARE DE FILTRO)
 # ==========================================
 @st.cache_data(show_spinner=False)
-def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, sig=None):
+def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat is None or mat.empty:
+    if mat is None or mat.empty or df_f is None or df_f.empty:
         return pd.DataFrame(), pd.DataFrame()
 
+    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
+    vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
+
+    skus_filtrados = [str(s).strip() for s in df_f['sku cod'].unique()]
     cols_validas = [s for s in skus_filtrados if s in mat.columns]
     if not cols_validas:
         return pd.DataFrame(), pd.DataFrame()
 
-    vols_sku = mat[cols_validas].iloc[:horiz].sum(axis=0)
+    vols_sku_global = mat[cols_validas].iloc[:horiz].sum(axis=0)
     l_base, l_wi = [], []
-    for sku, vol in vols_sku.items():
+    for sku, vol_g in vols_sku_global.items():
+        g_tot = float(vol_global_sku.get(sku, 0.0))
+        f_tot = float(vol_filtro_sku.get(sku, 0.0))
+        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
+
+        vol = float(vol_g) * share_sku
         p, m = dict_p.get(sku, 0.0), dict_m.get(sku, 0.0)
         c_base = p - m
         mon = str(dict_c.get(sku, 'GBP')).strip().upper()
@@ -1653,19 +1663,26 @@ def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk,
 @st.cache_data(show_spinner=False)
 def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat is None or mat.empty or df_f.empty:
+    if mat is None or mat.empty or df_f is None or df_f.empty:
         return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
 
     min_date_12m = max_date_global - pd.DateOffset(months=11)
     vols_l12 = df_f[(df_f['Date'] >= min_date_12m) & (df_f['Date'] <= max_date_global)].groupby('sku cod')['volume'].sum().to_dict()
     mapa_abc = dict(zip(abc_df['sku cod'], abc_df['ABC'])) if (abc_df is not None and not abc_df.empty and 'ABC' in abc_df.columns) else {}
 
+    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
+    vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
+
     mapa_aj = {}
     if aj_df is not None and not aj_df.empty:
         aj_clean = aj_df.copy()
         aj_clean['sku cod'] = aj_clean['sku cod'].astype(str).str.strip()
-        aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
+        paises_f = set(df_f['País'].dropna().unique())
+        clientes_f = set(df_f['customer cod'].dropna().unique())
+        aj_clean = aj_clean[aj_clean['País'].isin(paises_f) & aj_clean['customer cod'].isin(clientes_f)]
+        if not aj_clean.empty:
+            aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
     mat_h = mat.iloc[:horiz]
     idx_fut = mat_h.index
@@ -1675,21 +1692,28 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
     for sku in df_f['sku cod'].unique():
-        if sku not in mat_h.columns:
+        s_clean = str(sku).strip()
+        if s_clean not in mat_h.columns:
             continue
-        vol_l12_sku = float(vols_l12.get(sku, 0.0))
-        serie_est = mat_h[sku].values.copy()
+
+        g_tot = float(vol_global_sku.get(s_clean, 0.0))
+        f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
+        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
+
+        vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
+        serie_est = mat_h[s_clean].values.astype(float) * share_sku
         serie_con = serie_est.copy()
+
         if mapa_aj:
             for m_i, f_dt in enumerate(idx_fut):
-                if (sku, f_dt) in mapa_aj:
-                    serie_con[m_i] = float(mapa_aj[(sku, f_dt)])
+                if (s_clean, f_dt) in mapa_aj:
+                    serie_con[m_i] = float(mapa_aj[(s_clean, f_dt)])
 
         vol_est_sku = float(serie_est.sum())
         vol_con_sku = float(serie_con.sum())
 
-        p, mg = dict_p.get(sku, 0.0), dict_m.get(sku, 0.0)
-        mon = str(dict_c.get(sku, 'GBP')).strip().upper()
+        p, mg = dict_p.get(s_clean, 0.0), dict_m.get(s_clean, 0.0)
+        mon = str(dict_c.get(s_clean, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
 
         v_total_con += vol_con_sku
@@ -1698,7 +1722,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
 
         d_est_vol = vol_est_sku - vol_l12_sku
         d_fva_vol = vol_con_sku - vol_est_sku
-        if mapa_abc.get(sku, 'B') == 'A':
+        if mapa_abc.get(s_clean, 'B') == 'A':
             delta_rev_a += d_est_vol * p * t_fx
             delta_mar_a += d_est_vol * mg * t_fx
         else:
@@ -1713,6 +1737,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
         "mar_a": delta_mar_a, "mar_bc": delta_mar_bc, "mar_fva": delta_mar_fva
     }
     return v_total_con, r_total_con, m_total_con, puente_dict
+
 
 def generar_pdf_executive_sop_deck(
     pais_f, cli_f, sku_f, total_skus, total_clientes,
@@ -1866,7 +1891,7 @@ LAYOUT_STYLE = dict(
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
 ])
-# >>> FIN DE LA PARTE 1 DE 2 
+
 # ==========================================
 # MODULO 0: GUÍA DE USO + CALENDARIO S&OP + ACTION LOG DEL COMITÉ
 # ==========================================
@@ -2726,7 +2751,6 @@ with tab_cap:
                             use_container_width=True,
                             hide_index=True
                         )
-
                     else:
                         max_util_post = float(df_cap_niv['Utilizacion_Nivelada'].max()) if not df_cap_niv.empty else 0.0
                         if max_util_post > float(umbral_prebuild):
@@ -2765,7 +2789,6 @@ with tab_fin:
             with col2:
                 vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"], key="fin_wc")
 
-            # 1. Determinar el DataFrame objetivo según el selector (reactivo en tiempo real sin botón bloqueante)
             if nivel_pl == "Seguir Filtros Superiores":
                 df_fin_target = df_final.copy()
                 titulo_estrategico = f"{pais_sel} | {cliente_sel} | {sku_sel}"
@@ -2784,17 +2807,14 @@ with tab_fin:
 
             skus_validos = set(df_fin_target['sku cod'].astype(str).str.strip().unique())
 
-            # 2. Serie histórica mensual real del ámbito filtrado
             df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP', 'volume']].sum().reset_index()
             df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP', 'volume': 'Vol_Kg'})
             df_hist_pl['Tipo_Periodo'] = tr('Histórico Real', 'Actual History')
 
-            # 3. Proyección financiera directa sobre la serie de volumen del ámbito filtrado (garantiza continuidad 1:1)
             serie_vol_target = df_hist_pl.set_index('Date')['Vol_Kg'] if not df_hist_pl.empty else pd.Series(dtype=float)
             serie_vol_limpia = limpiar_anomalias(serie_vol_target) if usar_limpieza_outliers else serie_vol_target
             fcst_vol_target = calcular_forecast_serie_unica(serie_vol_limpia, int(horizonte), modelo_fcst_sel)
 
-            # Aplicar overrides si existen para este ámbito
             aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
             if not aj_sub.empty:
                 if nivel_pl == "Por País":
@@ -2814,12 +2834,10 @@ with tab_fin:
                         if f_dt in fcst_vol_target.index:
                             fcst_vol_target.at[f_dt] = float(v_ovr)
 
-            # Precio y margen unitario medio de los últimos 6 meses del ámbito seleccionado
             df_ult6 = df_hist_pl.tail(6)
             vol_u6 = float(df_ult6['Vol_Kg'].sum()) if not df_ult6.empty else 0.0
             precio_u_ambito = float(df_ult6['Revenue_GBP'].sum() / vol_u6) if vol_u6 > 0 else 4.0
             margen_u_ambito = float(df_ult6['Margin_GBP'].sum() / vol_u6) if vol_u6 > 0 else 1.2
-            coste_u_ambito = max(0.0, precio_u_ambito - margen_u_ambito)
 
             df_fcst_pl = pd.DataFrame({
                 'Date': fcst_vol_target.index,
@@ -2831,7 +2849,6 @@ with tab_fin:
 
             df_plot_pl = pd.concat([df_hist_pl, df_fcst_pl], ignore_index=True)
 
-            # 4. Cálculo proporcional de Working Capital (PT + MP)
             df_mps_fin = generar_mps_df_2d()
             proporcion_ambito = float(df_fin_target['volume'].sum() / max(1.0, df['volume'].sum()))
             if not df_mps_fin.empty:
@@ -2916,6 +2933,7 @@ with tab_fin:
                     use_container_width=True,
                     hide_index=True
                 )
+
 # ==========================================
 # MODULO 6: EJECUCIÓN ERP + S&OE (MOQ & LOTES MÚLTIPLOS) + MASTER PACK EXCEL
 # ==========================================
@@ -3316,7 +3334,7 @@ with tab_exc:
                         )
 
 # ==========================================
-# MODULO 9: WHAT-IF
+# MODULO 9: WHAT-IF (CONECTADO AL SHARE DE FILTROS Y DATASET_SIGNATURE)
 # ==========================================
 with tab_whatif:
     if "tab9" not in modulos_permitidos:
@@ -3336,8 +3354,12 @@ with tab_whatif:
             st.divider()
             
             if not df_final.empty:
-                skus_f_wi = tuple(df_final['sku cod'].unique().tolist())
-                df_base, df_sim = motor_simulador_whatif(skus_f_wi, dict_price, dict_margin, dict_currency, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp, horizonte, modelo_fcst_sel, shock_vol, shock_precio, shock_coste)
+                df_base, df_sim = motor_simulador_whatif(
+                    df_final, dict_price, dict_margin, dict_currency,
+                    fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp,
+                    horizonte, modelo_fcst_sel, shock_vol, shock_precio, shock_coste,
+                    sig=DATASET_SIGNATURE
+                )
                 
                 tot_rev_base = df_base['Revenue'].sum() if not df_base.empty else 0
                 tot_mar_base = df_base['Margin'].sum() if not df_base.empty else 0
@@ -3428,7 +3450,8 @@ with tab_kpis:
                     df_final, st.session_state.get('df_ajustes', pd.DataFrame()), df_abcxyz_global,
                     dict_price, dict_margin, dict_currency,
                     fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp,
-                    max_date_global, modelo_fcst_sel, horiz=12
+                    max_date_global, modelo_fcst_sel, horiz=12,
+                    sig=DATASET_SIGNATURE
                 )
                 
                 st.divider()
