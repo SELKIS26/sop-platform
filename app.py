@@ -84,11 +84,14 @@ COLS_PROD = ['Date', 'sku cod', 'Cantidad_Kg']
 LOG_FILE = "audit_log_accesos.csv"
 CLOUD_AJUSTES_FILE = "2_Ajustes_Consenso_Cloud.csv"
 FVA_LOG_FILE = "audit_log_fva_consenso.csv"
+SOP_CAL_FILE = "sop_calendar_status_cloud.csv"
+
 COLS_FVA_LOG = [
     "Fecha_Cambio (CET)", "Usuario", "Tipo_Ajuste", "Date", "País",
     "customer cod", "sku cod", "Forecast_Estadistico", "Consenso_Override",
     "Delta_Kg", "Delta_Pct_FVA"
 ]
+COLS_SOP_CAL = ["Fase", "Etapa S&OP", "Dias_Mes", "Dia_Inicio", "Dia_Fin", "Owner", "Entregable_Clave", "Estado", "Notas_Comite"]
 
 # ==========================================
 # MOTOR DE INTERNACIONALIZACIÓN COMPLETO (4 IDIOMAS)
@@ -987,6 +990,111 @@ def estilo_doh(val):
         return 'background-color: #e6ffe6; color: #006600;'
 
 
+def aplicar_moq_y_lote_multiplo(serie_necesidad, moq_kg, lote_mult_kg):
+    """Redondea hacia arriba las necesidades netas aplicando Pedido Mínimo (MOQ) y Lote Múltiplo (S&OE)."""
+    vals = pd.to_numeric(serie_necesidad, errors='coerce').fillna(0.0).values
+    res = np.zeros_like(vals, dtype=float)
+    moq_val = max(0.0, float(moq_kg))
+    mult_val = max(1.0, float(lote_mult_kg))
+    for idx, v in enumerate(vals):
+        if v <= 0:
+            res[idx] = 0.0
+        else:
+            base_v = max(v, moq_val)
+            if mult_val > 1.0:
+                res[idx] = np.ceil(base_v / mult_val) * mult_val
+            else:
+                res[idx] = base_v
+    return pd.Series(res, index=serie_necesidad.index)
+
+
+def construir_diagrama_sankey_red(mps_dict, df_b, df_r, df_v):
+    """Construye un diagrama Sankey E2E: Materia Prima -> Línea Planta -> SKU PT -> País."""
+    if not mps_dict or df_b is None or df_b.empty:
+        return None
+
+    df_mps_tot = pd.concat(mps_dict.values()).groupby('sku cod')[['Entradas_Netas', 'Recepciones_ERP']].sum().reset_index()
+    df_mps_tot['Fab_Total_Kg'] = df_mps_tot['Entradas_Netas'] + df_mps_tot['Recepciones_ERP']
+    df_mps_tot = df_mps_tot[df_mps_tot['Fab_Total_Kg'] > 0].copy()
+    if df_mps_tot.empty:
+        return None
+
+    top_skus_net = df_mps_tot.nlargest(8, 'Fab_Total_Kg')['sku cod'].astype(str).str.strip().tolist()
+    df_mps_top = df_mps_tot[df_mps_tot['sku cod'].astype(str).str.strip().isin(top_skus_net)].copy()
+
+    mapa_maq = {}
+    if df_r is not None and not df_r.empty and 'Maquina' in df_r.columns:
+        mapa_maq = dict(zip(df_r['sku cod'].astype(str).str.strip(), df_r['Maquina'].astype(str).str.strip()))
+
+    enlaces = []
+    # Tramo 1 y 2: Materia Prima -> Línea de Planta -> Producto Terminado (SKU)
+    for _, row_p in df_mps_top.iterrows():
+        sku_c = str(row_p['sku cod']).strip()
+        fab_kg = float(row_p['Fab_Total_Kg'])
+        maq_c = f"⚙️ {mapa_maq.get(sku_c, 'Linea_General')}"
+        nodo_sku = f"📦 {sku_c}"
+
+        sub_b = df_b[df_b['sku cod'].astype(str).str.strip() == sku_c]
+        if not sub_b.empty:
+            for _, rb in sub_b.iterrows():
+                rm_c = str(rb['rm cod']).strip()
+                cant = float(pd.to_numeric(rb['Cantidad'], errors='coerce')) if pd.notna(rb['Cantidad']) else 0.0
+                if cant > 0:
+                    nodo_rm = f"🧩 {rm_c}"
+                    flujo_rm = fab_kg * cant
+                    enlaces.append((nodo_rm, maq_c, flujo_rm))
+        enlaces.append((maq_c, nodo_sku, fab_kg))
+
+        # Tramo 3: Producto Terminado (SKU) -> País / Mercado Destino
+        if df_v is not None and not df_v.empty:
+            sub_v = df_v[df_v['sku cod'].astype(str).str.strip() == sku_c]
+            if not sub_v.empty:
+                tot_v_sku = sub_v['volume'].sum()
+                if tot_v_sku > 0:
+                    for pais_k, vol_p in sub_v.groupby('País')['volume'].sum().items():
+                        prop = float(vol_p) / float(tot_v_sku)
+                        if prop > 0:
+                            enlaces.append((nodo_sku, f"🌍 {pais_k}", fab_kg * prop))
+
+    if not enlaces:
+        return None
+
+    df_links = pd.DataFrame(enlaces, columns=['Origen', 'Destino', 'Valor']).groupby(['Origen', 'Destino'])['Valor'].sum().reset_index()
+    nodos_unicos = pd.unique(df_links[['Origen', 'Destino']].values.ravel('K')).tolist()
+    mapa_idx = {n: i for i, n in enumerate(nodos_unicos)}
+
+    colores_nodos = [
+        "#88FFBB" if n.startswith("🧩") else ("#1E3E5B" if n.startswith("⚙️") else ("#3A6B9C" if n.startswith("📦") else "#E6A100"))
+        for n in nodos_unicos
+    ]
+
+    fig_sankey = go.Figure(data=[go.Sankey(
+        node=dict(
+            pad=18,
+            thickness=20,
+            line=dict(color="#e0e6ed", width=1),
+            label=nodos_unicos,
+            color=colores_nodos
+        ),
+        link=dict(
+            source=[mapa_idx[o] for o in df_links['Origen']],
+            target=[mapa_idx[d] for d in df_links['Destino']],
+            value=df_links['Valor'].round(0).tolist(),
+            color="rgba(160, 178, 198, 0.38)"
+        )
+    )])
+    fig_sankey.update_layout(
+        title=tr(
+            "🕸️ Flujo E2E de la Red de Suministro: Materias Primas → Líneas de Planta → SKUs PT → Mercados (Kg)",
+            "🕸️ End-to-End Supply Network Flow: Raw Materials → Plant Lines → FG SKUs → Markets (Kg)"
+        ),
+        font=dict(size=12, family="Arial, sans-serif"),
+        height=460,
+        margin=dict(l=15, r=15, t=45, b=15)
+    )
+    return fig_sankey
+
+
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
     plan = pd.DataFrame(index=serie_salidas.index)
     plan['Salidas_Brutas'] = serie_salidas.fillna(0)
@@ -1211,7 +1319,8 @@ def generar_pdf_executive_sop_deck(
     pais_f, cli_f, sku_f, total_skus, total_clientes,
     fa_val, bias_val, wape_val,
     vol_l12, rev_l12, mar_l12,
-    vol_n12, rev_n12, mar_n12
+    vol_n12, rev_n12, mar_n12,
+    vol_bud=None, rev_bud=None, mar_bud=None
 ):
     """Genera el Executive S&OP Deck multipágina en formato PDF corporativo."""
     if FPDF is None:
@@ -1233,43 +1342,49 @@ def generar_pdf_executive_sop_deck(
     pdf.cell(0, 6, txt=_pdf_safe(f"AB Agri Global Supply Chain | Generated: {ahora_str} | Scope: Country={pais_f} | Customer={cli_f} | SKU={sku_f}"), ln=True, align='C')
     pdf.ln(12)
 
-    # 1. KPIs Comerciales y Financieros (L12M vs N12M)
+    # 1. KPIs Comerciales y Financieros (L12M vs Budget vs N12M)
     pdf.set_text_color(30, 62, 91)
     pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("1. Consolidated P&L & S&OP Growth (L12M vs N12M in GBP)"), ln=True)
+    pdf.cell(0, 9, txt=_pdf_safe("1. Consolidated P&L: L12M vs. Annual Budget vs. N12M Consensus (GBP)"), ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 6, txt=_pdf_safe(f"   - Active Portfolio Scope: {total_skus} SKUs (FG) | {total_clientes} Active Customers"), ln=True)
 
-    d_vol = vol_n12 - vol_l12
-    d_rev = rev_n12 - rev_l12
-    d_mar = mar_n12 - mar_l12
-    pct_mar_l12 = (mar_l12 / rev_l12 * 100) if rev_l12 > 0 else 0.0
-    pct_mar_n12 = (mar_n12 / rev_n12 * 100) if rev_n12 > 0 else 0.0
+    v_b = vol_bud if vol_bud is not None else vol_l12 * 1.05
+    r_b = rev_bud if rev_bud is not None else rev_l12 * 1.05
+    m_b = mar_bud if mar_bud is not None else mar_l12 * 1.05
+
+    gap_vol_b = vol_n12 - v_b
+    gap_rev_b = rev_n12 - r_b
+    gap_mar_b = mar_n12 - m_b
 
     pdf.ln(2)
     pdf.set_fill_color(224, 230, 237)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(55, 8, _pdf_safe("S&OP Metric"), 1, 0, 'L', True)
-    pdf.cell(45, 8, _pdf_safe("Last 12M (Hist)"), 1, 0, 'R', True)
-    pdf.cell(45, 8, _pdf_safe("Next 12M (Proj)"), 1, 0, 'R', True)
-    pdf.cell(45, 8, _pdf_safe("Variance (Delta)"), 1, 1, 'R', True)
+    pdf.set_font("Arial", 'B', 9)
+    pdf.cell(46, 8, _pdf_safe("S&OP Metric"), 1, 0, 'L', True)
+    pdf.cell(36, 8, _pdf_safe("Last 12M (Hist)"), 1, 0, 'R', True)
+    pdf.cell(36, 8, _pdf_safe("Annual Budget"), 1, 0, 'R', True)
+    pdf.cell(36, 8, _pdf_safe("Next 12M (Plan)"), 1, 0, 'R', True)
+    pdf.cell(36, 8, _pdf_safe("Gap vs Budget"), 1, 1, 'R', True)
 
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(55, 8, _pdf_safe("Total Volume (Kg)"), 1, 0, 'L')
-    pdf.cell(45, 8, _pdf_safe(f"{vol_l12:,.0f} Kg"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"{vol_n12:,.0f} Kg"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"{d_vol:+,.0f} Kg"), 1, 1, 'R')
+    pdf.set_font("Arial", '', 9)
+    pdf.cell(46, 8, _pdf_safe("Total Volume (Kg)"), 1, 0, 'L')
+    pdf.cell(36, 8, _pdf_safe(f"{vol_l12:,.0f} Kg"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"{v_b:,.0f} Kg"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"{vol_n12:,.0f} Kg"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"{gap_vol_b:+,.0f} Kg"), 1, 1, 'R')
 
-    pdf.cell(55, 8, _pdf_safe("Consolidated Revenue (GBP)"), 1, 0, 'L')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {rev_l12:,.0f}"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {rev_n12:,.0f}"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {d_rev:+,.0f}"), 1, 1, 'R')
+    pdf.cell(46, 8, _pdf_safe("Consolidated Revenue"), 1, 0, 'L')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {rev_l12:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {r_b:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {rev_n12:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {gap_rev_b:+,.0f}"), 1, 1, 'R')
 
-    pdf.cell(55, 8, _pdf_safe("Gross Margin (GBP / %)"), 1, 0, 'L')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {mar_l12:,.0f} ({pct_mar_l12:.1f}%)"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {mar_n12:,.0f} ({pct_mar_n12:.1f}%)"), 1, 0, 'R')
-    pdf.cell(45, 8, _pdf_safe(f"GBP {d_mar:+,.0f}"), 1, 1, 'R')
+    pdf.cell(46, 8, _pdf_safe("Gross Margin (GBP)"), 1, 0, 'L')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {mar_l12:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {m_b:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {mar_n12:,.0f}"), 1, 0, 'R')
+    pdf.cell(36, 8, _pdf_safe(f"GBP {gap_mar_b:+,.0f}"), 1, 1, 'R')
     pdf.ln(6)
 
     # 2. Fiabilidad del Modelo de Demanda
@@ -1403,7 +1518,7 @@ tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, t
 ])
 
 # ==========================================
-# MODULO 0: GUÍA DE USO (ESTANDARIZADA Y DETALLADA CON ICONOS)
+# MODULO 0: GUÍA DE USO + CALENDARIO DE GOBERNANZA S&OP
 # ==========================================
 with tab_guia:
     st.header(tr(
@@ -1413,10 +1528,10 @@ with tab_guia:
         "📖 Koncernmanual og S&OP-platformarkitektur"
     ))
     st.markdown(tr(
-        "Esta plataforma integra de extremo a extremo el ciclo mensual de **Sales & Operations Planning (S&OP)**, conectando la previsión estadística de demanda con la planificación maestra de producción (MPS), explosión de materiales (MRP), validación de capacidad en planta (RCCP), valoración financiera consolidada en **GBP (£)** y persistencia permanente en la nube (**GitHub Cloud**).",
-        "This platform provides end-to-end integration of the monthly **Sales & Operations Planning (S&OP)** cycle, connecting statistical demand forecasting with Master Production Scheduling (MPS), Material Requirements Planning (MRP), Rough-Cut Capacity Planning (RCCP), consolidated financial valuation in **GBP (£)**, and permanent persistence in **GitHub Cloud**.",
-        "Platforma integruje cały miesięczny cykl **Sales & Operations Planning (S&OP)** — od prognozowania popytu (Holt-Winters), przez plan główny produkcji (MPS), eksplozję BOM (MRP) i weryfikację zdolności produkcyjnych (RCCP), po konsolidację finansową w **GBP (£)** oraz zapis w chmurze **GitHub Cloud**.",
-        "Denne platform integrerer hele den månedlige **Sales & Operations Planning (S&OP)** cyklus — fra statistisk efterspørgselsprognose til produktionsplanlægning (MPS), materialeeksplosion (MRP), kapacitetsplanlægning (RCCP), finansiel konsolidering i **GBP (£)** og permanent lagring i **GitHub Cloud**."
+        "Esta plataforma integra de extremo a extremo el ciclo mensual de **Sales & Operations Planning (S&OP)** y **Sales & Operations Execution (S&OE)**, conectando la previsión estadística de demanda con la planificación maestra de producción (MPS), explosión de materiales (MRP), mapeo de red E2E (Sankey), validación de capacidad en planta (RCCP), valoración financiera consolidada en **GBP (£)** y persistencia permanente en la nube (**GitHub Cloud**).",
+        "This platform provides end-to-end integration of the monthly **Sales & Operations Planning (S&OP)** and **Sales & Operations Execution (S&OE)** cycle, connecting statistical demand forecasting with Master Production Scheduling (MPS), Material Requirements Planning (MRP), E2E Supply Network mapping (Sankey), Rough-Cut Capacity Planning (RCCP), consolidated financial valuation in **GBP (£)**, and permanent persistence in **GitHub Cloud**.",
+        "Platforma integruje cały miesięczny cykl **Sales & Operations Planning (S&OP)** oraz **S&OE** — od prognozowania popytu (Holt-Winters), przez plan główny produkcji (MPS), eksplozję BOM (MRP), wizualizację sieci dostaw (Sankey) i weryfikację zdolności produkcyjnych (RCCP), po konsolidację finansową w **GBP (£)** oraz zapis w chmurze **GitHub Cloud**.",
+        "Denne platform integrerer hele den månedlige **Sales & Operations Planning (S&OP)** og **S&OE** cyklus — fra statistisk efterspørgselsprognose til produktionsplanlægning (MPS), materialeeksplosion (MRP), E2E-netværksvisualisering (Sankey), kapacitetsplanlægning (RCCP), finansiel konsolidering i **GBP (£)** og permanent lagring i **GitHub Cloud**."
     ))
 
     st.divider()
@@ -1466,123 +1581,201 @@ with tab_guia:
 1. **📊 1. Demanda (Pronóstico Estadístico, Consenso Cloud y Auditoría FVA)**
    * **Motor Estadístico Holt-Winters:** Proyecta los próximos meses (1 a 24 meses) capturando nivel, tendencia aditiva y estacionalidad anual (12 meses), con limpieza previa opcional de valores atípicos mediante rango intercuartílico (**IQR**).
    * **Edición Interactiva y Macro Factor:** Permite modificar celda a celda el pronóstico cuando filtras un País, Cliente y SKU, o aplicar una variación porcentual masiva (*Macro Factor*) a toda la cartera de un cliente.
-   * **Persistencia en GitHub Cloud y Snapshot Mensual:** El botón `💾 Guardar Consenso (RAM + GitHub)` sincroniza los ajustes en la nube (`2_Ajustes_Consenso_Cloud.csv`) sin necesidad de resubir archivos Excel. El botón `📸 Congelar Snapshot Ciclo S&OP` guarda la foto fija antes de cerrar el mes.
+   * **Persistencia en GitHub Cloud y Snapshot Mensual:** El botón `💾 Guardar Consenso (RAM + GitHub)` sincroniza los ajustes en la nube (`2_Ajustes_Consenso_Cloud.csv`). El botón `📸 Congelar Snapshot Ciclo S&OP` guarda la foto fija antes de cerrar el mes.
    * **Evaluador Post-Mortem de FVA (*Forecast Value Added*):** Cruza automáticamente los *overrides* y *snapshots* históricos guardados en GitHub contra las ventas reales cerradas, midiendo si la intervención humana redujo el error estadístico (`🟢 Aportó Valor`) o lo empeoró (`🔴 Destruyó Valor`).
 
 2. **🏭 2. Producción (Plan Maestro de Producción - MPS)**
    * **Cálculo de Necesidades Netas de Producto Terminado (PT):** Cruza la demanda de consenso con el inventario inicial (`stock_disponible`), la política del artículo (`MTS` con cobertura objetivo en meses vs. `MTO` con cobertura cero) y las órdenes de producción en firme ya lanzadas en el ERP (`8_ERP_Produccion`).
    * **Fórmula Core MPS:** `Nuevas Órdenes a Fabricar = máx(0, Demanda Consenso + Stock Objetivo - Stock Inicial - Recepciones ERP)`.
-   * **Semáforo de Cobertura (DOH - *Days on Hand*):** Calcula los días de inventario al cierre de cada mes sobre la demanda futura móvil, coloreando en rojo riesgos de rotura (`< 15 días`), en verde el rango saludable (`15 a 60 días`) y en naranja excesos (`> 60 días`).
+   * **Semáforo de Cobertura (DOH - *Days on Hand*):** Calcula los días de inventario al cierre de cada mes sobre la demanda futura móvil (`< 15 días` rojo, `15 a 60 días` verde, `> 60 días` naranja).
 
-3. **🧩 3. Compras (Explosión de Materiales MRP y Trazabilidad Inversa / Pegging)**
-   * **Explosión Multinivel por Receta (BOM):** Toma el plan total de fabricación de PT (`Nuevas Órdenes + ERP Firme`) y lo multiplica por la dosificación unitaria (`Cantidad`) de cada ingrediente en el archivo `4_BOM`.
-   * **Absorción de POs y Desfase por Lead Time (`LT_Meses`):** Descuenta el stock actual de materia prima y los pedidos de compra abiertos en el ERP (`7_ERP_Compras_POs`), adelantando la fecha de emisión del pedido (`Lanzamiento_Pedidos`) según los meses de *Lead Time* del proveedor.
-   * **🔗 Pegging Interactivo (MP → PT → Clientes y Margen en Riesgo):** Permite seleccionar cualquier materia prima crítica para visualizar al instante qué Productos Terminados la llevan en su fórmula, qué clientes los compran y cuántos miles de **£ de Revenue y Margen Bruto** dependen de ese ingrediente.
+3. **🧩 3. Compras (Explosión MRP, Pegging Interactivo y Red de Suministro E2E Sankey)**
+   * **Explosión Multinivel por Receta (BOM) y Lead Time (`LT_Meses`):** Toma el plan total de fabricación de PT (`Nuevas Órdenes + ERP Firme`), lo multiplica por la dosificación unitaria (`Cantidad`) en `4_BOM`, descuenta stock y POs abiertas (`7_ERP_Compras_POs`) y desfasa el lanzamiento según el *Lead Time*.
+   * **🔗 Pegging Interactivo (MP → PT → Clientes y Margen en Riesgo):** Selecciona cualquier materia prima crítica para visualizar qué Productos Terminados la llevan, qué clientes los compran y cuántas **£ de Revenue y Margen Bruto** dependen de ella.
+   * **🕸️ Visualización de la Red de Suministro (Diagrama Sankey):** Mapea visualmente cómo fluyen los kilos desde las Materias Primas (`rm cod`), pasando por las Líneas de Planta (`Maquina`), hasta los SKUs de Producto Terminado y los Países de destino.
 
 4. **⚙️ 4. Capacidad (Planificación de Capacidad a Grueso Modo - RCCP)**
    * **Conversión de Kilos a Horas de Línea:** Cruza las necesidades totales de fabricación del MPS con las velocidades de producción (`Kilos_por_Hora`) de cada línea industrial (`Extrusión`, `Mezcla`, `Pellet`, `Premix`) definidas en `5_Rutas_Routing`.
-   * **Mapa de Calor de Saturación (%):** Compara las horas requeridas frente a las `Horas_Disponibles` del calendario de planta (`6_Calendario`), generando una matriz térmica que alerta en rojo cuando una línea supera el **100 % de utilización** y permite desglosar la carga por SKU en cada máquina.
+   * **Mapa de Calor de Saturación (%):** Compara las horas requeridas frente a las `Horas_Disponibles` del calendario de planta (`6_Calendario`), alertando en rojo cuando una línea supera el **100 % de utilización**.
 
 5. **💷 5. Finanzas (Valoración P&L Multidivisa y Proyección de Working Capital en GBP)**
    * **Consolidación Corporativa en Libras Esterlinas (£):** Convierte ingresos y márgenes históricos y proyectados desde `EUR`, `DKK` y `PLN` a `GBP` aplicando los tipos de cambio configurables en la barra lateral, con análisis multinivel (*Consolidado Global*, *Por País*, *Por Cliente* o *Por SKU*).
-   * **Valoración de Capital Circulante (Working Capital PT + MP):** Valora financieramente la proyección mensual del inventario final de Producto Terminado (a coste industrial implícito) y de Materia Prima (según `Coste_Unitario` del archivo de Stock), mostrando su evolución en gráficos de área apilados.
+   * **Valoración de Capital Circulante (Working Capital PT + MP):** Valora financieramente la proyección mensual del inventario final de Producto Terminado y de Materia Prima (`Coste_Unitario`).
 
-6. **🚀 6. Ejecución ERP (Action Plan del Mes 1 y Exportación Master Pack)**
-   * **Plan de Lanzamiento Inmediato (Mes 1):** Filtra exclusivamente las nuevas órdenes de fabricación (PT) y los nuevos pedidos de compra a proveedores (MP) que deben lanzarse en el mes en curso.
-   * **Cálculo de Fecha Exacta de Lanzamiento:** Estima el día concreto del mes (`YYYY-MM-DD`) en que debe liberarse cada orden en función de los días de autonomía que otorga el stock inicial más las recepciones ERP ya confirmadas.
-   * **📦 Exportación Master Pack S&OP (.xlsx):** Descarga en un único libro Excel multipestaña los 5 entregables operativos del ciclo: `1_MPS_Produccion`, `2_MRP_Compras`, `3_Lanzar_ERP_PT_M1`, `4_Lanzar_PO_MP_M1` y `5_Segmentacion_ABC_XYZ`.
+6. **🚀 6. Ejecución ERP & S&OE (Restricciones MOQ / Lotes Múltiplos y Master Pack)**
+   * **⚡ Parametrización Logística S&OE (MOQ y Lotes Múltiplos):** Permite configurar el **Lote Mínimo (MOQ)** y el **Lote Múltiplo de Redondeo** (ej. tamaño de mezcladora industrial o camión completo de proveedor) tanto para Producto Terminado como para Materia Prima, transformando la necesidad teórica en una **Orden Logística Real redondeada**.
+   * **📦 Exportación Master Pack S&OP (.xlsx):** Descarga en un único libro Excel multipestaña los 5 entregables operativos del ciclo, incluyendo las cantidades ya redondeadas por MOQ/Lote Múltiplo listas para cargar en el ERP.
 
 7. **🔠 7. ABC/XYZ (Segmentación Estratégica y Optimizador MTO vs. MTS)**
-   * **Clasificación Cruzada Automática:** Segmenta toda la cartera por volumen acumulado (**A**: 80 %, **B**: 15 %, **C**: 5 %) y por coeficiente de variación mensual (**X**: $\\text{CV} \\le 0.5$ estable, **Y**: $0.5 < \\text{CV} \\le 1.0$ variable, **Z**: $\\text{CV} > 1.0$ errático).
-   * **🫧 Matriz de Burbujas (Riesgo vs. Rentabilidad):** Cruza volatilidad (`CV`) en el eje X frente a `Margen Bruto Unitario (£)` en el eje Y, identificando visualmente productos *Estrella* (alto margen, baja volatilidad) frente a referencias *Tóxicas* (bajo margen, alta volatilidad).
-   * **💡 Optimizador Estratégico MTS vs. MTO:** Audita la política actual del archivo de Stock contra la clase ABC/XYZ recomendada, detectando referencias erráticas (`CZ`, `BZ`, `CY`) configuradas como `MTS` y cuantificando exactamente cuántas **£ de Working Capital** se liberarían pasándolas a fabricación bajo pedido (`MTO`).
+   * **Clasificación Cruzada y Matriz de Burbujas:** Segmenta toda la cartera por volumen acumulado (**A**: 80 %, **B**: 15 %, **C**: 5 %) y volatilidad mensual (**X**: $\\text{CV} \\le 0.5$, **Y**: $0.5 < \\text{CV} \\le 1.0$, **Z**: $\\text{CV} > 1.0$), cruzando riesgo frente a margen unitario (£).
+   * **💡 Optimizador Estratégico MTS vs. MTO:** Audita la política actual del archivo de Stock contra la clase ABC/XYZ recomendada, cuantificando exactamente cuántas **£ de Working Capital** se liberarían pasando referencias erráticas (`CZ`, `BZ`, `CY`) de `MTS` a `MTO`.
 
 8. **🚨 8. Excepciones (Radar de Gestión por Excepción - *Management by Exception*)**
-   * ** Vigilancia Dual en Mes 1 (PT y MP):** Aísla en dos paneles paralelos únicamente los Productos Terminados y las Materias Primas que incumplen los umbrales de seguridad en el Mes 1 (`DOH < 15 días` por riesgo inminente de rotura o `DOH > 60 días` por sobrestock).
-   * **Motor de Recomendación Táctica:** Asigna automáticamente la acción correctiva sugerida para cada alerta: *Priorizar / Subir Cobertura*, *Posponer Orden ERP*, *Drenar Stock*, *Urgencia a Proveedor* o *Reprogramar PO ERP*.
+   * **Vigilancia Dual en Mes 1 (PT y MP) y Recomendación Táctica:** Aísla en dos paneles paralelos los Productos Terminados y las Materias Primas que incumplen los umbrales de seguridad en el Mes 1 (`DOH < 15 días` o `DOH > 60 días`), asignando la acción correctiva sugerida.
 
 9. **🔀 9. What-If (Simulador de Escenarios de Estrés y P&L Directivo)**
-   * **Sensibilidad Financiera en Tiempo Real:** Permite aplicar simultáneamente tres *shocks* porcentuales sobre la cartera filtrada: **Variación de Volumen (%)**, **Variación de Precios de Venta (%)** y **Variación de Costes de Materia Prima / COGS (%)**.
-   * **Comparativa Baseline vs. Simulado y PDF Ejecutivo:** Recalcula al instante el impacto en Revenue (£), Margen Bruto (£) y Margen %, generando un gráfico comparativo y un informe ejecutivo descargable en **PDF** con el resumen del escenario.
+   * **Sensibilidad Financiera en Tiempo Real:** Permite aplicar simultáneamente tres *shocks* porcentuales sobre la cartera filtrada (**Volumen %**, **Precio de Venta %** y **Coste MP / COGS %**), recalculando el P&L en GBP y exportando un informe ejecutivo en **PDF**.
 
-10. **📊 10. Dashboard (Cuadro de Mando Ejecutivo, Puente Waterfall y Dossier PDF)**
-    * **KPIs de Fiabilidad de Pronóstico (L12M):** Calcula el rendimiento estadístico global mediante **Forecast Accuracy (FA %)**, **Forecast Bias (%)** y **WAPE (%)**, junto con la comparativa de crecimiento **Last 12M vs. Next 12M** en volumen, ingresos y margen.
-    * **🌉 Puente Financiero S&OP (*Waterfall Bridge Chart* en GBP):** Desglosa visualmente la transición de ingresos y margen bruto entre `L12M` y `N12M` separando qué parte de la variación proviene del **Crecimiento Estadístico Core (Clase A)**, **Efecto Mix Tail (Clase B/C)** y **Ajustes Comerciales de Consenso (FVA)**.
-    * **📋 Tabla Analítica Comercial con Semáforo de Bias (L6M):** Desglosa por País, Cliente y SKU el volumen, revenue, margen % y la deriva reciente de ventas, e incluye el botón para exportar el **Executive S&OP Deck Completo (.pdf)** listo para el Comité Directivo.
+10. **📊 10. Dashboard (Triple Comparativa Budget vs. Forecast vs. Real, Puente Waterfall y Dossier PDF)**
+    * **🎯 Comparativa Triple (L12M Real vs. Annual Budget vs. N12M Consenso):** Permite fijar el objetivo de crecimiento presupuestario (*Annual Budget Target %*) y mide el **Gap to Budget** en Volumen (Kg), Revenue (£) y Margen Bruto (£).
+    * **🌉 Puente Financiero S&OP (*Waterfall Bridge Chart* en GBP):** Desglosa visualmente la transición de ingresos y margen bruto entre `L12M` y `N12M` separando **Crecimiento Estadístico Core (Clase A)**, **Efecto Mix Tail (Clase B/C)** y **Ajustes Comerciales de Consenso (FVA)**.
+    * **📑 Exportación Executive S&OP Deck (.pdf):** Genera de un clic el dossier directivo completo en PDF incluyendo el cumplimiento contra Presupuesto (*Gap vs. Budget*).
         """,
         """
-1. **📊 1. Demand (Statistical Forecasting, Cloud Consensus & FVA Audit)**
-   * **Holt-Winters Statistical Engine:** Projects future demand (1 to 24 months) capturing level, additive trend, and 12-month seasonality, with optional Interquartile Range (**IQR**) outlier cleaning.
-   * **Interactive Editing & Macro Factor:** Edit monthly consensus values cell-by-cell when filtering by Country, Customer, and SKU, or apply a bulk percentage shock (*Macro Factor*) across an entire customer portfolio.
-   * **GitHub Cloud Persistence & Monthly Snapshot:** Clicking `💾 Save Consensus (RAM + GitHub)` syncs overrides directly to the cloud (`2_Ajustes_Consenso_Cloud.csv`). Clicking `📸 Freeze S&OP Cycle Snapshot` locks the baseline and consensus forecast before closing the monthly cycle.
-   * **Post-Mortem FVA (*Forecast Value Added*) Evaluator:** Automatically cross-checks historical overrides and snapshots stored in GitHub against closed actual sales, quantifying whether manual adjustments reduced error (`🟢 Added Value`) or increased error (`🔴 Destroyed Value`).
-
-2. **🏭 2. Production (Master Production Schedule - MPS)**
-   * **Finished Goods (FG) Net Requirements:** Crosses consensus demand against initial inventory (`stock_disponible`), item policy (`MTS` with target coverage months vs. `MTO` with zero coverage), and firm ERP production orders (`8_ERP_Produccion`).
-   * **Core MPS Formula:** `New Production Orders = max(0, Consensus Demand + Target Stock - Initial Stock - Firm ERP Receipts)`.
-   * **Days on Hand (DOH) Traffic Light:** Computes ending inventory coverage in days against rolling future demand, highlighting stockout risks in red (`< 15 days`), healthy coverage in green (`15 to 60 days`), and excess stock in orange (`> 60 days`).
-
-3. **🧩 3. Purchasing (MRP BOM Explosion & Interactive Reverse Pegging)**
-   * **Multi-Level BOM Explosion:** Multiplies total FG production (`New Orders + Firm ERP`) by the unit formulation dosage (`Cantidad`) defined in `4_BOM`.
-   * **PO Absorption & Lead Time (`LT_Meses`) Offsetting:** Nets out current raw material inventory and open ERP purchase orders (`7_ERP_Compras_POs`), time-phasing new PO releases (`Lanzamiento_Pedidos`) by supplier Lead Time.
-   * **🔗 Interactive Pegging (RM → FG → Customers & Margin at Risk):** Select any raw material to immediately trace which Finished Goods depend on it, which customers buy them, and how much **GBP Revenue and Gross Margin** is exposed.
-
-4. **⚙️ 4. Capacity (Rough-Cut Capacity Planning - RCCP)**
-   * **Kilos-to-Hours Conversion:** Translates total MPS production volume into required machine hours using line speeds (`Kilos_por_Hora`) across industrial lines (`Extrusion`, `Mixing`, `Pelleting`, `Premix`) from `5_Rutas_Routing`.
-   * **Saturation Heatmap (%):** Crosses required hours against plant `Horas_Disponibles` (`6_Calendario`), flagging bottlenecks over **100% utilization** in red and providing SKU-level load breakdowns per line.
-
-5. **💷 5. Finance (Multi-Currency P&L Valuation & Working Capital in GBP)**
-   * **Corporate Consolidation in British Pounds (£):** Converts historical and projected revenue and gross margin from `EUR`, `DKK`, and `PLN` into `GBP` using sidebar FX rates, with drill-down by *Global Consolidated*, *Country*, *Customer*, or *SKU*.
-   * **Working Capital Valuation (FG + RM):** Financially values projected ending inventories for Finished Goods and Raw Materials (`Coste_Unitario`), charting capital tied up across the planning horizon.
-
-6. **🚀 6. ERP Execution (Month 1 Action Plan & Master Pack Export)**
-   * **Immediate Release Plan (Month 1):** Filters exclusively the new production orders (FG) and new supplier purchase orders (RM) that must be released in Month 1.
-   * **Exact Release Date Calculation:** Estimates the exact calendar day (`YYYY-MM-DD`) each order must be triggered based on current stock autonomy plus confirmed ERP receipts.
-   * **📦 S&OP Master Pack Export (.xlsx):** One-click download of a 5-sheet Excel workbook containing `1_MPS_Produccion`, `2_MRP_Compras`, `3_Lanzar_ERP_PT_M1`, `4_Lanzar_PO_MP_M1`, and `5_Segmentacion_ABC_XYZ`.
-
-7. **🔠 7. ABC/XYZ (Strategic Segmentation & MTO vs. MTS Optimizer)**
-   * **Automated Cross-Segmentation:** Classifies the portfolio by cumulative volume (**A**: 80%, **B**: 15%, **C**: 5%) and monthly coefficient of variation (**X**: $\\text{CV} \\le 0.5$ stable, **Y**: $0.5 < \\text{CV} \\le 1.0$ variable, **Z**: $\\text{CV} > 1.0$ erratic).
-   * **🫧 Risk vs. Profitability Bubble Matrix:** Plots volatility (`CV`) against `Unit Gross Margin (£)` to separate *Stars* (high margin, stable demand) from *Toxic SKUs* (low margin, erratic demand).
-   * **💡 Strategic MTS vs. MTO Optimizer:** Audits current inventory policy against ABC/XYZ class, flagging erratic SKUs (`CZ`, `BZ`, `CY`) held as `MTS` and quantifying the exact **GBP Working Capital** released by converting them to Make-to-Order (`MTO`).
-
-8. **🚨 8. Exceptions (Management by Exception Radar)**
-   * **Dual Month 1 Radar (FG & RM):** Isolates Finished Goods and Raw Materials breaching safety thresholds in Month 1 (`DOH < 15 days` stockout risk or `DOH > 60 days` overstock).
-   * **Tactical Recommendation Engine:** Automatically prescribes the corrective action for each alert: *Prioritize / Increase Coverage*, *Defer ERP Order*, *Drain Inventory*, *Expedite Supplier PO*, or *Reschedule ERP PO*.
-
-9. **🔀 9. What-If (Stress-Testing Simulator & Executive P&L Report)**
-   * **Real-Time Financial Sensitivity:** Simultaneously apply percentage shocks to **Volume (%)**, **Sales Price (%)**, and **RM / COGS Cost (%)** across any filtered scope.
-   * **Baseline vs. Simulated Comparison & PDF Export:** Instantly computes delta Revenue (£), Gross Margin (£), and Margin %, with a downloadable one-page executive **PDF** summary.
-
-10. **📊 10. Dashboard (Executive Scorecard, Waterfall Bridge & S&OP Deck PDF)**
-    * **Forecast Performance KPIs (L12M):** Tracks **Forecast Accuracy (FA %)**, **Forecast Bias (%)**, and **WAPE (%)**, alongside **Last 12M vs. Next 12M** volume, revenue, and margin growth.
-    * **🌉 S&OP Financial Waterfall Bridge (GBP):** Breaks down the L12M to N12M revenue and gross margin transition into **Class A Core Statistical Growth**, **Class B/C Tail Mix**, and **Commercial Consensus Overrides (FVA)**.
-    * **📋 Granular Commercial Table & Executive S&OP Deck (.pdf):** Customer-SKU profitability and L6M Bias table with traffic-light alerts, plus one-click generation of the multi-section **Executive S&OP Deck PDF** for committee meetings.
+1. **📊 1. Demand (Statistical Forecasting, Cloud Consensus & FVA Audit):** Holt-Winters engine with IQR outlier cleaning, interactive editing, *Macro Factor*, GitHub Cloud persistence (`2_Ajustes_Consenso_Cloud.csv`), monthly *Snapshots*, and *Post-Mortem FVA* evaluation against actual sales.
+2. **🏭 2. Production (Master Production Schedule - MPS):** Computes FG net requirements (`New Orders = Consensus Demand + Target Stock - Initial Stock - Firm ERP Receipts`) with **DOH** traffic-light alerts (`<15d` red, `15-60d` green, `>60d` orange).
+3. **🧩 3. Purchasing (MRP BOM Explosion, Interactive Pegging & E2E Sankey Network):** Explodes MPS requirements via `4_BOM`, offsets open POs and Lead Times, traces **Pegging** (RM → FG → Customers & Margin at Risk), and maps the **End-to-End Supply Network via a Sankey Diagram**.
+4. **⚙️ 4. Capacity (Rough-Cut Capacity Planning - RCCP):** Converts MPS kilos into machine hours (`Kilos_por_Hora`) and crosses against plant `Horas_Disponibles` (`6_Calendario`), flagging bottlenecks over **100% utilization**.
+5. **💷 5. Finance (Multi-Currency P&L Valuation & Working Capital in GBP):** Consolidates historical and projected Revenue, Gross Margin, and Working Capital (FG + RM) in **GBP (£)**.
+6. **🚀 6. ERP Execution & S&OE (MOQ / Lot Multiples & Master Pack Export):** Applies real operational constraints (**Minimum Order Quantity MOQ** and **Lot Size Multiples**) to round Month 1 FG production orders and RM purchase orders into logistical lots, exporting the 5-tab **S&OP Master Pack (.xlsx)**.
+7. **🔠 7. ABC/XYZ (Strategic Segmentation & MTO vs. MTS Optimizer):** Crosses cumulative volume (ABC) and volatility (XYZ) in a Risk vs. Margin bubble matrix, quantifying **GBP Working Capital** released by switching erratic SKUs (`CZ`, `BZ`, `CY`) from `MTS` to `MTO`.
+8. **🚨 8. Exceptions (Management by Exception Radar):** Dual Month 1 radar for FG and RM breaching safety thresholds (`DOH < 15d` or `DOH > 60d`) with automated corrective actions.
+9. **🔀 9. What-If (Stress-Testing Simulator & Executive P&L Report):** Real-time sensitivity to Volume, Price, and COGS shocks with instant **PDF** executive report generation.
+10. **📊 10. Dashboard (Triple Budget vs. Forecast vs. Actual Comparison, Waterfall Bridge & PDF Deck):** Tracks FA, Bias, WAPE, **Annual Budget Target vs. N12M Consensus Gap**, **GBP Waterfall Bridge**, and exports the full **Executive S&OP Deck (.pdf)**.
         """,
         """
-1. **📊 1. Popyt (Prognoza Statystyczna Holt-Winters, Konsensus w Chmurze i Audyt FVA):** Zaawansowane prognozowanie z czyszczeniem odchyleń (IQR), edycją ręczną, masowym przelicznikiem *Macro Factor*, zapisem migawek (*Snapshots*) w GitHubie oraz oceną dokładności *Post-Mortem FVA* względem rzeczywistej sprzedaży.
-2. **🏭 2. Produkcja (Główny Plan Produkcji - MPS):** Oblicza potrzeby netto wyrobów gotowych (`Nowe Zlecenia = Popyt + Zapas Docelowy - Zapas Początkowy - Zlecenia ERP`) z sygnalizacją pokrycia **DOH** (`<15 dni` ryzyko braku, `>60 dni` nadwyżka).
-3. **🧩 3. Zakupy (Eksplozja BOM MRP i Śledzenie Wsteczne / Pegging):** Rozbija plan produkcji MPS na surowce wg receptur BOM, uwzględnia otwarte zamówienia PO i czasy dostaw (*Lead Time*) oraz pokazuje **Pegging** (które wyroby, klienci i jaka marża w GBP zależą od danego surowca).
-4. **⚙️ 4. Zdolności (Planowanie Zdolności Produkcyjnych - RCCP):** Przelicza kilogramy z planu MPS na roboczogodziny linii (`Kilos_por_Hora`) i porównuje z kalendarzem dostępności zakładu (`Horas_Disponibles`), wskazując wąskie gardła (`>100%`).
-5. **💷 5. Finanse (Wycena P&L i Kapitał Obrotowy w GBP):** Konsoliduje przychody, marżę brutto oraz wartość zapasów (WG + SM) w funtach brytyjskich (**GBP**) po kursach EUR/DKK/PLN.
-6. **🚀 6. Realizacja ERP (Plan Działania M1 i Eksport Master Pack):** Wyodrębnia zlecenia produkcyjne i zakupowe do natychmiastowego uruchomienia w Miesiącu 1 wraz z datą dzienną oraz eksportuje 5-arkuszowy plik **Master Pack S&OP (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Segmentacja Strategiczna i Optymalizator MTO/MTS):** Klasyfikuje portfolio wg wolumenu (ABC) i zmienności (XYZ), wizualizuje macierz Ryzyko vs. Marża oraz wylicza oszczędność kapitału obrotowego (**£**) przy zmianie polityki z `MTS` na `MTO`.
-8. **🚨 8. Wyjątki (Zarządzanie przez Wyjątki):** Automatyczny radar braków (`DOH < 15`) i nadwyżek (`DOH > 60`) w Miesiącu 1 dla wyrobów gotowych i surowców z rekomendacją działań.
-9. **🔀 9. What-If (Symulator Scenariuszy Finansowych):** Badanie wrażliwości P&L na szoki wolumenu, cen sprzedaży i kosztów surowców z eksportem raportu PDF.
-10. **📊 10. Dashboard (Panel Zarządczy, Most Waterfall i Raport PDF):** Globalne wskaźniki FA, Bias, WAPE, porównanie **L12M vs. N12M**, wykres kaskadowy **Waterfall Bridge** w GBP oraz generowanie pełnego raportu **Executive S&OP Deck (.pdf)**.
+1. **📊 1. Popyt (Prognoza Holt-Winters, Konsensus w Chmurze i Audyt FVA):** Zaawansowane prognozowanie z czyszczeniem odchyleń (IQR), zapisem w GitHubie oraz oceną *Post-Mortem FVA* względem sprzedaży rzeczywistej.
+2. **🏭 2. Produkcja (Główny Plan Produkcji - MPS):** Oblicza potrzeby netto wyrobów gotowych z sygnalizacją pokrycia **DOH**.
+3. **🧩 3. Zakupy (MRP, Pegging i Sieć Dostaw Sankey):** Eksplozja BOM, czasy dostaw (*Lead Time*), śledzenie **Pegging** oraz interaktywny wykres **Sankey E2E** (Surowce → Linie → SKU → Rynki).
+4. **⚙️ 4. Zdolności (RCCP):** Przelicza kilogramy na roboczogodziny linii i porównuje z kalendarzem dostępności zakładu (`>100%`).
+5. **💷 5. Finanse (P&L i Kapitał Obrotowy w GBP):** Konsolidacja przychodów, marży i zapasów w **GBP (£)**.
+6. **🚀 6. Realizacja ERP & S&OE (MOQ, Wielokrotności Partii i Master Pack):** Uwzględnia minimalne wielkości zamówienia (**MOQ**) oraz partie produkcyjne/zakupowe w Miesiącu 1 i eksportuje 5-arkuszowy **Master Pack S&OP (.xlsx)**.
+7. **🔠 7. ABC/XYZ (Segmentacja i Optymalizator MTO/MTS):** Macierz Ryzyko vs. Marża oraz wyliczenie oszczędności kapitału obrotowego (**£**) przy zmianie z `MTS` na `MTO`.
+8. **🚨 8. Wyjątki:** Automatyczny radar braków (`DOH < 15`) i nadwyżek (`DOH > 60`) w Miesiącu 1.
+9. **🔀 9. What-If:** Symulator szoków wolumenu, cen i kosztów surowców z raportem PDF.
+10. **📊 10. Dashboard (Budżet vs. Prognoza vs. Wykonanie, Most Waterfall i PDF):** Porównanie **L12M vs. Budżet vs. N12M**, wykres **Waterfall Bridge** w GBP oraz pełny **Executive S&OP Deck (.pdf)**.
         """,
         """
-1. **📊 1. Efterspørgsel (Holt-Winters Prognose, Cloud-konsensus & FVA-audit):** Statistisk prognose med IQR-outlier-rensning, manuel redigering, *Macro Factor*, frosne *Snapshots* i GitHub og automatisk *Post-Mortem FVA*-evaluering mod faktisk salg.
-2. **🏭 2. Produktion (Master Production Schedule - MPS):** Beregner nettobehov for færdigvarer (`Nye Ordrer = Efterspørgsel + Mållager - Startlager - ERP-ordrer`) med **DOH**-trafiklys (`<15 dage` risiko for restordre, `>60 dage` overbeholdning).
-3. **🧩 3. Indkøb (MRP BOM-eksplosion & Interaktiv Pegging):** Eksploderer MPS-planen via styklisten (`4_BOM`), modregner åbne ERP-indkøbsordrer, tager højde for *Lead Time* og viser **Pegging** (hvilke færdigvarer, kunder og GBP-margin der afhænger af råvaren).
-4. **⚙️ 4. Kapacitet (Rough-Cut Capacity Planning - RCCP):** Omregner kilo til maskintimer (`Kilos_por_Hora`) og krydser mod fabrikskalenderen (`Horas_Disponibles`) for at identificere flaskehalse (`>100%`).
-5. **💷 5. Økonomi (P&L-værdiansættelse & Arbejdskapital i GBP):** Konsoliderer omsætning, bruttomargin og lagerbinding (FG + RM) i britiske pund (**GBP**).
-6. **🚀 6. ERP Udførelse (Handlingsplan M1 & Master Pack Eksport):** Viser præcise frigivelsesdatoer for nye produktions- og indkøbsordrer i Måned 1 samt eksport af **Master Pack S&OP (.xlsx)** med 5 faner.
-7. **🔠 7. ABC/XYZ (Strategisk Segmentering & MTO/MTS-optimering):** Krydser volumen (ABC) og volatilitet (XYZ) i boblematrix og beregner frigørelse af arbejdskapital (**£**) ved skift fra `MTS` til `MTO`.
-8. **🚨 8. Undtagelser (Management by Exception Radar):** Isolerer kritiske alarmer i Måned 1 (`DOH < 15` og `DOH > 60`) for både færdigvarer og råvarer med konkrete handlingsforslag.
-9. **🔀 9. What-If (Finansiel Scenariesimulator):** Stresstest af P&L ved ændringer i volumen, salgspriser og råvarepriser inkl. PDF-eksport.
-10. **📊 10. Dashboard (Executive Scorecard, Waterfall Bridge & S&OP Deck PDF):** Overblik over FA, Bias, WAPE, **L12M vs. N12M**, finansiel **Waterfall Bridge** i GBP samt eksport af **Executive S&OP Deck (.pdf)**.
+1. **📊 1. Efterspørgsel (Holt-Winters Prognose, Cloud-konsensus & FVA-audit):** Statistisk prognose med IQR-outlier-rensning, *Snapshots* i GitHub og *Post-Mortem FVA*-evaluering.
+2. **🏭 2. Produktion (MPS):** Beregner nettobehov for færdigvarer med **DOH**-trafiklys.
+3. **🧩 3. Indkøb (MRP, Pegging & E2E Sankey-netværk):** Eksploderer MPS-planen via styklisten (`4_BOM`), viser **Pegging** samt **Sankey-netværksdiagram** (Råvarer → Linjer → SKU → Markeder).
+4. **⚙️ 4. Kapacitet (RCCP):** Omregner kilo til maskintimer og krydser mod fabrikskalenderen (`>100%`).
+5. **💷 5. Økonomi (P&L & Arbejdskapital i GBP):** Konsoliderer omsætning, bruttomargin og lagerbinding i **GBP (£)**.
+6. **🚀 6. ERP Udførelse & S&OE (MOQ / Partistørrelser & Master Pack):** Anvender **MOQ** og partimultipla på Måned 1-ordrer og eksporterer **Master Pack S&OP (.xlsx)**.
+7. **🔠 7. ABC/XYZ (Segmentering & MTO/MTS-optimering):** Boblematrix og beregning af frigjort arbejdskapital (**£**) ved skift fra `MTS` til `MTO`.
+8. **🚨 8. Undtagelser:** Isolerer kritiske alarmer i Måned 1 (`DOH < 15` og `DOH > 60`).
+9. **🔀 9. What-If:** Stresstest af P&L ved ændringer i volumen, priser og råvareomkostninger inkl. PDF.
+10. **📊 10. Dashboard (Budget vs. Prognose vs. Faktisk, Waterfall Bridge & S&OP Deck PDF):** Sammenligner **L12M vs. Budget vs. N12M**, **Waterfall Bridge** i GBP samt eksport af **Executive S&OP Deck (.pdf)**.
         """
     ))
+
+    # ==========================================
+    # MEJORA #1: CALENDARIO INTERACTIVO DE GOBERNANZA DEL CICLO S&OP (WORKFLOW & SIGN-OFF)
+    # ==========================================
+    st.divider()
+    st.subheader(tr(
+        "🗓️ Calendario de Gobernanza del Ciclo Mensual S&OP (Workflow & Sign-Off)",
+        "🗓️ Monthly S&OP Cycle Governance Calendar (Workflow & Sign-Off)",
+        "🗓️ Kalendarz Zarządzania Cyklem S&OP (Workflow & Sign-Off)",
+        "🗓️ Månedlig S&OP Governance-kalender (Workflow & Sign-Off)"
+    ))
+    st.caption(tr(
+        "Coordina las 5 etapas oficiales del proceso S&OP mensual entre Comercial, Compras, Operaciones, Finanzas y Dirección General. El estado de avance se sincroniza permanentemente en GitHub Cloud.",
+        "Coordinate the 5 official stages of the monthly S&OP process across Commercial, Procurement, Operations, Finance, and Executive Leadership. Progress syncs permanently to GitHub Cloud."
+    ))
+
+    mes_actual_base = pd.Timestamp.today().replace(day=1)
+    fases_defecto = [
+        {
+            "Fase": "01. Data & Portfolio",
+            "Etapa S&OP": tr("1. Limpieza de Datos y Revisión de Cartera", "1. Data Gathering & Portfolio Review"),
+            "Dias_Mes": "Días 1 - 5", "Dia_Inicio": 1, "Dia_Fin": 5,
+            "Owner": "S&OP Manager / IT",
+            "Entregable_Clave": tr("Carga de 8 Tablas ERP y Baseline Estadístico", "8 ERP Tables Upload & Statistical Baseline"),
+            "Estado": "✅ Completado", "Notas_Comite": "Datos validados sin errores de esquema."
+        },
+        {
+            "Fase": "02. Demand Review",
+            "Etapa S&OP": tr("2. Revisión de Demanda y Consenso Comercial", "2. Demand Review & Commercial Consensus"),
+            "Dias_Mes": "Días 6 - 10", "Dia_Inicio": 6, "Dia_Fin": 10,
+            "Owner": "Commercial Manager",
+            "Entregable_Clave": tr("Overrides en Pestaña 1 y Snapshot FVA congelado", "Tab 1 Overrides & Frozen FVA Snapshot"),
+            "Estado": "🔄 En Curso", "Notas_Comite": "Revisión de cuentas clave y promociones."
+        },
+        {
+            "Fase": "03. Supply & RCCP",
+            "Etapa S&OP": tr("3. Revisión de Suministro, MRP y Capacidad Planta", "3. Supply, MRP & Plant Capacity Review (RCCP)"),
+            "Dias_Mes": "Días 11 - 16", "Dia_Inicio": 11, "Dia_Fin": 16,
+            "Owner": "Operations & Procurement",
+            "Entregable_Clave": tr("Saturación RCCP (Pestaña 4) y Pegging MP (Pestaña 3)", "RCCP Saturation (Tab 4) & RM Pegging (Tab 3)"),
+            "Estado": "⏳ Pendiente", "Notas_Comite": "Validar turnos en Línea 3 Pellet y POs críticas."
+        },
+        {
+            "Fase": "04. Pre-S&OP Finance",
+            "Etapa S&OP": tr("4. Pre-S&OP: Reconciliación Financiera y Escenarios", "4. Pre-S&OP: Financial Reconciliation & What-If"),
+            "Dias_Mes": "Días 17 - 21", "Dia_Inicio": 17, "Dia_Fin": 21,
+            "Owner": "Finance & S&OP Manager",
+            "Entregable_Clave": tr("Puente Waterfall GBP, Budget Gap y Working Capital", "GBP Waterfall Bridge, Budget Gap & Working Capital"),
+            "Estado": "⏳ Pendiente", "Notas_Comite": "Evaluar liberación de caja MTS -> MTO."
+        },
+        {
+            "Fase": "05. Executive S&OP",
+            "Etapa S&OP": tr("5. Reunión Ejecutiva S&OP y Aprobación Plan Único", "5. Executive S&OP Meeting & Single Plan Sign-Off"),
+            "Dias_Mes": "Días 22 - 25", "Dia_Inicio": 22, "Dia_Fin": 25,
+            "Owner": "SLT / General Management",
+            "Entregable_Clave": tr("Firma del Executive S&OP Deck PDF y Master Pack ERP", "Executive S&OP Deck PDF Sign-Off & ERP Master Pack"),
+            "Estado": "⏳ Pendiente", "Notas_Comite": "Aprobación final y lanzamiento de órdenes M1."
+        }
+    ]
+
+    df_cal_sop = github_leer_csv(SOP_CAL_FILE, COLS_SOP_CAL)
+    if df_cal_sop.empty or len(df_cal_sop) != 5 or not set(["Dia_Inicio", "Dia_Fin"]).issubset(df_cal_sop.columns):
+        df_cal_sop = pd.DataFrame(fases_defecto)
+
+    df_gantt = df_cal_sop.copy()
+    df_gantt["Inicio_Fecha"] = [mes_actual_base + pd.Timedelta(days=int(d) - 1) for d in pd.to_numeric(df_gantt["Dia_Inicio"], errors="coerce").fillna(1)]
+    df_gantt["Fin_Fecha"] = [mes_actual_base + pd.Timedelta(days=int(d)) for d in pd.to_numeric(df_gantt["Dia_Fin"], errors="coerce").fillna(5)]
+
+    mapa_colores_estado = {
+        "✅ Completado": "#2E8B57",
+        "🔄 En Curso": "#1E3E5B",
+        "⏳ Pendiente": "#A0B2C6",
+        "🚨 Bloqueado": "#D9534F"
+    }
+
+    fig_gantt = px.timeline(
+        df_gantt,
+        x_start="Inicio_Fecha",
+        x_end="Fin_Fecha",
+        y="Fase",
+        color="Estado",
+        text="Owner",
+        hover_name="Etapa S&OP",
+        hover_data={"Entregable_Clave": True, "Dias_Mes": True, "Notas_Comite": True, "Inicio_Fecha": False, "Fin_Fecha": False},
+        color_discrete_map=mapa_colores_estado,
+        title=tr(f"Cronograma Oficial del Ciclo S&OP — {mes_actual_base.strftime('%Y-%m')}", f"Official S&OP Cycle Timeline — {mes_actual_base.strftime('%Y-%m')}")
+    )
+    hoy_ms = pd.Timestamp.today().timestamp() * 1000
+    fig_gantt.add_vline(x=hoy_ms, line_width=2, line_dash="dash", line_color="#D9534F", annotation_text=tr("Hoy", "Today"))
+    fig_gantt.update_yaxes(autorange="reversed", title="")
+    fig_gantt.update_xaxes(title=tr("Calendario del Mes en Curso", "Current Month Timeline"))
+    fig_gantt.update_layout(**LAYOUT_STYLE, height=340, margin=dict(l=10, r=10, t=40, b=10))
+    st.plotly_chart(fig_gantt, use_container_width=True)
+
+    df_cal_edit = st.data_editor(
+        df_cal_sop[["Fase", "Etapa S&OP", "Dias_Mes", "Owner", "Entregable_Clave", "Estado", "Notas_Comite"]],
+        column_config={
+            "Fase": st.column_config.TextColumn(disabled=True),
+            "Etapa S&OP": st.column_config.TextColumn(disabled=True),
+            "Dias_Mes": st.column_config.TextColumn(label=tr("Ventana", "Window"), disabled=True),
+            "Owner": st.column_config.TextColumn(label="Owner"),
+            "Entregable_Clave": st.column_config.TextColumn(label=tr("Entregable Clave", "Key Deliverable"), disabled=True),
+            "Estado": st.column_config.SelectboxColumn(
+                label=tr("Estado", "Status"),
+                options=["⏳ Pendiente", "🔄 En Curso", "✅ Completado", "🚨 Bloqueado"],
+                required=True
+            ),
+            "Notas_Comite": st.column_config.TextColumn(label=tr("Acuerdos / Notas del Ciclo", "Cycle Decisions / Notes"))
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+
+    if st.button(tr("💾 Guardar Estado del Ciclo S&OP (GitHub Cloud)", "💾 Save S&OP Cycle Status (GitHub Cloud)"), type="primary"):
+        df_cal_sop[["Owner", "Estado", "Notas_Comite"]] = df_cal_edit[["Owner", "Estado", "Notas_Comite"]]
+        github_guardar_csv(df_cal_sop, SOP_CAL_FILE, f"S&OP Calendar status updated by {usuario_actual}")
+        st.success(tr("✅ Estado del calendario S&OP actualizado y guardado en GitHub.", "✅ S&OP Calendar status updated and saved to GitHub."))
+        st.rerun()
 
 # ==========================================
 # MODULO 1: DEMANDA + SNAPSHOT S&OP + EVALUADOR POST-MORTEM FVA
@@ -1882,7 +2075,7 @@ with tab_prod:
             )
 
 # ==========================================
-# MODULO 3: COMPRAS (MRP) + PEGGING INTERACTIVO
+# MODULO 3: COMPRAS (MRP) + PEGGING + DIAGRAMA SANKEY E2E
 # ==========================================
 with tab_bom:
     if "tab3" not in modulos_permitidos:
@@ -2007,6 +2200,17 @@ with tab_bom:
                         use_container_width=True,
                         hide_index=True
                     )
+
+            # --- MEJORA #3: VISUALIZACIÓN DE LA RED DE SUMINISTRO E2E (SANKEY) ---
+            st.divider()
+            st.markdown(f"### {tr('🕸️ Visualización de la Red de Suministro E2E (Diagrama Sankey)', '🕸️ End-to-End Supply Network Visualization (Sankey Diagram)', '🕸️ Wizualizacja Sieci Dostaw E2E (Diagram Sankeya)', '🕸️ E2E Forsyningsnetværk (Sankey-diagram)')}")
+            st.caption(tr(
+                "Mapea el flujo físico de volúmenes proyectados en el horizonte S&OP desde las Materias Primas (🧩), pasando por las Líneas Industriales de Planta (⚙️) y los Productos Terminados (📦), hasta los Mercados de Destino (🌍).",
+                "Maps the physical flow of projected S&OP volumes from Raw Materials (🧩), through Industrial Plant Lines (⚙️) and Finished Goods (📦), to Destination Markets (🌍)."
+            ))
+            fig_sk = construir_diagrama_sankey_red(generar_mps_global(), df_bom, df_rutas, df)
+            if fig_sk is not None:
+                st.plotly_chart(fig_sk, use_container_width=True)
 
 # ==========================================
 # MODULO 4: CAPACIDAD (RCCP)
@@ -2266,13 +2470,13 @@ with tab_fin:
                         )
 
 # ==========================================
-# MODULO 6: EJECUCIÓN ERP + MASTER PACK EXCEL
+# MODULO 6: EJECUCIÓN ERP + S&OE (MOQ & LOTES MÚLTIPLOS) + MASTER PACK EXCEL
 # ==========================================
 with tab_ejec:
     if "tab6" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.", "🔒 You do not have permission to access the ERP Execution module.", "🔒 Brak uprawnień do modułu Realizacji ERP.", "🔒 Du har ikke adgang til ERP-modulet."))
     else:
-        st.subheader(tr("🚀 Plan de Ejecución Inmediata (Lanzamientos al ERP)", "🚀 Immediate ERP Execution Plan (Order Releases)", "🚀 Plan Natychmiastowej Realizacji ERP", "🚀 Plan for Øjeblikkelig ERP-udførelse"))
+        st.subheader(tr("🚀 Plan de Ejecución Inmediata & S&OE (Lanzamientos al ERP con MOQ / Lotes)", "🚀 Immediate ERP Execution & S&OE Plan (Order Releases with MOQ / Lot Multiples)", "🚀 Plan Natychmiastowej Realizacji ERP i S&OE (MOQ / Partie)", "🚀 Plan for Øjeblikkelig ERP-udførelse & S&OE (MOQ / Partier)"))
         mps_exec = generar_mps_global()
         mrp_exec = generar_mrp_global()
 
@@ -2287,6 +2491,22 @@ with tab_ejec:
             base_date = pd.to_datetime(mes_objetivo)
 
             st.info(f"📅 **{tr('Mes Objetivo de Ejecución (Nuevos Lanzamientos)', 'Target Execution Month (New Releases)', 'Miesiąc Docelowy Realizacji', 'Målmåned for Udførelse')}:** {base_date.strftime('%Y-%m')}")
+
+            # --- MEJORA #4: PARAMETRIZACIÓN LOGÍSTICA S&OE (MOQ Y LOTES MÚLTIPLOS) ---
+            with st.expander(tr("⚡ Reglas de Loteado Operativo S&OE (Pedido Mínimo MOQ y Lote Múltiplo Industrial/Logístico)", "⚡ S&OE Operational Lot Sizing Rules (MOQ & Industrial/Logistical Lot Multiples)"), expanded=True):
+                st.caption(tr(
+                    "Ajusta las necesidades netas teóricas del Mes 1 a lotes reales de fabricación (capacidad de mezcladora/pelletizadora) y lotes logísticos de compra a proveedor (Big-Bags / Camión Completo).",
+                    "Round Month 1 theoretical net requirements up to real industrial batch sizes (mixer/pelletizer capacity) and supplier logistical lots (Big-Bags / Full Truckload)."
+                ))
+                soe_c1, soe_c2, soe_c3, soe_c4 = st.columns(4)
+                with soe_c1:
+                    moq_pt_kg = st.number_input(tr("🏭 MOQ Fabricación PT (Kg):", "🏭 FG Production MOQ (Kg):"), min_value=0, max_value=100000, value=2000, step=500)
+                with soe_c2:
+                    mult_pt_kg = st.number_input(tr("🔄 Lote Múltiplo PT (Mezcladora Kg):", "🔄 FG Batch Multiple (Mixer Kg):"), min_value=1, max_value=50000, value=1000, step=500)
+                with soe_c3:
+                    moq_mp_kg = st.number_input(tr("🛒 MOQ Compra Proveedor MP (Kg):", "🛒 RM Supplier PO MOQ (Kg):"), min_value=0, max_value=100000, value=5000, step=1000)
+                with soe_c4:
+                    mult_mp_kg = st.number_input(tr("🚚 Lote Múltiplo MP (Palet/Camión Kg):", "🚚 RM Lot Multiple (Pallet/Truck Kg):"), min_value=1, max_value=50000, value=1000, step=500)
 
             st.markdown(f"### {tr('🏭 NUEVAS Órdenes de Fabricación a lanzar en el ERP', '🏭 NEW Production Orders to Release in ERP', '🏭 NOWE Zlecenia Produkcyjne do Uruchomienia w ERP', '🏭 NYE Produktionsordrer til Frigivelse i ERP')}")
             df_fab_lanzar = df_mps_all[(df_mps_all['Date'] == mes_objetivo) & (df_mps_all['Entradas_Netas'] > 0)].copy()
@@ -2303,9 +2523,11 @@ with tab_ejec:
                 df_fab_lanzar['Fecha_Lanzamiento'] = [
                     (base_date + pd.Timedelta(days=int(d))).strftime('%Y-%m-%d') for d in offset_dias_pt
                 ]
+                df_fab_lanzar['Orden_Redondeada_SOE'] = aplicar_moq_y_lote_multiplo(df_fab_lanzar['Entradas_Netas'], moq_pt_kg, mult_pt_kg)
+                df_fab_lanzar['Lotes_Mezcladora'] = np.ceil(df_fab_lanzar['Orden_Redondeada_SOE'] / max(1.0, float(mult_pt_kg))).astype(int)
 
-                cols_fab = ['sku cod', 'sku desc', 'Fecha_Lanzamiento', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Stock_Final', 'DOH']
-                df_fab_lanzar = df_fab_lanzar[cols_fab].sort_values(by=['Fecha_Lanzamiento', 'Entradas_Netas'], ascending=[True, False]).reset_index(drop=True)
+                cols_fab = ['sku cod', 'sku desc', 'Fecha_Lanzamiento', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Orden_Redondeada_SOE', 'Lotes_Mezcladora', 'Stock_Final', 'DOH']
+                df_fab_lanzar = df_fab_lanzar[cols_fab].sort_values(by=['Fecha_Lanzamiento', 'Orden_Redondeada_SOE'], ascending=[True, False]).reset_index(drop=True)
                 
                 st.dataframe(
                     df_fab_lanzar.style.format({
@@ -2313,6 +2535,8 @@ with tab_ejec:
                         'Stock_Inicial': '{:,.0f} Kg',
                         'Recepciones_ERP': '{:,.0f} Kg',
                         'Entradas_Netas': '{:,.0f} Kg',
+                        'Orden_Redondeada_SOE': '{:,.0f} Kg',
+                        'Lotes_Mezcladora': '{:,.0f} batches',
                         'Stock_Final': '{:,.0f} Kg',
                         'DOH': '{:.0f}'
                     }).map(estilo_doh, subset=['DOH']),
@@ -2340,11 +2564,15 @@ with tab_ejec:
                     df_cmp_lanzar['Fecha_Lanzamiento'] = [
                         (base_date + pd.Timedelta(days=int(d))).strftime('%Y-%m-%d') for d in offset_dias_rm
                     ]
+                    df_cmp_lanzar['PO_Redondeada_SOE'] = aplicar_moq_y_lote_multiplo(df_cmp_lanzar[col_lanz], moq_mp_kg, mult_mp_kg)
+                    df_cmp_lanzar['Lotes_Logisticos'] = np.ceil(df_cmp_lanzar['PO_Redondeada_SOE'] / max(1.0, float(mult_mp_kg))).astype(int)
 
-                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'Fecha_Lanzamiento', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
-                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=['Fecha_Lanzamiento', col_lanz], ascending=[True, False]).reset_index(drop=True)
+                    cols_cmp = [c for c in ['rm cod', 'rm desc', 'Fecha_Lanzamiento', 'LT_Meses', 'Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Lanzamiento_Pedidos', 'PO_Redondeada_SOE', 'Lotes_Logisticos', 'Stock_Final', 'DOH'] if c in df_cmp_lanzar.columns]
+                    df_cmp_lanzar = df_cmp_lanzar[cols_cmp].sort_values(by=['Fecha_Lanzamiento', 'PO_Redondeada_SOE'], ascending=[True, False]).reset_index(drop=True)
                     
-                    fmt_dict = {c: '{:,.0f} Kg' for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Entradas_Netas', 'Lanzamiento_Pedidos', 'Stock_Final'] if c in df_cmp_lanzar.columns}
+                    fmt_dict = {c: '{:,.0f} Kg' for c in ['Salidas_Brutas', 'Stock_Inicial', 'Recepciones_ERP', 'Lanzamiento_Pedidos', 'PO_Redondeada_SOE', 'Stock_Final'] if c in df_cmp_lanzar.columns}
+                    if 'Lotes_Logisticos' in df_cmp_lanzar.columns:
+                        fmt_dict['Lotes_Logisticos'] = '{:,.0f} lots'
                     if 'DOH' in df_cmp_lanzar.columns:
                         fmt_dict['DOH'] = '{:.0f}'
                     
@@ -2357,8 +2585,8 @@ with tab_ejec:
             st.divider()
             st.markdown(f"### {tr('📦 Exportar Master Pack S&OP Corporativo (Multi-Pestaña)', '📦 Export Corporate S&OP Master Pack (Multi-Tab Excel)', '📦 Eksportuj Pakiet Główny S&OP (.xlsx)', '📦 Eksporter S&OP Master Pack (.xlsx)')}")
             st.caption(tr(
-                "Descarga en un único libro Excel el Plan Maestro de Producción (MPS), el Plan de Compras (MRP), las Órdenes a Lanzar en M1 y la Segmentación ABC/XYZ.",
-                "Download in a single multi-sheet Excel workbook the Master Production Schedule (MPS), Purchasing Plan (MRP), M1 Order Releases, and ABC/XYZ Segmentation."
+                "Descarga en un único libro Excel el Plan Maestro de Producción (MPS), el Plan de Compras (MRP), las Órdenes S&OE Redondeadas a Lanzar en M1 y la Segmentación ABC/XYZ.",
+                "Download in a single multi-sheet Excel workbook the Master Production Schedule (MPS), Purchasing Plan (MRP), S&OE Rounded M1 Order Releases, and ABC/XYZ Segmentation."
             ))
 
             buf_master = io.BytesIO()
@@ -2726,7 +2954,7 @@ with tab_whatif:
                     st.download_button(label=tr("📄 Descargar Resumen PDF", "📄 Download PDF Summary"), data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
 
 # ==========================================
-# MODULO 10: DASHBOARD EJECUTIVO + WATERFALL BRIDGE + EXECUTIVE S&OP DECK PDF
+# MODULO 10: DASHBOARD EJECUTIVO + TRIPLE COMPARATIVA BUDGET + WATERFALL BRIDGE + PDF DECK
 # ==========================================
 with tab_kpis:
     if "tab10" not in modulos_permitidos:
@@ -2771,20 +2999,53 @@ with tab_kpis:
                 col_k2.metric("Forecast Bias", f"{bias_val:+.1f}%", tr("+ = Infrademanda / - = Sobredemanda", "+ = Under-forecast / - = Over-forecast"))
                 col_k3.metric("WAPE (Error Absoluto)", f"{wape_val:.1f}%", tr("Desviación porcentual neta", "Weighted Absolute Percentage Error"))
                 
+                # ==========================================
+                # MEJORA #2: COMPARATIVA TRIPLE: REAL L12M vs. BUDGET ANUAL vs. CONSENSO N12M
+                # ==========================================
                 st.divider()
-                st.markdown(f"#### {tr('📈 Crecimiento S&OP: Last 12M vs Next 12M (GBP)', '📈 S&OP Growth: Last 12M vs Next 12M (GBP)', '📈 Wzrost S&OP: L12M vs N12M (GBP)', '📈 S&OP Vækst: L12M vs N12M (GBP)')}")
+                st.subheader(tr("🎯 Control Presupuestario S&OP: Ventas Reales (L12M) vs. Budget Anual vs. Plan Consenso (N12M)", "🎯 S&OP Budget Control: Actuals (L12M) vs. Annual Budget vs. Consensus Plan (N12M)"))
+                st.caption(tr(
+                    "Evalúa si el Plan de Consenso proyectado para los próximos 12 meses cubre el objetivo financiero comprometido en el Presupuesto Anual (Budget Target).",
+                    "Evaluate whether the projected Next 12M Consensus Plan meets the financial target committed in the Annual Budget."
+                ))
+
+                b_col1, b_col2 = st.columns([1, 3])
+                with b_col1:
+                    budget_growth_pct = st.slider(
+                        tr("📈 Objetivo Crecimiento Budget Anual (% vs L12M):", "📈 Annual Budget Growth Target (% vs L12M):"),
+                        min_value=-20.0, max_value=40.0, value=6.0, step=0.5
+                    )
+                    vol_budget_n12 = vol_12m_hist * (1.0 + budget_growth_pct / 100.0)
+                    rev_budget_n12 = rev_12m_hist * (1.0 + budget_growth_pct / 100.0)
+                    mar_budget_n12 = mar_12m_hist * (1.0 + budget_growth_pct / 100.0)
+
+                    gap_vol_bud = vol_12m_fcst - vol_budget_n12
+                    gap_rev_bud = rev_12m_fcst - rev_budget_n12
+                    gap_mar_bud = mar_12m_fcst - mar_budget_n12
+
+                with b_col2:
+                    fig_triple = go.Figure(data=[
+                        go.Bar(name=tr("1. Real L12M", "1. Actual L12M"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_12m_hist, mar_12m_hist], marker_color="#A0B2C6"),
+                        go.Bar(name=tr(f"2. Budget Anual ({budget_growth_pct:+.1f}%)", f"2. Annual Budget ({budget_growth_pct:+.1f}%)"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_budget_n12, mar_budget_n12], marker_color="#E6A100"),
+                        go.Bar(name=tr("3. Plan Consenso N12M", "3. Consensus Plan N12M"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_12m_fcst, mar_12m_fcst], marker_color="#1E3E5B")
+                    ])
+                    fig_triple.update_layout(**LAYOUT_STYLE, barmode="group", height=300, margin=dict(l=10, r=10, t=25, b=10), yaxis_title="GBP (£)")
+                    st.plotly_chart(fig_triple, use_container_width=True)
+
                 col_h1, col_h2, col_h3 = st.columns(3)
-                col_h1.metric(tr("Volumen L12M", "Volume L12M"), f"{vol_12m_hist:,.0f} Kg")
-                col_h2.metric("Revenue L12M", f"£ {rev_12m_hist:,.0f}")
-                col_h3.metric(tr("Margen L12M", "Gross Margin L12M"), f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist / rev_12m_hist * 100) if rev_12m_hist else 0:.1f}%)")
+                col_h1.metric(tr("Volumen Real L12M", "Actual Volume L12M"), f"{vol_12m_hist:,.0f} Kg")
+                col_h2.metric("Revenue Real L12M", f"£ {rev_12m_hist:,.0f}")
+                col_h3.metric(tr("Margen Real L12M", "Actual Margin L12M"), f"£ {mar_12m_hist:,.0f} ({(mar_12m_hist / rev_12m_hist * 100) if rev_12m_hist else 0:.1f}%)")
                 
+                col_b1, col_b2, col_b3 = st.columns(3)
+                col_b1.metric(tr("Target Budget N12M (Vol)", "Budget Target N12M (Vol)"), f"{vol_budget_n12:,.0f} Kg", f"{budget_growth_pct:+.1f}% Target")
+                col_b2.metric(tr("Target Budget N12M (Rev)", "Budget Target N12M (Rev)"), f"£ {rev_budget_n12:,.0f}", f"{budget_growth_pct:+.1f}% Target")
+                col_b3.metric(tr("Target Budget N12M (Mar)", "Budget Target N12M (Mar)"), f"£ {mar_budget_n12:,.0f}", f"{budget_growth_pct:+.1f}% Target")
+
                 col_f1_k, col_f2_k, col_f3_k = st.columns(3)
-                delta_vol = vol_12m_fcst - vol_12m_hist
-                col_f1_k.metric(tr("Volumen Proyectado N12M", "Projected Volume N12M"), f"{vol_12m_fcst:,.0f} Kg", f"{delta_vol:,.0f} Kg vs L12M")
-                delta_rev2 = rev_12m_fcst - rev_12m_hist
-                col_f2_k.metric(tr("Revenue Proyectado N12M", "Projected Revenue N12M"), f"£ {rev_12m_fcst:,.0f}", f"{delta_rev2:,.0f} £ vs L12M")
-                delta_mar2 = mar_12m_fcst - mar_12m_hist
-                col_f3_k.metric(tr("Margen Proyectado N12M", "Projected Margin N12M"), f"£ {mar_12m_fcst:,.0f}", f"{delta_mar2:,.0f} £ vs L12M")
+                col_f1_k.metric(tr("Consenso N12M vs. Budget (Vol)", "Consensus N12M vs. Budget (Vol)"), f"{vol_12m_fcst:,.0f} Kg", f"{gap_vol_bud:+,.0f} Kg vs Budget")
+                col_f2_k.metric(tr("Consenso N12M vs. Budget (Rev)", "Consensus N12M vs. Budget (Rev)"), f"£ {rev_12m_fcst:,.0f}", f"{gap_rev_bud:+,.0f} £ vs Budget")
+                col_f3_k.metric(tr("Consenso N12M vs. Budget (Mar)", "Consensus N12M vs. Budget (Mar)"), f"£ {mar_12m_fcst:,.0f}", f"{gap_mar_bud:+,.0f} £ vs Budget")
 
                 # ==========================================
                 # PUENTE FINANCIERO EJECUTIVO (WATERFALL BRIDGE CHART L12M -> N12M)
@@ -2939,14 +3200,15 @@ with tab_kpis:
                     st.divider()
                     st.markdown(f"### {tr('📑 Exportar Dossier Directivo: Executive S&OP Deck (PDF)', '📑 Export Executive S&OP Deck (PDF)', '📑 Eksportuj Raport Zarządczy: Executive S&OP Deck (PDF)', '📑 Eksporter Executive S&OP Deck (PDF)')}")
                     st.caption(tr(
-                        "Genera al instante el informe ejecutivo para el Comité S&OP consolidando P&L (L12M vs N12M en GBP), Forecast Accuracy/Bias/FVA, Alertas de Rotura en M1, Cuellos de Botella en Planta (RCCP) y Liberación de Working Capital.",
-                        "Instantly generate the executive briefing deck for the S&OP Committee consolidating P&L (L12M vs N12M in GBP), Forecast Accuracy/Bias/FVA, M1 Stockout Alerts, Plant Bottlenecks (RCCP), and Working Capital Release."
+                        "Genera al instante el informe ejecutivo para el Comité S&OP consolidando P&L (L12M vs Budget vs N12M en GBP), Forecast Accuracy/Bias/FVA, Alertas de Rotura en M1, Cuellos de Botella en Planta (RCCP) y Liberación de Working Capital.",
+                        "Instantly generate the executive briefing deck for the S&OP Committee consolidating P&L (L12M vs Budget vs N12M in GBP), Forecast Accuracy/Bias/FVA, M1 Stockout Alerts, Plant Bottlenecks (RCCP), and Working Capital Release."
                     ))
                     bytes_deck = generar_pdf_executive_sop_deck(
                         pais_sel, cliente_sel, sku_sel, total_skus, total_clientes,
                         fa_val, bias_val, wape_val,
                         vol_12m_hist, rev_12m_hist, mar_12m_hist,
-                        vol_12m_fcst, rev_12m_fcst, mar_12m_fcst
+                        vol_12m_fcst, rev_12m_fcst, mar_12m_fcst,
+                        vol_budget_n12, rev_budget_n12, mar_budget_n12
                     )
                     if bytes_deck:
                         st.download_button(
