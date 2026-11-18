@@ -2740,7 +2740,7 @@ with tab_cap:
                             ))
 
 # ==========================================
-# MODULO 5: FINANZAS (FILTRADO Y ESCALADO PROPORCIONAL POR CLIENTE / PAÍS / SKU)
+# MODULO 5: FINANZAS (VALORACIÓN ROBUSTA VÍA FACTOR DE CRECIMIENTO DE VOLUMEN)
 # ==========================================
 with tab_fin:
     if "tab5" not in modulos_permitidos:
@@ -2766,7 +2766,7 @@ with tab_fin:
                 
             if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital"), key="btn_calc_fin"):
                 with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...")):
-                    # 1. Filtrar el histórico real según el nivel de análisis seleccionado
+                    # 1. Filtrar histórico real
                     if nivel_pl == "Por País":
                         df_fin_target = df[df['País'] == filtro_pl].copy()
                         skus_validos = set(df_fin_target['sku cod'].unique())
@@ -2780,21 +2780,17 @@ with tab_fin:
                         df_fin_target = df.copy()
                         skus_validos = set(df['sku cod'].unique())
 
-                    df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP']].sum().reset_index()
-                    df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
+                    df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP', 'volume']].sum().reset_index()
+                    df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP', 'volume': 'Vol_Kg'})
 
-                    # 2. Calcular cuota de participación histórica (Share %) de cada SKU para este filtro frente al total global de la compañía
-                    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
-                    if nivel_pl == "Por País":
-                        vol_filtro_sku = df[df['País'] == filtro_pl].groupby('sku cod')['volume'].sum().to_dict()
-                    elif nivel_pl == "Por Cliente":
-                        vol_filtro_sku = df[df['customer cod'] == filtro_pl].groupby('sku cod')['volume'].sum().to_dict()
-                    elif nivel_pl == "Por SKU":
-                        vol_filtro_sku = df[df['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()].groupby('sku cod')['volume'].sum().to_dict()
-                    else:
-                        vol_filtro_sku = vol_global_sku.copy()
+                    # 2. Obtener revenue y margen medio histórico por kilo para este ámbito
+                    total_rev_hist = df_hist_pl['Revenue_GBP'].sum()
+                    total_mar_hist = df_hist_pl['Margin_GBP'].sum()
+                    total_vol_hist = df_hist_pl['Vol_Kg'].sum()
+                    precio_medio_gbp_kg = (total_rev_hist / total_vol_hist) if total_vol_hist > 0 else 4.0
+                    margen_medio_gbp_kg = (total_mar_hist / total_vol_hist) if total_vol_hist > 0 else 1.2
 
-                    # 3. Generar proyección financiera escalada proporcionalmente al filtro comercial
+                    # 3. Generar forecast mensual estricto usando el MPS 2D
                     df_mps_fin = generar_mps_df_2d()
                     if not df_mps_fin.empty:
                         df_mps_fin['sku_clean'] = df_mps_fin['sku cod'].astype(str).str.strip()
@@ -2803,25 +2799,26 @@ with tab_fin:
                         df_mps_sub = pd.DataFrame()
 
                     if not df_mps_sub.empty:
-                        # Calcular factor de participación (Share) por SKU
+                        # Cuota de participación histórica por SKU
+                        vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
+                        vol_filtro_sku = df_fin_target.groupby('sku cod')['volume'].sum().to_dict()
+
                         def obtener_share(sku):
                             g_vol = vol_global_sku.get(sku, 0.0)
                             if g_vol <= 0:
                                 return 1.0 if nivel_pl == "Consolidado Global" else 0.0
-                            f_vol = vol_filtro_sku.get(sku, 0.0)
-                            return float(f_vol) / float(g_vol)
+                            return float(vol_filtro_sku.get(sku, 0.0)) / float(g_vol)
 
                         df_mps_sub['Share_Filtro'] = df_mps_sub['sku_clean'].apply(obtener_share)
                         df_mps_sub['Salidas_Filtradas'] = df_mps_sub['Salidas_Brutas'] * df_mps_sub['Share_Filtro']
                         df_mps_sub['Stock_Final_Filtrado'] = df_mps_sub['Stock_Final'] * df_mps_sub['Share_Filtro']
 
-                        df_mps_sub['P_Unit'] = df_mps_sub['sku_clean'].map(dict_price).fillna(0.0)
-                        df_mps_sub['M_Unit'] = df_mps_sub['sku_clean'].map(dict_margin).fillna(0.0)
-                        df_mps_sub['Cost_Unit_FG'] = np.maximum(0.0, df_mps_sub['P_Unit'] - df_mps_sub['M_Unit'])
+                        # Valoración robusta basada en precios medios ponderados reales del ámbito
+                        df_mps_sub['Revenue_GBP'] = df_mps_sub['Salidas_Filtradas'] * precio_medio_gbp_kg
+                        df_mps_sub['Margin_GBP'] = df_mps_sub['Salidas_Filtradas'] * margen_medio_gbp_kg
                         
-                        df_mps_sub['Revenue_GBP'] = df_mps_sub['Salidas_Filtradas'] * df_mps_sub['P_Unit']
-                        df_mps_sub['Margin_GBP'] = df_mps_sub['Salidas_Filtradas'] * df_mps_sub['M_Unit']
-                        df_mps_sub['WorkingCapital_GBP'] = df_mps_sub['Stock_Final_Filtrado'] * df_mps_sub['Cost_Unit_FG']
+                        coste_medio_fg = max(0.0, precio_medio_gbp_kg - margen_medio_gbp_kg)
+                        df_mps_sub['WorkingCapital_GBP'] = df_mps_sub['Stock_Final_Filtrado'] * coste_medio_fg
 
                         df_fcst_pl = df_mps_sub.groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
                         df_wc_pt_filtrado = df_mps_sub[['Date', 'sku_clean', 'WorkingCapital_GBP']].rename(columns={'sku_clean': 'Elemento'}).copy()
@@ -2830,7 +2827,7 @@ with tab_fin:
                         df_fcst_pl = pd.DataFrame()
                         df_wc_pt_filtrado = pd.DataFrame()
 
-                    df_plot_pl = pd.concat([df_hist_pl, df_fcst_pl], ignore_index=True).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
+                    df_plot_pl = pd.concat([df_hist_pl[['Date', 'Revenue_GBP', 'Margin_GBP']], df_fcst_pl], ignore_index=True).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
                     titulo_estrategico = filtro_pl if nivel_pl != "Consolidado Global" else tr("Consolidado Global", "Global Consolidated")
                     
                     df_mrp = generar_mrp_global()
@@ -2840,9 +2837,8 @@ with tab_fin:
                         df_mrp['rm_clean'] = df_mrp['rm cod'].astype(str).str.strip()
                         df_mrp_sub = df_mrp[df_mrp['rm_clean'].isin(rms_validos)].copy()
                         
-                        # Escalar también el Working Capital de Materia Prima según la proporción de demanda del filtro
                         proporcion_total_filtro = df_fin_target['volume'].sum() / max(1.0, df['volume'].sum()) if nivel_pl != "Consolidado Global" else 1.0
-                        df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm_clean'].map(mapa_coste_rm), errors='coerce').fillna(0.0)
+                        df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm_clean'].map(mapa_coste_rm), errors='coerce').fillna(1.2)
                         df_mrp_sub['WorkingCapital_GBP'] = df_mrp_sub['Stock_Final'] * df_mrp_sub['Coste_U'] * fx_eur_gbp * min(1.0, max(0.05, proporcion_total_filtro))
                         
                         df_wc_mp_filtrado = df_mrp_sub[['Date', 'rm_clean', 'WorkingCapital_GBP']].rename(columns={'rm_clean': 'Elemento'}).copy()
