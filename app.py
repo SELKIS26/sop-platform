@@ -2740,7 +2740,7 @@ with tab_cap:
                             ))
 
 # ==========================================
-# MODULO 5: FINANZAS (100% VECTORIZADO)
+# MODULO 5: FINANZAS (ALINEADO Y UNIFICADO E2E)
 # ==========================================
 with tab_fin:
     if "tab5" not in modulos_permitidos:
@@ -2753,65 +2753,73 @@ with tab_fin:
             col1, col2 = st.columns(2)
             with col1:
                 opciones_pl = ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"]
-                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:"), opciones_pl)
+                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:"), opciones_pl, key="fin_nivel")
                 filtro_pl = None
                 if nivel_pl == "Por País":
-                    filtro_pl = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()))
+                    filtro_pl = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()), key="fin_pais")
                 elif nivel_pl == "Por Cliente":
-                    filtro_pl = st.selectbox(tr("Cliente:", "Customer:"), sorted(df['customer cod'].dropna().unique()))
+                    filtro_pl = st.selectbox(tr("Cliente:", "Customer:"), sorted(df['customer cod'].dropna().unique()), key="fin_cli")
                 elif nivel_pl == "Por SKU":
-                    filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()))
+                    filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()), key="fin_sku")
             with col2:
-                vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"])
+                vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"], key="fin_wc")
                 
-            if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital")):
+            if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital"), key="btn_calc_fin"):
                 with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...")):
+                    # 1. Filtrar el histórico según el nivel de análisis seleccionado
                     if nivel_pl == "Por País":
-                        df_fin_target = df[df['País'] == filtro_pl]
+                        df_fin_target = df[df['País'] == filtro_pl].copy()
                         skus_validos = set(df_fin_target['sku cod'].unique())
                     elif nivel_pl == "Por Cliente":
-                        df_fin_target = df[df['customer cod'] == filtro_pl]
+                        df_fin_target = df[df['customer cod'] == filtro_pl].copy()
                         skus_validos = set(df_fin_target['sku cod'].unique())
                     elif nivel_pl == "Por SKU":
-                        df_fin_target = df[df['sku cod'] == filtro_pl]
-                        skus_validos = {filtro_pl}
+                        df_fin_target = df[df['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()].copy()
+                        skus_validos = {str(filtro_pl).strip()}
                     else:
-                        df_fin_target = df
+                        df_fin_target = df.copy()
                         skus_validos = set(df['sku cod'].unique())
 
+                    # Histórico real agrupado estrictamente por mes
                     df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP']].sum().reset_index()
                     df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP'})
 
+                    # 2. Generar proyección financiera utilizando exactamente el mismo subconjunto de SKUs
                     df_mps_fin = generar_mps_df_2d()
-                    # Filtrar estrictamente por los SKUs del ámbito seleccionado para guardar coherencia con el histórico
-                    df_mps_sub = df_mps_fin[df_mps_fin['sku cod'].isin(skus_validos)].copy()
+                    if not df_mps_fin.empty:
+                        df_mps_fin['sku_clean'] = df_mps_fin['sku cod'].astype(str).str.strip()
+                        df_mps_sub = df_mps_fin[df_mps_fin['sku_clean'].isin(skus_validos)].copy()
+                    else:
+                        df_mps_sub = pd.DataFrame()
 
                     if not df_mps_sub.empty:
-                        df_mps_sub['P_Unit'] = df_mps_sub['sku cod'].map(dict_price).fillna(0.0)
-                        df_mps_sub['M_Unit'] = df_mps_sub['sku cod'].map(dict_margin).fillna(0.0)
+                        df_mps_sub['P_Unit'] = df_mps_sub['sku_clean'].map(dict_price).fillna(0.0)
+                        df_mps_sub['M_Unit'] = df_mps_sub['sku_clean'].map(dict_margin).fillna(0.0)
                         df_mps_sub['Cost_Unit_FG'] = np.maximum(0.0, df_mps_sub['P_Unit'] - df_mps_sub['M_Unit'])
                         df_mps_sub['Revenue_GBP'] = df_mps_sub['Salidas_Brutas'] * df_mps_sub['P_Unit']
                         df_mps_sub['Margin_GBP'] = df_mps_sub['Salidas_Brutas'] * df_mps_sub['M_Unit']
                         df_mps_sub['WorkingCapital_GBP'] = df_mps_sub['Stock_Final'] * df_mps_sub['Cost_Unit_FG']
 
                         df_fcst_pl = df_mps_sub.groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
-                        df_wc_pt_filtrado = df_mps_sub[['Date', 'sku cod', 'WorkingCapital_GBP']].rename(columns={'sku cod': 'Elemento'}).copy()
+                        df_wc_pt_filtrado = df_mps_sub[['Date', 'sku_clean', 'WorkingCapital_GBP']].rename(columns={'sku_clean': 'Elemento'}).copy()
                         df_wc_pt_filtrado['Categoria'] = 'Producto Terminado'
                     else:
                         df_fcst_pl = pd.DataFrame()
                         df_wc_pt_filtrado = pd.DataFrame()
 
+                    # Unificar histórico y forecast en una sola serie temporal continua
                     df_plot_pl = pd.concat([df_hist_pl, df_fcst_pl], ignore_index=True).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
                     titulo_estrategico = filtro_pl if nivel_pl != "Consolidado Global" else tr("Consolidado Global", "Global Consolidated")
                     
                     df_mrp = generar_mrp_global()
                     if not df_mrp.empty and df_stock is not None:
                         mapa_coste_rm = df_stock.drop_duplicates('sku cod').set_index('sku cod')['Coste_Unitario'].to_dict()
-                        rms_validos = set(df_bom[df_bom['sku cod'].isin(skus_validos)]['rm cod'].unique()) if (df_bom is not None and not df_bom.empty) else set()
-                        df_mrp_sub = df_mrp[df_mrp['rm cod'].isin(rms_validos)].copy()
-                        df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm cod'].map(mapa_coste_rm), errors='coerce').fillna(0.0)
+                        rms_validos = set(df_bom[df_bom['sku cod'].astype(str).str.strip().isin(skus_validos)]['rm cod'].astype(str).str.strip().unique()) if (df_bom is not None and not df_bom.empty) else set()
+                        df_mrp['rm_clean'] = df_mrp['rm cod'].astype(str).str.strip()
+                        df_mrp_sub = df_mrp[df_mrp['rm_clean'].isin(rms_validos)].copy()
+                        df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm_clean'].map(mapa_coste_rm), errors='coerce').fillna(0.0)
                         df_mrp_sub['WorkingCapital_GBP'] = df_mrp_sub['Stock_Final'] * df_mrp_sub['Coste_U'] * fx_eur_gbp
-                        df_wc_mp_filtrado = df_mrp_sub[['Date', 'rm cod', 'WorkingCapital_GBP']].rename(columns={'rm cod': 'Elemento'}).copy()
+                        df_wc_mp_filtrado = df_mrp_sub[['Date', 'rm_clean', 'WorkingCapital_GBP']].rename(columns={'rm_clean': 'Elemento'}).copy()
                         df_wc_mp_filtrado['Categoria'] = 'Materia Prima'
                     else:
                         df_wc_mp_filtrado = pd.DataFrame()
@@ -2874,7 +2882,6 @@ with tab_fin:
                             .style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}),
                             use_container_width=True
                         )
-
 # ==========================================
 # MODULO 6: EJECUCIÓN ERP + S&OE (MOQ & LOTES MÚLTIPLOS) + MASTER PACK EXCEL
 # ==========================================
