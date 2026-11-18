@@ -4,6 +4,12 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import os
+import base64
+import json
+import urllib.request
 import io
 import warnings
 
@@ -74,6 +80,80 @@ COLS_RUTAS = ['sku cod', 'Maquina', 'Kilos_por_Hora']
 COLS_CAL = ['Date', 'Maquina', 'Horas_Disponibles']
 COLS_COMPRAS = ['Date', 'rm cod', 'Cantidad_Kg']
 COLS_PROD = ['Date', 'sku cod', 'Cantidad_Kg']
+
+LOG_FILE = "audit_log_accesos.csv"
+
+
+def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
+    """Lee y guarda el historial directamente en GitHub (vía st.secrets) con fallback local."""
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", None)
+        repo = st.secrets.get("GITHUB_REPO", None)
+    except Exception:
+        token, repo = None, None
+
+    cols_log = ["Fecha_Hora (CET)", "Username", "Nombre", "Rol"]
+
+    if token and repo:
+        url = f"https://api.github.com/repos/{repo}/contents/{LOG_FILE}"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "SOP-Platform-Audit"
+        }
+
+        df_actual = pd.DataFrame(columns=cols_log)
+        sha_actual = None
+
+        # 1. Leer archivo existente en GitHub
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                sha_actual = data.get("sha")
+                contenido_csv = base64.b64decode(data["content"]).decode("utf-8-sig")
+                df_actual = pd.read_csv(io.StringIO(contenido_csv))
+        except Exception:
+            pass
+
+        # 2. Si hay nuevo login, añadir fila y hacer commit en GitHub
+        if nuevo_evento is not None:
+            df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
+            csv_bytes = df_actual.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+            payload = {
+                "message": f"Audit log: {nuevo_evento['Username']} ({nuevo_evento['Fecha_Hora (CET)']})",
+                "content": base64.b64encode(csv_bytes).decode("utf-8")
+            }
+            if sha_actual:
+                payload["sha"] = sha_actual
+            try:
+                req_put = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={**headers, "Content-Type": "application/json"},
+                    method="PUT"
+                )
+                urllib.request.urlopen(req_put, timeout=10)
+            except Exception:
+                pass
+        return df_actual
+
+    # Fallback local si no están configurados los Secrets
+    if os.path.exists(LOG_FILE):
+        try:
+            df_actual = pd.read_csv(LOG_FILE)
+        except Exception:
+            df_actual = pd.DataFrame(columns=cols_log)
+    else:
+        df_actual = pd.DataFrame(columns=cols_log)
+
+    if nuevo_evento is not None:
+        df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
+        try:
+            df_actual.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
+        except Exception:
+            pass
+    return df_actual
 
 
 @st.cache_data
@@ -190,7 +270,7 @@ def obtener_excels_demo_8_tablas():
 
 @st.cache_data
 def generar_plantillas_oficiales_excel():
-    """Genera un único libro Excel con las 8 pestillas oficiales y ejemplos de cabecera."""
+    """Genera un único libro Excel con las 8 plantillas oficiales y ejemplos de cabecera."""
     buf_tpl = io.BytesIO()
     demos_tpl = obtener_excels_demo_8_tablas()
     mapa_hojas = [
@@ -267,9 +347,22 @@ usuario_actual = st.session_state["username"]
 
 PERMISOS = {
     "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"],
-    "borja": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"]
+    "borja": ["tab0", "tab2"]
 }
 modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
+
+# --- REGISTRO AUTOMÁTICO DE AUDITORÍA EN GITHUB AL INICIAR SESIÓN ---
+if not st.session_state.get("acceso_registrado", False):
+    ahora_es = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
+    rol_usuario = "Manager de Producción" if usuario_actual == "borja" else "Administrador Global"
+    nuevo_evento = {
+        "Fecha_Hora (CET)": ahora_es,
+        "Username": usuario_actual,
+        "Nombre": st.session_state.get("name", usuario_actual),
+        "Rol": rol_usuario
+    }
+    st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(nuevo_evento)
+    st.session_state["acceso_registrado"] = True
 
 with st.sidebar:
     st.markdown(f"👤 **Bienvenido/a, {st.session_state['name']}**")
@@ -283,7 +376,28 @@ with st.sidebar:
     else:
         if st.button("Cerrar Sesión"):
             st.session_state["authentication_status"] = None
+            st.session_state["acceso_registrado"] = False
             st.rerun()
+
+    # --- PANEL DE AUDITORÍA EXCLUSIVO PARA ADMINISTRADOR (AMANCEBO) ---
+    if usuario_actual == "amancebo":
+        with st.expander("🛡️ Registro de Accesos (Admin)"):
+            if st.button("🔄 Actualizar Historial GitHub", use_container_width=True):
+                st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(None)
+            df_logs = st.session_state.get("df_audit_logs", registrar_y_leer_auditoria_permanente(None))
+            if df_logs is None or df_logs.empty:
+                st.caption("Sin registros todavía.")
+            else:
+                st.caption(f"Total accesos registrados: **{len(df_logs)}**")
+                st.dataframe(df_logs.iloc[::-1], use_container_width=True, hide_index=True)
+                csv_logs = df_logs.iloc[::-1].to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label="📥 Descargar Historial (.csv)",
+                    data=csv_logs,
+                    file_name=f"Audit_Log_SOP_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
     st.divider()
 
