@@ -1,5 +1,5 @@
 # ==============================================================================
-# S&OP / IBP CORPORATE PLATFORM - INICIO PARTE 1 (HASTA DF_5_RUTAS)
+# S&OP / IBP CORPORATE PLATFORM - PARTE 1 DE 2 (CORE ENGINE, NPI & 2D MATRIX)
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -71,7 +71,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# ESQUEMA OFICIAL ESTRICTO DE LAS 8 TABLAS
+# ESQUEMA OFICIAL ESTRICTO DE LAS 8 TABLAS + NPI CLOUD
 # ==========================================
 COLS_HIST = ['Date', 'País', 'customer cod', 'customer desc', 'sku cod', 'sku desc', 'volume', 'revenue', 'margin', 'currency']
 COLS_AJUSTES = ['Date', 'País', 'customer cod', 'sku cod', 'override_value']
@@ -87,6 +87,7 @@ CLOUD_AJUSTES_FILE = "2_Ajustes_Consenso_Cloud.csv"
 FVA_LOG_FILE = "audit_log_fva_consenso.csv"
 SOP_CAL_FILE = "sop_calendar_status_cloud.csv"
 ACTION_LOG_FILE = "sop_action_log_cloud.csv"
+NPI_CLOUD_FILE = "npi_new_business_cloud.csv"
 
 COLS_FVA_LOG = [
     "Fecha_Cambio (CET)", "Usuario", "Tipo_Ajuste", "Date", "País",
@@ -95,6 +96,11 @@ COLS_FVA_LOG = [
 ]
 COLS_SOP_CAL = ["Fase", "Etapa S&OP", "Dias_Mes", "Dia_Inicio", "Dia_Fin", "Owner", "Entregable_Clave", "Estado", "Notas_Comite"]
 COLS_ACTION_LOG = ["ID", "Fecha_Alta", "Area_S&OP", "Accion_Acordada", "Responsable", "Fecha_Limite", "Impacto_GBP", "Estado"]
+COLS_NPI = [
+    "sku cod", "sku desc", "País", "customer cod", "customer desc",
+    "SKU_Espejo", "Volumen_Mensual_Kg", "Mes_Inicio", "Precio_Unit_EUR",
+    "Margen_Unit_EUR", "Maquina", "Kilos_por_Hora", "Politica_Stock"
+]
 
 # ==========================================
 # MOTOR DE INTERNACIONALIZACIÓN COMPLETO (4 IDIOMAS)
@@ -285,15 +291,15 @@ def _pdf_safe(texto):
 
 
 # ==========================================
-# GENERADORES DE DATOS DEMO (LIGERO Y BIG DATA EQUILIBRADO)
+# GENERADORES DE DATOS DEMO (LIGERO Y BIG DATA EQUILIBRADO POR PLANTA)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def obtener_excels_demo_8_tablas():
     """Genera los 8 DataFrames de Demo con las columnas exactas oficiales."""
     np.random.seed(42)
     fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
-    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)  # 2026-09-01
-    mes_m2 = mes_m1 + pd.DateOffset(months=1)          # 2026-10-01
+    mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)
+    mes_m2 = mes_m1 + pd.DateOffset(months=1)
     fechas_fut = pd.date_range(start=mes_m1, periods=12, freq="MS")
 
     skus_demo = [
@@ -304,10 +310,8 @@ def obtener_excels_demo_8_tablas():
         ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200, "MTS"),
     ]
 
-    # Lista local de máquinas asegurada para evitar NameError al recargar por idioma
     maquinas_locales = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
 
-    # 1. Histórico Ventas
     filas_ventas = []
     for f in fechas_hist:
         est = 1.18 if f.month in [3, 4, 10, 11] else (0.85 if f.month in [7, 8] else 1.0)
@@ -328,7 +332,6 @@ def obtener_excels_demo_8_tablas():
             })
     df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
 
-    # 2. Ajustes Consenso
     filas_ajustes = []
     for f in fechas_fut[:6]:
         for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
@@ -342,9 +345,8 @@ def obtener_excels_demo_8_tablas():
             })
     df_2_ajustes = pd.DataFrame(filas_ajustes)[COLS_AJUSTES]
 
-    # 3. Stock Actual
     filas_stock = [
-        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.35), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": cat, "Coste_Unitario": cost}
+        {"sku cod": sku, "sku desc": desc, "stock_disponible": int(vol * 0.55), "Cobertura_Meses": 1, "LT_Meses": 1, "Categoria": cat, "Coste_Unitario": cost}
         for sku, desc, vol, cost, _, _, _, _, cat in skus_demo
     ] + [
         {"sku cod": "M12250SS", "sku desc": "FORMIATO DE CALCIO", "stock_disponible": 14000, "Cobertura_Meses": 2, "LT_Meses": 1, "Categoria": "MTS", "Coste_Unitario": 0.85},
@@ -352,20 +354,17 @@ def obtener_excels_demo_8_tablas():
     ]
     df_3_stock = pd.DataFrame(filas_stock)[COLS_STOCK]
 
-    # 4. BOM
     filas_bom = []
     for sku, _, _, _, _, _, _, _, _ in skus_demo:
         filas_bom.append({"sku cod": sku, "rm cod": "M12250SS", "rm desc": "FORMIATO DE CALCIO", "Cantidad": 0.6961})
         filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
     df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
 
-    # 5. Rutas / Routing
     df_5_rutas = pd.DataFrame([
         {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
         for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
     ])[COLS_RUTAS]
 
-    # 6. Calendario (usando la lista local robusta)
     filas_cal = []
     for f in pd.date_range(start="2024-05-01", periods=48, freq="MS"):
         for maq in maquinas_locales:
@@ -376,13 +375,11 @@ def obtener_excels_demo_8_tablas():
             })
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
 
-    # 7. ERP Compras POs
     df_7_compras = pd.DataFrame([
         {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
         {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
     ])[COLS_COMPRAS]
 
-    # 8. ERP Producción
     df_8_prod = pd.DataFrame([
         {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
         {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
@@ -399,6 +396,8 @@ def obtener_excels_demo_8_tablas():
         "compras_erp": df_7_compras,
         "produccion_erp": df_8_prod,
     }
+
+
 @st.cache_data(show_spinner=False)
 def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, n_clientes=80):
     """Genera un dataset masivo equilibrado por planta/país (cada país tiene sus propias líneas y SKUs asignados)."""
@@ -425,12 +424,10 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     cli_cods = [f"CLI-{k:04d}" for k in range(1, n_clientes + 1)]
     cli_descs = [f"Corporacion Agroalimentaria {k:04d}" for k in range(1, n_clientes + 1)]
 
-    # Asignar cada SKU y cada Cliente a una planta/país fijo para coherencia E2E por planta
     pais_por_sku = np.array([paises[i % len(paises)] for i in range(n_skus)])
 
     idx_sku = np.random.randint(0, n_skus, size=n_rows_hist)
     paises_venta = pais_por_sku[idx_sku]
-    # Asignar clientes coherentes con el país de la planta (20 clientes por país)
     idx_pais_num = np.array([i % len(paises) for i in idx_sku])
     idx_cli = idx_pais_num + np.random.randint(0, n_clientes // len(paises), size=n_rows_hist) * len(paises)
     idx_fecha = np.random.randint(0, len(fechas_hist), size=n_rows_hist)
@@ -469,7 +466,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     df_3_stock = pd.DataFrame({
         "sku cod": sku_cods + rm_cods,
         "sku desc": sku_descs + rm_descs,
-        "stock_disponible": np.random.randint(500, 10000, size=n_skus + n_rms),
+        "stock_disponible": np.random.randint(500, 12000, size=n_skus + n_rms),
         "Cobertura_Meses": np.random.choice([1, 2], size=n_skus + n_rms, p=[0.7, 0.3]),
         "LT_Meses": np.random.choice([0, 1, 2], size=n_skus + n_rms, p=[0.3, 0.5, 0.2]),
         "Categoria": np.random.choice(["MTS", "MTO"], size=n_skus + n_rms, p=[0.85, 0.15]),
@@ -486,7 +483,6 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "Cantidad": np.round(np.random.uniform(0.05, 0.35, size=len(bom_sku_idx)), 4)
     }).drop_duplicates(subset=["sku cod", "rm cod"])[COLS_BOM]
 
-    # Cada SKU se asigna exclusivamente a una máquina de la planta de su país
     maquinas_asignadas = [
         np.random.choice(maquinas_por_pais[pais_por_sku[i]]) for i in range(n_skus)
     ]
@@ -809,13 +805,20 @@ def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, p
     return d
 
 
-# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS + SINCRONIZACIÓN GITHUB ---
+# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS + NPI CLOUD + SINCRONIZACIÓN GITHUB ---
 if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_ajustes'], pd.DataFrame):
     df_cloud_init = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES)
     if not df_cloud_init.empty and set(COLS_AJUSTES).issubset(df_cloud_init.columns):
         st.session_state['df_ajustes'] = df_cloud_init[COLS_AJUSTES].copy()
     else:
         st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+
+if 'df_npi' not in st.session_state or not isinstance(st.session_state['df_npi'], pd.DataFrame):
+    df_npi_init = github_leer_csv(NPI_CLOUD_FILE, COLS_NPI)
+    if not df_npi_init.empty and set(COLS_NPI).issubset(df_npi_init.columns):
+        st.session_state['df_npi'] = df_npi_init[COLS_NPI].copy()
+    else:
+        st.session_state['df_npi'] = pd.DataFrame(columns=COLS_NPI)
 
 if 'last_ajuste_file' not in st.session_state:
     st.session_state['last_ajuste_file'] = None
@@ -849,6 +852,53 @@ if df_raw is None or df_raw.empty:
         "👈 Click **'🚀 Load 8 Tables'** in the sidebar to start the Demo (Light or Big Data 150,000 rows) or upload **1. Sales History**."
     ))
     st.stop()
+
+
+# --- INYECCIÓN AUTOMÁTICA DE NUEVOS LANZAMIENTOS (NPI / NEW BUSINESS) EN MAESTROS ---
+df_npi_active = st.session_state.get('df_npi', pd.DataFrame(columns=COLS_NPI))
+if df_npi_active is not None and not df_npi_active.empty:
+    f_max_raw = pd.to_datetime(df_raw['Date'], dayfirst=True, errors='coerce').max()
+    if pd.isna(f_max_raw):
+        f_max_raw = pd.Timestamp.today().replace(day=1)
+    fechas_semilla_npi = pd.date_range(end=f_max_raw.replace(day=1), periods=6, freq="MS")
+
+    filas_hist_npi = []
+    filas_stk_npi = []
+    filas_rut_npi = []
+    for _, r_npi in df_npi_active.iterrows():
+        s_npi = str(r_npi['sku cod']).strip()
+        d_npi = str(r_npi['sku desc']).strip()
+        p_npi = str(r_npi['País']).strip()
+        c_npi = str(r_npi['customer cod']).strip()
+        cd_npi = str(r_npi['customer desc']).strip()
+        vol_npi = max(1.0, float(pd.to_numeric(r_npi['Volumen_Mensual_Kg'], errors='coerce') or 1000.0))
+        pr_npi = max(0.1, float(pd.to_numeric(r_npi['Precio_Unit_EUR'], errors='coerce') or 3.5))
+        mg_npi = float(pd.to_numeric(r_npi['Margen_Unit_EUR'], errors='coerce') or 1.1)
+        maq_npi = str(r_npi['Maquina']).strip()
+        kph_npi = max(100.0, float(pd.to_numeric(r_npi['Kilos_por_Hora'], errors='coerce') or 4000.0))
+        pol_npi = str(r_npi.get('Politica_Stock', 'MTS')).strip().upper()
+
+        for f_s in fechas_semilla_npi:
+            filas_hist_npi.append({
+                "Date": f_s, "País": p_npi, "customer cod": c_npi, "customer desc": cd_npi,
+                "sku cod": s_npi, "sku desc": d_npi, "volume": vol_npi,
+                "revenue": round(vol_npi * pr_npi, 2), "margin": round(vol_npi * mg_npi, 2), "currency": "EUR"
+            })
+        filas_stk_npi.append({
+            "sku cod": s_npi, "sku desc": d_npi, "stock_disponible": 0.0,
+            "Cobertura_Meses": 1 if pol_npi == "MTS" else 0, "LT_Meses": 1,
+            "Categoria": pol_npi, "Coste_Unitario": max(0.1, round(pr_npi - mg_npi, 2))
+        })
+        filas_rut_npi.append({
+            "sku cod": s_npi, "Maquina": maq_npi, "Kilos_por_Hora": kph_npi
+        })
+
+    if filas_hist_npi:
+        df_raw = pd.concat([df_raw, pd.DataFrame(filas_hist_npi)[COLS_HIST]], ignore_index=True)
+    if df_stock is not None and filas_stk_npi:
+        df_stock = pd.concat([df_stock, pd.DataFrame(filas_stk_npi)[COLS_STOCK]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
+    if df_rutas is not None and filas_rut_npi:
+        df_rutas = pd.concat([df_rutas, pd.DataFrame(filas_rut_npi)[COLS_RUTAS]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
 
 
 # ==========================================
@@ -890,10 +940,10 @@ df, dict_price, dict_margin, dict_currency, dict_sku_desc = preprocesar_historic
 
 
 # ==========================================
-# TORNEO MULTI-MODELO VECTORIZADO (AUTO-ML BEST-FIT EN MILISEGUNDOS)
+# TORNEO MULTI-MODELO VECTORIZADO (AUTO-ML BEST-FIT + HERENCIA NPI)
 # ==========================================
 @st.cache_data(show_spinner=False)
-def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True):
+def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True, npi_records=None):
     if df_in is None or df_in.empty:
         return {}, {}
 
@@ -975,6 +1025,27 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True)
 
     fcst_best = np.choose(ganador_idx.reshape(1, -1), [fcst_hw, fcst_wma, fcst_cro])
 
+    # Aplicar curva de lanzamiento y estacionalidad espejo a los SKUs NPI (New Business)
+    if npi_records:
+        sku_to_col = {s: i for i, s in enumerate(skus)}
+        for r_npi in npi_records:
+            s_npi = str(r_npi.get('sku cod', '')).strip()
+            s_esp = str(r_npi.get('SKU_Espejo', '')).strip()
+            vol_obj = float(r_npi.get('Volumen_Mensual_Kg', 0.0))
+            m_ini = max(1, int(r_npi.get('Mes_Inicio', 1)))
+            if s_npi in sku_to_col:
+                c_idx = sku_to_col[s_npi]
+                est_vec = indices_est[:, sku_to_col[s_esp]] if s_esp in sku_to_col else np.ones(12)
+                for s in range(steps):
+                    if (s + 1) < m_ini:
+                        val_m = 0.0
+                    else:
+                        val_m = vol_obj * est_vec[meses_fut[s]]
+                    fcst_best[s, c_idx] = val_m
+                    fcst_hw[s, c_idx] = val_m
+                    fcst_wma[s, c_idx] = val_m
+                    fcst_cro[s, c_idx] = val_m
+
     dict_series = {
         "Auto-ML Best-Fit": pd.DataFrame(fcst_best, index=idx_fut, columns=skus),
         "Holt-Winters Seasonal": pd.DataFrame(fcst_hw, index=idx_fut, columns=skus),
@@ -998,7 +1069,8 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True)
     return dict_series, meta_torneo
 
 
-dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(df, steps=24, usar_outliers=usar_limpieza_outliers)
+npi_records_tuple = tuple(df_npi_active.to_dict('records')) if (df_npi_active is not None and not df_npi_active.empty) else None
+dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(df, steps=24, usar_outliers=usar_limpieza_outliers, npi_records=npi_records_tuple)
 
 
 # ==========================================
@@ -1118,12 +1190,13 @@ def obtener_parametros_stock(codigo, cob_defecto=2):
     return 0.0, int(cob_defecto), 0
 
 
-# --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN PARA DETECTAR CAMBIOS DE ESCALA) ---
+# --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN Y NPI PARA INVALIDAR CACHÉ) ---
 _firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
 _firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
 _firma_stk = f"{len(df_stock)}_{int(pd.to_numeric(df_stock['stock_disponible'], errors='coerce').fillna(0).sum())}" if (df_stock is not None and not df_stock.empty) else "nostk"
 _firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()):.1f}"
-DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}"
+_firma_npi = f"{len(st.session_state.get('df_npi', []))}"
+DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}|{_firma_npi}"
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
@@ -1911,6 +1984,10 @@ LAYOUT_STYLE = dict(
 tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
 ])
+# >>> FIN DE LA PARTE 1 DE 2 (PEGA JUSTO DEBAJO LA PARTE 2) <<<
+# ==============================================================================
+# S&OP / IBP CORPORATE PLATFORM - PARTE 2 DE 2 (MÓDULOS 0 AL 10 + NPI + TURNOS + MTO/MTS FIX)
+# ==============================================================================
 
 # ==========================================
 # MODULO 0: GUÍA DE USO + CALENDARIO S&OP + ACTION LOG DEL COMITÉ
@@ -1935,25 +2012,25 @@ with tab_guia:
 
     st.markdown(tr(
         """
-1. **📊 1. Demanda (Torneo Auto-ML Best-Fit, Consenso Cloud y Post-Mortem FVA):** Compite automáticamente entre **3 algoritmos** (*Holt-Winters Estacional*, *Media Móvil Ponderada Amortiguada WMA* y *Croston TSB Intermitente*) seleccionando el de menor WAPE por SKU. Incluye guardado directo en GitHub Cloud, Snapshots mensuales y evaluación Post-Mortem contra ventas reales.
+1. **📊 1. Demanda (Torneo Auto-ML Best-Fit, Gestor NPI / New Business, Consenso Cloud y Post-Mortem FVA):** Compite automáticamente entre **3 algoritmos** (*Holt-Winters Estacional*, *Media Móvil Ponderada Amortiguada WMA* y *Croston TSB Intermitente*) seleccionando el de menor WAPE por SKU. Incluye alta de **Nuevos Lanzamientos / Licitaciones (NPI)** con SKU espejo, guardado en GitHub Cloud, Snapshots mensuales y evaluación Post-Mortem contra ventas reales.
 2. **🏭 2. Producción (Plan Maestro de Producción - MPS 2D):** Calcula las necesidades netas de fabricación (`Demanda + Stock Obj - Stock Inicial - ERP Firme`) con semáforo de cobertura **DOH**.
 3. **🧩 3. Compras (MRP, Pegging, Red Sankey E2E y Simulador de Reformulación BOM):** Explosión de materiales con *Lead Time*, trazabilidad inversa de margen en riesgo (**Pegging**), diagrama de flujo **Sankey E2E** y **Simulador de Cambio de Fórmula (Phase-in / Sustitución de MP)**.
-4. **⚙️ 4. Capacidad (RCCP por Planta/País y Nivelación Automática de Carga Finita / Pre-Build):** Filtra automáticamente las líneas de la planta seleccionada arriba, convierte kilos a horas por línea industrial, detecta cuellos de botella (`>100 %`) y permite **auto-nivelar la capacidad adelantando producción (*Pre-Build*)** hacia meses previos con holgura.
+4. **⚙️ 4. Capacidad (RCCP por Planta/País, Simulador de Turnos Extra y Nivelación Finita / Pre-Build):** Filtra automáticamente las líneas de la planta seleccionada, simula la apertura de **turnos adicionales / horas extra** y permite **auto-nivelar la capacidad adelantando producción (*Pre-Build*)** hacia meses previos con holgura.
 5. **💷 5. Finanzas (P&L Consolidado y Working Capital en GBP):** Valoración multimoneda (`EUR`, `DKK`, `PLN` $\\rightarrow$ `GBP`) de ingresos, márgenes y capital circulante (PT + MP).
 6. **🚀 6. Ejecución ERP & S&OE (Restricciones Logísticas MOQ / Lotes Múltiplos y Master Pack):** Redondea las órdenes del Mes 1 a lotes reales de mezcladora y camión completo, exportando el **Master Pack S&OP (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Segmentación, Racionalización MTO/MTS y Stock de Seguridad Científico):** Matriz de burbujas Riesgo vs. Rentabilidad, auditoría `MTS` $\\rightarrow$ `MTO` y cálculo estadístico de **Stock de Seguridad por Nivel de Servicio Objetivo ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)**.
+7. **🔠 7. ABC/XYZ (Segmentación, Racionalización MTO/MTS y Stock de Seguridad Científico):** Matriz de burbujas Riesgo vs. Rentabilidad, auditoría `MTS` $\\rightarrow$ `MTO`, detección de exceso sobre **Stock de Seguridad Científico ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)** y filtrado estricto de alertas.
 8. **🚨 8. Excepciones (Radar Management by Exception):** Vigilancia dual en Mes 1 (`DOH < 15d` y `DOH > 60d`) para PT y MP.
 9. **🔀 9. What-If (Simulador de Escenarios Financieros):** Sensibilidad a shocks de Volumen, Precio y Coste MP con informe PDF.
 10. **📊 10. Dashboard (Triple Comparativa Budget, Puente Waterfall, Radar Churn y PDF Deck):** Control contra Presupuesto Anual, gráfico **Waterfall Bridge**, **Radar de Riesgo de Fuga de Clientes (Churn)** y exportación del **Executive S&OP Deck (.pdf)**.
         """,
         """
-1. **📊 1. Demand (Auto-ML Best-Fit Tournament, Cloud Consensus & Post-Mortem FVA):** Automatically competes across **3 algorithms** (*Holt-Winters Seasonal*, *Damped WMA*, and *Croston TSB Intermittent*), picking the lowest-WAPE winner per SKU. Includes GitHub Cloud sync, monthly Snapshots, and Post-Mortem FVA evaluation.
+1. **📊 1. Demand (Auto-ML Best-Fit Tournament, NPI / New Business Manager, Cloud Consensus & Post-Mortem FVA):** Automatically competes across **3 algorithms**, includes **New Product Introduction (NPI) & New Business** injection with mirror SKU seasonality, GitHub Cloud sync, monthly Snapshots, and Post-Mortem FVA evaluation.
 2. **🏭 2. Production (Master Production Schedule - 2D MPS):** Computes net FG production requirements with **DOH** traffic-light alerts.
-3. **🧩 3. Purchasing (MRP, Pegging, E2E Sankey Network & BOM Reformulation Simulator):** Multi-level BOM explosion, interactive **Pegging**, **E2E Sankey flow**, and **BOM Formulation Change Simulator (RM substitution / dosage reduction)**.
-4. **⚙️ 4. Capacity (Plant/Country RCCP & Automated Finite Capacity Leveling / Pre-Build):** Dynamically filters the production lines belonging to the selected country/plant, converts kilos to machine hours, flags bottlenecks (`>100%`), and runs **automated Pre-Build leveling** to shift excess load to prior months with spare capacity.
+3. **🧩 3. Purchasing (MRP, Pegging, E2E Sankey Network & BOM Reformulation Simulator):** Multi-level BOM explosion, interactive **Pegging**, **E2E Sankey flow**, and **BOM Formulation Change Simulator**.
+4. **⚙️ 4. Capacity (Plant/Country RCCP, Extra Shifts Simulator & Automated Finite Leveling / Pre-Build):** Dynamically filters plant lines, simulates **extra shifts / overtime**, and runs **automated Pre-Build leveling**.
 5. **💷 5. Finance (Consolidated P&L & Working Capital in GBP):** Multi-currency valuation (`EUR`, `DKK`, `PLN` $\\rightarrow$ `GBP`).
 6. **🚀 6. ERP Execution & S&OE (MOQ / Lot Multiples & Master Pack Export):** Rounds Month 1 orders to mixer batch and truckload multiples, exporting the 5-tab **S&OP Master Pack (.xlsx)**.
-7. **🔠 7. ABC/XYZ (Segmentation, MTO/MTS Optimizer & Scientific Safety Stock):** Bubble matrix, `MTS` $\\rightarrow$ `MTO` cash release, and **Cycle Service Level Safety Stock ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)**.
+7. **🔠 7. ABC/XYZ (Segmentation, MTO/MTS Optimizer & Scientific Safety Stock):** Bubble matrix, `MTS` $\\rightarrow$ `MTO` cash release, **Cycle Service Level Safety Stock ($Z \\cdot \\sigma \\cdot \\sqrt{LT}$)**, and strict exception filtering.
 8. **🚨 8. Exceptions:** Dual Month 1 radar (`DOH < 15d` and `DOH > 60d`).
 9. **🔀 9. What-If:** Volume, Price, and COGS stress-testing with PDF report.
 10. **📊 10. Dashboard (Triple Budget Control, Waterfall Bridge, Customer Churn Radar & PDF Deck):** Tracks Budget Gap, **GBP Waterfall Bridge**, **Customer Churn & Concentration Risk**, and exports the **Executive S&OP Deck (.pdf)**.
@@ -1974,7 +2051,7 @@ with tab_guia:
             "Etapa S&OP": tr("1. Limpieza de Datos y Revisión de Cartera", "1. Data Gathering & Portfolio Review"),
             "Dias_Mes": "Días 1 - 5", "Dia_Inicio": 1, "Dia_Fin": 5,
             "Owner": "S&OP Manager / IT",
-            "Entregable_Clave": tr("Carga de 8 Tablas ERP y Torneo Auto-ML", "8 ERP Tables Upload & Auto-ML Tournament"),
+            "Entregable_Clave": tr("Carga de 8 Tablas ERP, NPI y Torneo Auto-ML", "8 ERP Tables Upload, NPI & Auto-ML Tournament"),
             "Estado": "✅ Completado", "Notas_Comite": "Datos validados sin errores de esquema."
         },
         {
@@ -1983,15 +2060,15 @@ with tab_guia:
             "Dias_Mes": "Días 6 - 10", "Dia_Inicio": 6, "Dia_Fin": 10,
             "Owner": "Commercial Manager",
             "Entregable_Clave": tr("Overrides en Pestaña 1 y Snapshot FVA congelado", "Tab 1 Overrides & Frozen FVA Snapshot"),
-            "Estado": "🔄 En Curso", "Notas_Comite": "Revisión de cuentas clave y promociones."
+            "Estado": "🔄 En Curso", "Notas_Comite": "Revisión de cuentas clave y licitaciones NPI."
         },
         {
             "Fase": "03. Supply & RCCP",
             "Etapa S&OP": tr("3. Revisión de Suministro, MRP y Capacidad Planta", "3. Supply, MRP & Plant Capacity Review (RCCP)"),
             "Dias_Mes": "Días 11 - 16", "Dia_Inicio": 11, "Dia_Fin": 16,
             "Owner": "Operations & Procurement",
-            "Entregable_Clave": tr("Nivelación Pre-Build RCCP (Pestaña 4) y Pegging MP", "Pre-Build RCCP Leveling (Tab 4) & RM Pegging"),
-            "Estado": "⏳ Pendiente", "Notas_Comite": "Validar turnos en Línea 3 Pellet y POs críticas."
+            "Entregable_Clave": tr("Nivelación Pre-Build RCCP, Turnos (Pestaña 4) y Pegging MP", "Pre-Build RCCP Leveling, Shifts (Tab 4) & RM Pegging"),
+            "Estado": "⏳ Pendiente", "Notas_Comite": "Validar turnos por planta y POs críticas."
         },
         {
             "Fase": "04. Pre-S&OP Finance",
@@ -2147,7 +2224,7 @@ with tab_guia:
             st.rerun()
 
 # ==========================================
-# MODULO 1: DEMANDA + TORNEO AUTO-ML + SNAPSHOT S&OP + POST-MORTEM FVA
+# MODULO 1: DEMANDA + GESTOR NPI (NEW BUSINESS) + TORNEO AUTO-ML + POST-MORTEM FVA
 # ==========================================
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
@@ -2291,6 +2368,59 @@ with tab_demanda:
                 st.rerun()
 
         st.divider()
+        # --- NUEVO MÓDULO 1.B: GESTOR DE NUEVOS LANZAMIENTOS (NPI & NEW BUSINESS) ---
+        with st.expander(tr("🆕 Gestor de Nuevos Lanzamientos y Licitaciones Comerciales (NPI & New Business - 0 Kg Histórico)", "🆕 New Product Introduction (NPI) & New Business Manager (0 Kg History)"), expanded=False):
+            st.caption(tr(
+                "Da de alta SKUs nuevos o contratos comerciales ganados que aún no existen en el histórico de ventas. Puedes vincularles un 'SKU Espejo' para heredar su perfil estacional e inyectarlos automáticamente en MPS, MRP, Capacidad de Planta y Finanzas (GBP).",
+                "Register new SKUs or won commercial tenders with zero sales history. Assign a 'Mirror SKU' to inherit its seasonal profile and automatically inject it into MPS, MRP, Plant Capacity, and Finance (GBP)."
+            ))
+            npi_c1, npi_c2, npi_c3, npi_c4 = st.columns(4)
+            with npi_c1:
+                npi_cod = st.text_input(tr("Código Nuevo SKU:", "New SKU Code:"), value="NPI-2027-01")
+                npi_desc = st.text_input(tr("Descripción Nuevo SKU:", "New SKU Description:"), value="NUEVA FORMULA AVANZADA PRO")
+                npi_pais = st.selectbox(tr("Planta / País Destino:", "Target Plant / Country:"), sorted(df['País'].dropna().unique().tolist()), key="npi_pais_sel")
+            with npi_c2:
+                clis_pais_npi = sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else ["CLI-NEW"]
+                npi_cli = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
+                npi_espejo = st.selectbox(tr("SKU Espejo (Estacionalidad):", "Mirror SKU (Seasonality):"), sorted(df['sku cod'].dropna().unique().tolist()), key="npi_esp_sel")
+                npi_pol = st.selectbox(tr("Política de Stock:", "Stock Policy:"), ["MTS", "MTO"], key="npi_pol_sel")
+            with npi_c3:
+                npi_vol = st.number_input(tr("Volumen Mensual Objetivo (Kg):", "Target Monthly Volume (Kg):"), min_value=100, max_value=500000, value=18000, step=1000)
+                npi_mes_ini = st.slider(tr("Mes de Lanzamiento (1..H):", "Launch Month (1..H):"), min_value=1, max_value=int(horizonte), value=2)
+            with npi_c4:
+                npi_precio = st.number_input(tr("Precio Venta Unitario (EUR/Kg):", "Unit Sales Price (EUR/Kg):"), min_value=0.1, max_value=200.0, value=4.50, step=0.25)
+                npi_margen = st.number_input(tr("Margen Bruto Unitario (EUR/Kg):", "Unit Gross Margin (EUR/Kg):"), min_value=0.05, max_value=150.0, value=1.40, step=0.10)
+                maqs_disp_npi = sorted(df_rutas['Maquina'].dropna().unique().tolist()) if (df_rutas is not None and not df_rutas.empty) else ["ES_Linea_1_Extrusion"]
+                npi_maq = st.selectbox(tr("Línea de Fabricación:", "Production Line:"), maqs_disp_npi, key="npi_maq_sel")
+
+            nb_b1, nb_b2 = st.columns([1, 1])
+            with nb_b1:
+                if st.button(tr("➕ Inyectar Nuevo Lanzamiento NPI en el Plan S&OP (Cloud)", "➕ Inject New NPI Launch into S&OP Plan (Cloud)"), type="primary", use_container_width=True):
+                    df_npi_curr = st.session_state.get('df_npi', pd.DataFrame(columns=COLS_NPI)).copy()
+                    df_npi_curr = df_npi_curr[df_npi_curr['sku cod'].astype(str).str.strip() != str(npi_cod).strip()]
+                    nueva_fila_npi = {
+                        "sku cod": str(npi_cod).strip(), "sku desc": str(npi_desc).strip(),
+                        "País": npi_pais, "customer cod": npi_cli, "customer desc": f"Cuenta {npi_cli}",
+                        "SKU_Espejo": npi_espejo, "Volumen_Mensual_Kg": float(npi_vol),
+                        "Mes_Inicio": int(npi_mes_ini), "Precio_Unit_EUR": float(npi_precio),
+                        "Margen_Unit_EUR": float(npi_margen), "Maquina": npi_maq,
+                        "Kilos_por_Hora": 5500, "Politica_Stock": npi_pol
+                    }
+                    df_npi_curr = pd.concat([df_npi_curr, pd.DataFrame([nueva_fila_npi])], ignore_index=True)
+                    st.session_state['df_npi'] = df_npi_curr
+                    github_guardar_csv(df_npi_curr, NPI_CLOUD_FILE, f"NPI Launch {npi_cod} added by {usuario_actual}")
+                    st.success(tr(f"✅ Lanzamiento NPI [{npi_cod}] integrado en toda la cadena S&OP.", f"✅ NPI Launch [{npi_cod}] integrated across the S&OP chain."))
+                    st.rerun()
+            with nb_b2:
+                if st.button(tr("🗑️ Limpiar Todos los Lanzamientos NPI", "🗑️ Clear All NPI Launches"), use_container_width=True):
+                    df_npi_empty = pd.DataFrame(columns=COLS_NPI)
+                    st.session_state['df_npi'] = df_npi_empty
+                    github_guardar_csv(df_npi_empty, NPI_CLOUD_FILE, f"Clear NPI launches by {usuario_actual}")
+                    st.rerun()
+
+            if not st.session_state.get('df_npi', pd.DataFrame()).empty:
+                st.dataframe(st.session_state['df_npi'], use_container_width=True, hide_index=True)
+
         with st.expander(tr("🏆 Tabla del Torneo Multi-Modelo Auto-ML (Selección del Mejor Algoritmo por SKU)", "🏆 Multi-Model Auto-ML Tournament Table (Best-Fit Algorithm per SKU)"), expanded=False):
             st.caption(tr(
                 "Muestra el error histórico de validación (WAPE %) de los 3 motores estadísticos en cada SKU y el algoritmo ganador asignado por el modo Auto-ML Best-Fit.",
@@ -2625,13 +2755,13 @@ with tab_bom:
                 st.plotly_chart(fig_sk, use_container_width=True)
 
 # ==========================================
-# MODULO 4: CAPACIDAD (RCCP FILTRADO POR PLANTA / PAÍS) + PRE-BUILD
+# MODULO 4: CAPACIDAD (RCCP FILTRADO POR PLANTA / PAÍS + SIMULADOR DE TURNOS EXTRA + PRE-BUILD)
 # ==========================================
 with tab_cap:
     if "tab4" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Capacidad.", "🔒 You do not have permission to access the Capacity module."))
     else:
-        st.subheader(tr("Planificación de Capacidad por Planta (RCCP) & Nivelación Finita", "Plant Capacity Planning (RCCP) & Finite Leveling"))
+        st.subheader(tr("Planificación de Capacidad por Planta (RCCP), Simulador de Turnos & Pre-Build", "Plant Capacity Planning (RCCP), Shift Simulator & Pre-Build"))
         if df_rutas is None or df_cal is None:
             st.info(tr("👈 Sube '5. Rutas / Routing' y '6. Calendario' en la barra lateral.", "👈 Upload '5. Production Routing' & '6. Plant Calendar' in the sidebar."))
         else:
@@ -2651,11 +2781,20 @@ with tab_cap:
                 f"{tr('Líneas detectadas', 'Detected Lines')}: `{len(maquinas_disponibles)}`"
             )
 
-            col_c_top1, col_c_top2 = st.columns([2, 2])
+            col_c_top1, col_c_top2, col_c_top3 = st.columns(3)
             with col_c_top1:
                 maq_sel = st.selectbox(tr("⚙️ Filtrar Línea / Máquina de la Planta:", "⚙️ Filter Plant Line / Work Center:"), lista_maquinas)
             with col_c_top2:
                 umbral_prebuild = st.slider(tr("🎯 Techo Máximo de Utilización para Pre-Build (%):", "🎯 Max Utilization Cap for Pre-Build Leveling (%):"), 70, 120, 95, step=5)
+            with col_c_top3:
+                opciones_turnos = {
+                    tr("Turno Base (Calendario 100%)", "Base Shift (Calendar 100%)"): 1.00,
+                    tr("+1 Turno Fin de Semana (+15% Horas)", "+1 Weekend Shift (+15% Hours)"): 1.15,
+                    tr("+2 Turnos Intensivos (+25% Horas)", "+2 Intensive Shifts (+25% Hours)"): 1.25,
+                    tr("Operación Continua 24/7 (+35% Horas)", "24/7 Continuous Operation (+35% Hours)"): 1.35
+                }
+                turno_label_sel = st.selectbox(tr("⏱️ Simulador de Turnos / Horas Extra:", "⏱️ Extra Shifts / Overtime Simulator:"), list(opciones_turnos.keys()))
+                factor_turno = opciones_turnos[turno_label_sel]
             
             df_mps_concat = generar_mps_df_2d()
             if not df_mps_concat.empty and not df_rutas_scope.empty:
@@ -2683,7 +2822,8 @@ with tab_cap:
                     df_cal_clean = df_cal.copy()
                     df_cal_clean['Maquina'] = df_cal_clean['Maquina'].astype(str).str.strip()
                     df_cal_clean['Date'] = pd.to_datetime(df_cal_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-                    df_cal_clean['Horas_Disponibles'] = pd.to_numeric(df_cal_clean['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)
+                    df_cal_clean['Horas_Base'] = pd.to_numeric(df_cal_clean['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)
+                    df_cal_clean['Horas_Disponibles'] = df_cal_clean['Horas_Base'] * factor_turno
                     df_req['Date'] = pd.to_datetime(df_req['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
 
                     df_capacidad = pd.merge(
@@ -2695,15 +2835,23 @@ with tab_cap:
                         df_cal_clean,
                         on=['Date', 'Maquina'],
                         how='left'
-                    ).fillna({'Horas_Disponibles': 740})
+                    ).fillna({'Horas_Base': 740, 'Horas_Disponibles': 740 * factor_turno})
                     
                     df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100.0
+
+                    if factor_turno > 1.0:
+                        horas_extra_tot = (df_capacidad['Horas_Disponibles'] - df_capacidad['Horas_Base']).sum()
+                        coste_turnos_gbp = horas_extra_tot * 145.0
+                        st.info(tr(
+                            f"⏱️ **Simulación de Turnos Activa ({turno_label_sel}):** Capacidad ampliada en `+{horas_extra_tot:,.0f} horas` totales en el horizonte | Sobrecoste operativo estimado de turnos: **`£ {coste_turnos_gbp:,.0f}`** (£145/h).",
+                            f"⏱️ **Active Shift Simulation ({turno_label_sel}):** Capacity expanded by `+{horas_extra_tot:,.0f} hours` across horizon | Estimated overtime operating cost: **`£ {coste_turnos_gbp:,.0f}`** (£145/h)."
+                        ))
 
                     if maq_sel == "TODOS":
                         df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
                         df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
                         
-                        st.markdown(f"#### {tr('1. Matriz de Utilización Original por Planta (Sin Nivelar %)', '1. Original Unconstrained Plant Utilization Matrix (%)')}")
+                        st.markdown(f"#### {tr('1. Matriz de Utilización por Planta (Sin Nivelar %)', '1. Unconstrained Plant Utilization Matrix (%)')}")
                         try:
                             st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
                         except Exception:
@@ -2723,7 +2871,7 @@ with tab_cap:
                             merged_line = pd.merge(
                                 df_req_maq.groupby('Date')['Horas_Necesarias'].sum().reset_index(),
                                 df_cal_maq, on='Date', how='left'
-                            ).fillna({'Horas_Disponibles': 740})
+                            ).fillna({'Horas_Disponibles': 740 * factor_turno})
                             
                             fig_cap.add_trace(go.Scatter(
                                 x=merged_line['Date'], y=merged_line['Horas_Disponibles'],
@@ -2801,8 +2949,8 @@ with tab_cap:
                         max_util_post = float(df_cap_niv['Utilizacion_Nivelada'].max()) if not df_cap_niv.empty else 0.0
                         if max_util_post > float(umbral_prebuild):
                             st.error(tr(
-                                f"🚨 Saturación Estructural Detectada (Pico máx: {max_util_post:.1f}% > {umbral_prebuild}%): Todos los meses previos están al 100% de capacidad y no existe holgura libre para adelantar fabricación (Pre-Build). Acción S&OP requerida: Ampliar turnos en '6. Calendario' o subcontratar/recortar demanda.",
-                                f"🚨 Structural Bottleneck Detected (Peak: {max_util_post:.1f}% > {umbral_prebuild}%): All prior months are already above cap with zero spare capacity for Pre-Build. S&OP Action required: Add shifts in '6. Plant Calendar' or offload volume."
+                                f"🚨 Saturación Estructural Detectada (Pico máx: {max_util_post:.1f}% > {umbral_prebuild}%): Prueba a incrementar turnos en el desplegable superior '⏱️ Simulador de Turnos / Horas Extra'.",
+                                f"🚨 Structural Bottleneck Detected (Peak: {max_util_post:.1f}% > {umbral_prebuild}%): Try adding shifts in the '⏱️ Extra Shifts / Overtime Simulator' dropdown above."
                             ))
                         else:
                             st.success(tr(
@@ -2811,6 +2959,7 @@ with tab_cap:
                             ))
             else:
                 st.warning(tr("⚠️ No hay datos de producción o rutas para los filtros seleccionados.", "⚠️ No production or routing data for the selected filters."))
+
 # ==========================================
 # MODULO 5: FINANZAS (100% REACTIVO Y ALINEADO POR PAÍS / CLIENTE / SKU)
 # ==========================================
@@ -3122,7 +3271,7 @@ with tab_ejec:
                     )
 
 # ==========================================
-# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + STOCK DE SEGURIDAD CIENTÍFICO (CSL %)
+# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + STOCK DE SEGURIDAD CIENTÍFICO (CON FILTRO CORREGIDO)
 # ==========================================
 with tab_abc:
     if "tab7" not in modulos_permitidos:
@@ -3203,9 +3352,13 @@ with tab_abc:
                 with csl_c3:
                     csl_c = st.select_slider(tr("🎯 Nivel Servicio Clase C (CSL %):", "🎯 Class C Service Level (CSL %):"), options=[85, 90, 92, 95], value=90)
 
+                df_stk_clean = df_stock.copy()
+                df_stk_clean['sku cod'] = df_stk_clean['sku cod'].astype(str).str.strip()
+                df_abcxyz_show['sku cod'] = df_abcxyz_show['sku cod'].astype(str).str.strip()
+
                 df_audit = pd.merge(
                     df_abcxyz_show[['sku cod', 'sku desc', 'ABC', 'XYZ', 'Clase', 'volume', 'mean', 'std', 'CV', 'Margen Unitario']],
-                    df_stock[['sku cod', 'stock_disponible', 'Cobertura_Meses', 'LT_Meses', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
+                    df_stk_clean[['sku cod', 'stock_disponible', 'Cobertura_Meses', 'LT_Meses', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
                     on='sku cod',
                     how='inner'
                 )
@@ -3235,23 +3388,29 @@ with tab_abc:
                         df_audit['Z_Factor'] * pd.to_numeric(df_audit['std'], errors='coerce').fillna(0.0) * np.sqrt(df_audit['LT_Meses'])
                     ).round(0)
 
+                    df_audit['WC_Actual_GBP'] = df_audit['stock_disponible'] * df_audit['Coste_Unitario'] * fx_eur_gbp
+                    df_audit['WC_Optimo_Cientifico_GBP'] = df_audit['SS_Cientifico_Kg'] * df_audit['Coste_Unitario'] * fx_eur_gbp
+                    df_audit['WC_Liberable_GBP'] = np.maximum(0.0, df_audit['WC_Actual_GBP'] - df_audit['WC_Optimo_Cientifico_GBP'])
+
                     lbl_mts_mto = tr('🔴 Cambiar MTS → MTO (Liberar Caja)', '🔴 Switch MTS → MTO (Release Cash)')
                     lbl_mto_mts = tr('🟠 Pasar MTO → MTS (Proteger Servicio)', '🟠 Switch MTO → MTS (Protect Service)')
+                    lbl_exceso_ss = tr('🟡 Exceso Stock (>SS Científico)', '🟡 Excess Stock (>Scientific SS)')
                     lbl_ok = tr('🟢 Alineado', '🟢 Aligned')
 
+                    # Diagnóstico S&OP completo: distingue cambio de política Y exceso de stock sobre SS Científico
                     df_audit['Estado_Auditoria'] = np.where(
                         (df_audit['Politica_Recomendada'] == 'MTO') & (df_audit['Categoria_Actual'] == 'MTS'),
                         lbl_mts_mto,
                         np.where(
                             (df_audit['Politica_Recomendada'] == 'MTS') & (df_audit['Categoria_Actual'] == 'MTO'),
                             lbl_mto_mts,
-                            lbl_ok
+                            np.where(
+                                df_audit['WC_Liberable_GBP'] > 100.0,
+                                lbl_exceso_ss,
+                                lbl_ok
+                            )
                         )
                     )
-
-                    df_audit['WC_Actual_GBP'] = df_audit['stock_disponible'] * df_audit['Coste_Unitario'] * fx_eur_gbp
-                    df_audit['WC_Optimo_Cientifico_GBP'] = df_audit['SS_Cientifico_Kg'] * df_audit['Coste_Unitario'] * fx_eur_gbp
-                    df_audit['WC_Liberable_GBP'] = np.maximum(0.0, df_audit['WC_Actual_GBP'] - df_audit['WC_Optimo_Cientifico_GBP'])
 
                     ca1, ca2, ca3, ca4 = st.columns(4)
                     ca1.metric(tr("SKUs Auditados", "Audited SKUs"), f"{len(df_audit)}")
@@ -3259,35 +3418,43 @@ with tab_abc:
                     ca3.metric(tr("WC Óptimo Científico (£)", "Optimal Scientific WC (£)"), f"£ {df_audit['WC_Optimo_Cientifico_GBP'].sum():,.0f}")
                     ca4.metric(tr("Potencial Total Liberación WC (£)", "Total Releasable WC (£)"), f"£ {df_audit['WC_Liberable_GBP'].sum():,.0f}")
 
-                    solo_alertas = st.checkbox(tr("🔍 Mostrar solo SKUs con exceso de stock o cambio MTS ↔ MTO", "🔍 Show only SKUs with excess stock or policy change"), value=False)
-                    df_mostrar_audit = df_audit[(df_audit['Estado_Auditoria'] != lbl_ok) | (df_audit['WC_Liberable_GBP'] > 100)] if solo_alertas else df_audit
+                    solo_alertas = st.checkbox(
+                        tr("🔍 Mostrar solo SKUs con exceso de stock o cambio MTS ↔ MTO", "🔍 Show only SKUs with excess stock or policy change"),
+                        value=False,
+                        key="chk_solo_alertas_abc"
+                    )
+                    # Filtrado estricto: excluye cualquier SKU '🟢 Alineado' cuando el checkbox está marcado
+                    df_mostrar_audit = df_audit[df_audit['Estado_Auditoria'] != lbl_ok].copy() if solo_alertas else df_audit.copy()
                     df_mostrar_audit = df_mostrar_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
 
-                    st.dataframe(
-                        df_mostrar_audit[[
-                            'sku cod', 'sku desc', 'Clase', 'CV', 'Categoria_Actual',
-                            'Politica_Recomendada', 'Estado_Auditoria', 'stock_disponible',
-                            'SS_Cientifico_Kg', 'WC_Actual_GBP', 'WC_Optimo_Cientifico_GBP', 'WC_Liberable_GBP'
-                        ]].head(250).rename(columns={
-                            'Categoria_Actual': tr('Política Actual', 'Current Policy'),
-                            'Politica_Recomendada': tr('Política Sugerida', 'Suggested Policy'),
-                            'Estado_Auditoria': tr('Diagnóstico S&OP', 'S&OP Diagnosis'),
-                            'stock_disponible': tr('Stock Actual (Kg)', 'Current Stock (Kg)'),
-                            'SS_Cientifico_Kg': tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'),
-                            'WC_Actual_GBP': 'WC Actual (£)',
-                            'WC_Optimo_Cientifico_GBP': 'WC Óptimo (£)',
-                            'WC_Liberable_GBP': tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)')
-                        }).style.format({
-                            'CV': '{:.2f}',
-                            tr('Stock Actual (Kg)', 'Current Stock (Kg)'): '{:,.0f} Kg',
-                            tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'): '{:,.0f} Kg',
-                            'WC Actual (£)': '£ {:,.0f}',
-                            'WC Óptimo (£)': '£ {:,.0f}',
-                            tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)'): '£ {:,.0f}'
-                        }),
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                    if df_mostrar_audit.empty:
+                        st.success(tr("✅ Todos los SKUs están 100% alineados en política MTO/MTS y sin exceso de stock sobre el SS Científico.", "✅ All SKUs are 100% aligned in MTO/MTS policy with no excess stock above Scientific SS."))
+                    else:
+                        st.dataframe(
+                            df_mostrar_audit[[
+                                'sku cod', 'sku desc', 'Clase', 'CV', 'Categoria_Actual',
+                                'Politica_Recomendada', 'Estado_Auditoria', 'stock_disponible',
+                                'SS_Cientifico_Kg', 'WC_Actual_GBP', 'WC_Optimo_Cientifico_GBP', 'WC_Liberable_GBP'
+                            ]].head(250).rename(columns={
+                                'Categoria_Actual': tr('Política Actual', 'Current Policy'),
+                                'Politica_Recomendada': tr('Política Sugerida', 'Suggested Policy'),
+                                'Estado_Auditoria': tr('Diagnóstico S&OP', 'S&OP Diagnosis'),
+                                'stock_disponible': tr('Stock Actual (Kg)', 'Current Stock (Kg)'),
+                                'SS_Cientifico_Kg': tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'),
+                                'WC_Actual_GBP': 'WC Actual (£)',
+                                'WC_Optimo_Cientifico_GBP': 'WC Óptimo (£)',
+                                'WC_Liberable_GBP': tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)')
+                            }).style.format({
+                                'CV': '{:.2f}',
+                                tr('Stock Actual (Kg)', 'Current Stock (Kg)'): '{:,.0f} Kg',
+                                tr('SS Científico CSL (Kg)', 'Scientific SS (Kg)'): '{:,.0f} Kg',
+                                'WC Actual (£)': '£ {:,.0f}',
+                                'WC Óptimo (£)': '£ {:,.0f}',
+                                tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)'): '£ {:,.0f}'
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
 
 # ==========================================
 # MODULO 8: EXCEPCIONES (MOTOR 2D)
