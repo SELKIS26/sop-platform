@@ -82,78 +82,129 @@ COLS_COMPRAS = ['Date', 'rm cod', 'Cantidad_Kg']
 COLS_PROD = ['Date', 'sku cod', 'Cantidad_Kg']
 
 LOG_FILE = "audit_log_accesos.csv"
+CLOUD_AJUSTES_FILE = "2_Ajustes_Consenso_Cloud.csv"
+FVA_LOG_FILE = "audit_log_fva_consenso.csv"
+COLS_FVA_LOG = [
+    "Fecha_Cambio (CET)", "Usuario", "Tipo_Ajuste", "Date", "País",
+    "customer cod", "sku cod", "Forecast_Estadistico", "Consenso_Override",
+    "Delta_Kg", "Delta_Pct_FVA"
+]
 
 
-def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
-    """Lee y guarda el historial directamente en GitHub (vía st.secrets) con fallback local."""
+# ==========================================
+# MOTOR DE PERSISTENCIA EN GITHUB (API + LOCAL)
+# ==========================================
+def _github_creds():
     try:
         token = st.secrets.get("GITHUB_TOKEN", None)
         repo = st.secrets.get("GITHUB_REPO", None)
+        return token, repo
     except Exception:
-        token, repo = None, None
+        return None, None
 
-    cols_log = ["Fecha_Hora (CET)", "Username", "Nombre", "Rol"]
 
+def github_leer_csv(filename, cols_default):
+    """Lee un CSV desde el repositorio de GitHub o fallback local."""
+    token, repo = _github_creds()
     if token and repo:
-        url = f"https://api.github.com/repos/{repo}/contents/{LOG_FILE}"
+        url = f"https://api.github.com/repos/{repo}/contents/{filename}"
         headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "SOP-Platform-Audit"
+            "User-Agent": "SOP-Platform-Cloud"
         }
-
-        df_actual = pd.DataFrame(columns=cols_log)
-        sha_actual = None
-
-        # 1. Leer archivo existente en GitHub
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                sha_actual = data.get("sha")
                 contenido_csv = base64.b64decode(data["content"]).decode("utf-8-sig")
-                df_actual = pd.read_csv(io.StringIO(contenido_csv))
+                df_out = pd.read_csv(io.StringIO(contenido_csv))
+                return df_out
         except Exception:
             pass
 
-        # 2. Si hay nuevo login, añadir fila y hacer commit en GitHub
-        if nuevo_evento is not None:
-            df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
-            csv_bytes = df_actual.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-            payload = {
-                "message": f"Audit log: {nuevo_evento['Username']} ({nuevo_evento['Fecha_Hora (CET)']})",
-                "content": base64.b64encode(csv_bytes).decode("utf-8")
-            }
-            if sha_actual:
-                payload["sha"] = sha_actual
-            try:
-                req_put = urllib.request.Request(
-                    url,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={**headers, "Content-Type": "application/json"},
-                    method="PUT"
-                )
-                urllib.request.urlopen(req_put, timeout=10)
-            except Exception:
-                pass
-        return df_actual
-
-    # Fallback local si no están configurados los Secrets
-    if os.path.exists(LOG_FILE):
+    if os.path.exists(filename):
         try:
-            df_actual = pd.read_csv(LOG_FILE)
+            return pd.read_csv(filename)
         except Exception:
-            df_actual = pd.DataFrame(columns=cols_log)
-    else:
-        df_actual = pd.DataFrame(columns=cols_log)
+            pass
+    return pd.DataFrame(columns=cols_default)
 
+
+def github_guardar_csv(df_to_save, filename, commit_msg):
+    """Guarda un DataFrame como CSV en GitHub (y copia local)."""
+    try:
+        df_to_save.to_csv(filename, index=False, encoding="utf-8-sig")
+    except Exception:
+        pass
+
+    token, repo = _github_creds()
+    if not (token and repo):
+        return False
+
+    url = f"https://api.github.com/repos/{repo}/contents/{filename}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "SOP-Platform-Cloud"
+    }
+    sha_actual = None
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            sha_actual = data.get("sha")
+    except Exception:
+        pass
+
+    csv_bytes = df_to_save.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    payload = {
+        "message": commit_msg,
+        "content": base64.b64encode(csv_bytes).decode("utf-8")
+    }
+    if sha_actual:
+        payload["sha"] = sha_actual
+    try:
+        req_put = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={**headers, "Content-Type": "application/json"},
+            method="PUT"
+        )
+        urllib.request.urlopen(req_put, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+def registrar_y_leer_auditoria_permanente(nuevo_evento=None):
+    """Lee y guarda el historial de accesos en GitHub."""
+    cols_log = ["Fecha_Hora (CET)", "Username", "Nombre", "Rol"]
+    df_actual = github_leer_csv(LOG_FILE, cols_log)
     if nuevo_evento is not None:
         df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
-        try:
-            df_actual.to_csv(LOG_FILE, index=False, encoding="utf-8-sig")
-        except Exception:
-            pass
+        github_guardar_csv(
+            df_actual,
+            LOG_FILE,
+            f"Audit log: {nuevo_evento['Username']} ({nuevo_evento['Fecha_Hora (CET)']})"
+        )
     return df_actual
+
+
+def registrar_evento_fva_consenso(lista_eventos_fva):
+    """Registra en GitHub cada cambio de Forecast de Consenso para medir el FVA."""
+    if not lista_eventos_fva:
+        return
+    df_fva = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
+    df_fva = pd.concat([df_fva, pd.DataFrame(lista_eventos_fva)], ignore_index=True)
+    usuario_log = lista_eventos_fva[0].get("Usuario", "user")
+    github_guardar_csv(df_fva, FVA_LOG_FILE, f"FVA Consensus Log update by {usuario_log}")
+    st.session_state["df_fva_logs"] = df_fva
+
+
+def _pdf_safe(texto):
+    """Limpia caracteres especiales o emojis para que FPDF (latin-1) nunca falle."""
+    return str(texto).encode("latin-1", "replace").decode("latin-1")
 
 
 @st.cache_data
@@ -425,8 +476,8 @@ TEXTS = {
         "kpi_rev": "Ingresos (Revenue)", "kpi_mar": "Margen Bruto", "kpi_wc": "Working Capital Promedio",
         "kpi_fab": "Volumen a Fabricar", "kpi_doh": "Cobertura Media",
         "guide_title": "📖 Plataforma S&OP Corporativa",
-        "guide_desc": "El simulador cuenta con un motor MRP integrado y validación estricta de columnas:",
-        "g_dem_t": "1. Demanda", "g_dem_d": "Holt-Winters sobre histórico. Prioriza Ajustes Consenso.",
+        "guide_desc": "El simulador cuenta con un motor MRP integrado, validación estricta de columnas y persistencia Cloud:",
+        "g_dem_t": "1. Demanda", "g_dem_d": "Holt-Winters sobre histórico. Prioriza Ajustes Consenso sincronizados en GitHub y mide el FVA.",
         "g_pro_t": "2. Producción (MPS)", "g_pro_d": "Absorbe órdenes del ERP. `Nuevas Órdenes = Demanda + Stock Obj - Stock Inic - Órdenes ERP`.",
         "g_com_t": "3. Compras (MRP)", "g_com_d": "Explosiona las Nuevas Órdenes de Producción. Absorbe Pedidos de Compra del ERP. Incluye Trazabilidad (Pegging).",
         "g_cap_t": "4. Capacidad", "g_cap_d": "Convierte Kilos a Horas y cruza con Calendario de plantas.",
@@ -441,8 +492,8 @@ TEXTS = {
         "kpi_rev": "Total Revenue", "kpi_mar": "Gross Margin", "kpi_wc": "Avg Working Capital",
         "kpi_fab": "Volume to Produce", "kpi_doh": "Avg Days on Hand",
         "guide_title": "📖 Corporate S&OP Platform",
-        "guide_desc": "The simulator runs a full integrated MRP engine with strict column validation:",
-        "g_dem_t": "1. Demand", "g_dem_d": "Holt-Winters on history. Consensus Adjustments take priority.",
+        "guide_desc": "The simulator runs a full integrated MRP engine with strict column validation and Cloud persistence:",
+        "g_dem_t": "1. Demand", "g_dem_d": "Holt-Winters on history. Cloud Consensus Adjustments take priority and track FVA.",
         "g_pro_t": "2. Production (MPS)", "g_pro_d": "Absorbs ERP orders. `New Orders = Demand + Target Stock - Init Stock - ERP Orders`.",
         "g_com_t": "3. Purchasing (MRP)", "g_com_d": "Explodes New Production Orders. Absorbs ERP Purchase Orders. Includes Pegging.",
         "g_cap_t": "4. Capacity", "g_cap_d": "Converts Kilos to Hours and crosses against Plant Calendars.",
@@ -610,9 +661,14 @@ def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, p
     return d
 
 
-# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS ---
+# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS + SINCRONIZACIÓN GITHUB ---
 if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_ajustes'], pd.DataFrame):
-    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+    df_cloud_init = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES)
+    if not df_cloud_init.empty and set(COLS_AJUSTES).issubset(df_cloud_init.columns):
+        st.session_state['df_ajustes'] = df_cloud_init[COLS_AJUSTES].copy()
+    else:
+        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+
 if 'last_ajuste_file' not in st.session_state:
     st.session_state['last_ajuste_file'] = None
 
@@ -621,13 +677,14 @@ df = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
 id_ajuste_actual = "DEMO_AJUSTES" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
 if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
     df_aj_cargado = validar_y_cargar_tabla(file_ajustes, COLS_AJUSTES, "2. Ajustes Consenso", permitir_vacio=True)
-    if isinstance(df_aj_cargado, pd.DataFrame):
+    if isinstance(df_aj_cargado, pd.DataFrame) and not df_aj_cargado.empty:
         st.session_state['df_ajustes'] = df_aj_cargado
-    else:
-        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+    elif id_ajuste_actual == "DEMO_AJUSTES" and isinstance(df_aj_cargado, pd.DataFrame):
+        st.session_state['df_ajustes'] = df_aj_cargado
     st.session_state['last_ajuste_file'] = id_ajuste_actual
-elif file_ajustes is None and st.session_state['last_ajuste_file'] is not None:
-    st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+elif file_ajustes is None and st.session_state['last_ajuste_file'] == "DEMO_AJUSTES":
+    df_cloud_fallback = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES)
+    st.session_state['df_ajustes'] = df_cloud_fallback[COLS_AJUSTES].copy() if not df_cloud_fallback.empty else pd.DataFrame(columns=COLS_AJUSTES)
     st.session_state['last_ajuste_file'] = None
 
 df_ajustes = st.session_state['df_ajustes']
@@ -804,21 +861,40 @@ def aplicar_variacion_cliente(pais, cliente, pct):
         df_aj = st.session_state['df_ajustes'].copy()
         df_aj = df_aj[~((df_aj['País'] == pais) & (df_aj['customer cod'] == cliente))]
         nuevas = []
+        eventos_fva = []
+        ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
         for sku_c in sub['sku cod'].unique():
             s_sku = sub[sub['sku cod'] == sku_c].groupby('Date')['volume'].sum().resample("MS").sum().fillna(0)
             s_mod = limpiar_anomalias(s_sku) if usar_limpieza_outliers else s_sku
             fcst = calcular_forecast(s_mod, horizonte)
             for f_dt, val in fcst.items():
+                est_val = round(float(val), 2)
+                ovr_val = round(float(val) * factor, 2)
                 nuevas.append({
                     'Date': f_dt,
                     'País': pais,
                     'customer cod': cliente,
                     'sku cod': sku_c,
-                    'override_value': round(float(val) * factor, 2)
+                    'override_value': ovr_val
+                })
+                eventos_fva.append({
+                    "Fecha_Cambio (CET)": ahora_cet,
+                    "Usuario": usuario_actual,
+                    "Tipo_Ajuste": f"Macro Factor ({pct:+.1f}%)",
+                    "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
+                    "País": pais,
+                    "customer cod": cliente,
+                    "sku cod": sku_c,
+                    "Forecast_Estadistico": est_val,
+                    "Consenso_Override": ovr_val,
+                    "Delta_Kg": round(ovr_val - est_val, 2),
+                    "Delta_Pct_FVA": round(float(pct), 1)
                 })
         if nuevas:
             df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
         st.session_state['df_ajustes'] = df_aj
+        github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Macro Factor ({pct:+.1f}%) by {usuario_actual} on {cliente}")
+        registrar_evento_fva_consenso(eventos_fva)
         return True, "OK"
     except Exception as e:
         return False, str(e)
@@ -1044,6 +1120,166 @@ def motor_kpis_n12m(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, outl, max
     return v_total, r_total, m_total
 
 
+def generar_pdf_executive_sop_deck(
+    pais_f, cli_f, sku_f, total_skus, total_clientes,
+    fa_val, bias_val, wape_val,
+    vol_l12, rev_l12, mar_l12,
+    vol_n12, rev_n12, mar_n12
+):
+    """Genera el Executive S&OP Deck multipágina en formato PDF corporativo."""
+    if FPDF is None:
+        return None
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # --- PÁGINA 1: RESUMEN EJECUTIVO, P&L Y FIABILIDAD DEL MODELO ---
+    pdf.add_page()
+    pdf.set_fill_color(30, 62, 91)  # #1E3E5B Corporativo
+    pdf.rect(0, 0, 210, 32, 'F')
+    pdf.set_font("Arial", 'B', 16)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_y(8)
+    pdf.cell(0, 8, txt=_pdf_safe("EXECUTIVE S&OP DECK - MONTHLY CYCLE"), ln=True, align='C')
+    pdf.set_font("Arial", '', 10)
+    ahora_str = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M CET")
+    pdf.cell(0, 6, txt=_pdf_safe(f"AB Agri Global Supply Chain | Generado: {ahora_str} | Scope: Pais={pais_f} | Cliente={cli_f} | SKU={sku_f}"), ln=True, align='C')
+    pdf.ln(12)
+
+    # 1. KPIs Comerciales y Financieros (L12M vs N12M)
+    pdf.set_text_color(30, 62, 91)
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(0, 9, txt=_pdf_safe("1. P&L Consolidado & Crecimiento S&OP (L12M vs N12M en GBP)"), ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 6, txt=_pdf_safe(f"   - Cartera Activa Filtrada: {total_skus} SKUs (PT) | {total_clientes} Clientes Activos"), ln=True)
+
+    d_vol = vol_n12 - vol_l12
+    d_rev = rev_n12 - rev_l12
+    d_mar = mar_n12 - mar_l12
+    pct_mar_l12 = (mar_l12 / rev_l12 * 100) if rev_l12 > 0 else 0.0
+    pct_mar_n12 = (mar_n12 / rev_n12 * 100) if rev_n12 > 0 else 0.0
+
+    pdf.ln(2)
+    pdf.set_fill_color(224, 230, 237)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(55, 8, _pdf_safe("Metrica S&OP"), 1, 0, 'L', True)
+    pdf.cell(45, 8, _pdf_safe("Last 12M (Hist)"), 1, 0, 'R', True)
+    pdf.cell(45, 8, _pdf_safe("Next 12M (Proj)"), 1, 0, 'R', True)
+    pdf.cell(45, 8, _pdf_safe("Variacion (Delta)"), 1, 1, 'R', True)
+
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(55, 8, _pdf_safe("Volumen Total (Kg)"), 1, 0, 'L')
+    pdf.cell(45, 8, _pdf_safe(f"{vol_l12:,.0f} Kg"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"{vol_n12:,.0f} Kg"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"{d_vol:+,.0f} Kg"), 1, 1, 'R')
+
+    pdf.cell(55, 8, _pdf_safe("Revenue Consolidado (GBP)"), 1, 0, 'L')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {rev_l12:,.0f}"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {rev_n12:,.0f}"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {d_rev:+,.0f}"), 1, 1, 'R')
+
+    pdf.cell(55, 8, _pdf_safe("Gross Margin (GBP / %)"), 1, 0, 'L')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {mar_l12:,.0f} ({pct_mar_l12:.1f}%)"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {mar_n12:,.0f} ({pct_mar_n12:.1f}%)"), 1, 0, 'R')
+    pdf.cell(45, 8, _pdf_safe(f"GBP {d_mar:+,.0f}"), 1, 1, 'R')
+    pdf.ln(6)
+
+    # 2. Fiabilidad del Modelo de Demanda
+    pdf.set_text_color(30, 62, 91)
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(0, 9, txt=_pdf_safe("2. Fiabilidad Estadistica del Modelo de Demanda (L12M)"), ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 6, txt=_pdf_safe(f"   - Forecast Accuracy (FA): {fa_val:.1f}%  |  WAPE: {wape_val:.1f}%  |  Bias Global: {bias_val:+.1f}%"), ln=True)
+
+    df_fva_hist = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
+    if not df_fva_hist.empty and 'Delta_Kg' in df_fva_hist.columns:
+        tot_cambios = len(df_fva_hist)
+        delta_neto_fva = pd.to_numeric(df_fva_hist['Delta_Kg'], errors='coerce').fillna(0).sum()
+        pdf.cell(0, 6, txt=_pdf_safe(f"   - Gobernanza Consenso (FVA Cloud): {tot_cambios} overrides registrados | Impacto Neto: {delta_neto_fva:+,.0f} Kg"), ln=True)
+    pdf.ln(5)
+
+    # 3. Top Alertas de Excepciones en Mes 1 (PT y MP)
+    pdf.set_text_color(30, 62, 91)
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(0, 9, txt=_pdf_safe("3. Radar de Excepciones Operativas en Mes 1 (Roturas DOH<15d / Excesos DOH>60d)"), ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", '', 9)
+
+    mps_deck = generar_mps_global()
+    mrp_deck = generar_mrp_global()
+    if mps_deck:
+        df_mps_d = pd.concat(mps_deck.values()).rename_axis('Date').reset_index()
+        df_mps_d['Date'] = pd.to_datetime(df_mps_d['Date'])
+        m1_dt = sorted(df_mps_d['Date'].unique())[0]
+        df_alert_pt = df_mps_d[(df_mps_d['Date'] == m1_dt) & ((df_mps_d['DOH'] < 15) | (df_mps_d['DOH'] > 60))].sort_values('DOH').head(6)
+        if df_alert_pt.empty:
+            pdf.cell(0, 6, txt=_pdf_safe("   - Producto Terminado (PT): Sin alertas criticas de cobertura en M1."), ln=True)
+        else:
+            pdf.set_font("Arial", 'B', 9)
+            pdf.cell(0, 6, txt=_pdf_safe(f"   - Top Alertas Producto Terminado (Mes {m1_dt.strftime('%Y-%m')}):"), ln=True)
+            pdf.set_font("Arial", '', 9)
+            for _, r_pt in df_alert_pt.iterrows():
+                est_al = "ROTURA (<15d)" if r_pt['DOH'] < 15 else "EXCESO (>60d)"
+                pdf.cell(0, 5, txt=_pdf_safe(f"     * [{r_pt['sku cod']}] {str(r_pt['sku desc'])[:28]} -> {est_al} | DOH: {r_pt['DOH']:.0f}d | Stock Final: {r_pt['Stock_Final']:,.0f} Kg"), ln=True)
+
+    if mrp_deck is not None and not mrp_deck.empty:
+        mrp_deck['Date'] = pd.to_datetime(mrp_deck['Date'])
+        m1_rm = sorted(mrp_deck['Date'].unique())[0]
+        df_alert_mp = mrp_deck[(mrp_deck['Date'] == m1_rm) & ((mrp_deck['DOH'] < 15) | (mrp_deck['DOH'] > 60))].sort_values('DOH').head(5)
+        if not df_alert_mp.empty:
+            pdf.set_font("Arial", 'B', 9)
+            pdf.cell(0, 6, txt=_pdf_safe(f"   - Top Alertas Materia Prima (Mes {m1_rm.strftime('%Y-%m')}):"), ln=True)
+            pdf.set_font("Arial", '', 9)
+            for _, r_mp in df_alert_mp.iterrows():
+                est_mp = "ROTURA (<15d)" if r_mp['DOH'] < 15 else "EXCESO PO (>60d)"
+                pdf.cell(0, 5, txt=_pdf_safe(f"     * [{r_mp['rm cod']}] {str(r_mp['rm desc'])[:28]} -> {est_mp} | DOH: {r_mp['DOH']:.0f}d | Lanzar PO: {r_mp['Lanzamiento_Pedidos']:,.0f} Kg"), ln=True)
+    pdf.ln(5)
+
+    # 4. Capacidad de Planta (RCCP) y Racionalización MTO/MTS
+    pdf.set_text_color(30, 62, 91)
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(0, 9, txt=_pdf_safe("4. Saturacion de Lineas (RCCP) & Optimizacion de Working Capital (MTS -> MTO)"), ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", '', 9)
+
+    if mps_deck and df_rutas is not None and df_cal is not None:
+        df_mps_c = pd.concat(mps_deck.values()).rename_axis('Date').reset_index()
+        df_mps_c['Carga_Kg'] = df_mps_c['Entradas_Netas'] + df_mps_c['Recepciones_ERP']
+        df_req_c = pd.merge(df_mps_c[df_mps_c['Carga_Kg'] > 0], df_rutas, on='sku cod', how='inner')
+        if not df_req_c.empty:
+            df_req_c['Horas_Nec'] = df_req_c['Carga_Kg'] / pd.to_numeric(df_req_c['Kilos_por_Hora'], errors='coerce').fillna(3500).replace(0, 1)
+            df_cal_c = df_cal.copy()
+            df_cal_c['Date'] = pd.to_datetime(df_cal_c['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            df_req_c['Date'] = pd.to_datetime(df_req_c['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            df_cap_c = pd.merge(df_req_c.groupby(['Date', 'Maquina'])['Horas_Nec'].sum().reset_index(), df_cal_c, on=['Date', 'Maquina'], how='left').fillna({'Horas_Disponibles': 740})
+            df_cap_c['Util'] = (df_cap_c['Horas_Nec'] / pd.to_numeric(df_cap_c['Horas_Disponibles'], errors='coerce').fillna(740).replace(0, 1)) * 100
+            res_maq = df_cap_c.groupby('Maquina')['Util'].agg(['mean', 'max']).reset_index()
+            for _, r_m in res_maq.iterrows():
+                estado_l = "CUELLO DE BOTELLA (>100%)" if r_m['max'] > 100 else ("ALTA CARGA (>85%)" if r_m['max'] > 85 else "OK")
+                pdf.cell(0, 5, txt=_pdf_safe(f"   - Linea {r_m['Maquina']}: Utilizacion Media = {r_m['mean']:.1f}% | Pico Maximo = {r_m['max']:.1f}% [{estado_l}]"), ln=True)
+
+    if df_abcxyz_global is not None and not df_abcxyz_global.empty and df_stock is not None and not df_stock.empty:
+        df_aud_p = pd.merge(
+            df_abcxyz_global[['sku cod', 'sku desc', 'Clase']],
+            df_stock[['sku cod', 'stock_disponible', 'Categoria', 'Coste_Unitario']].drop_duplicates(subset=['sku cod']),
+            on='sku cod', how='inner'
+        )
+        if not df_aud_p.empty:
+            df_aud_p['Cat_Up'] = df_aud_p['Categoria'].astype(str).str.strip().str.upper()
+            mask_lib = df_aud_p['Clase'].isin(['CZ', 'BZ', 'CY', 'CX']) & (df_aud_p['Cat_Up'] == 'MTS')
+            df_lib = df_aud_p[mask_lib].copy()
+            df_lib['WC_Lib'] = pd.to_numeric(df_lib['stock_disponible'], errors='coerce').fillna(0) * pd.to_numeric(df_lib['Coste_Unitario'], errors='coerce').fillna(0) * fx_eur_gbp
+            ahorro_total = df_lib['WC_Lib'].sum()
+            pdf.ln(2)
+            pdf.set_font("Arial", 'B', 10)
+            pdf.set_text_color(0, 110, 50)
+            pdf.cell(0, 7, txt=_pdf_safe(f"   >>> OPORTUNIDAD WORKING CAPITAL (MTS -> MTO): GBP {ahorro_total:,.0f} liberables en {len(df_lib)} SKUs erraticos."), ln=True)
+
+    return bytes(pdf.output())
+
+
 # ==========================================
 # PREPARACIÓN DATOS BASE
 # ==========================================
@@ -1094,9 +1330,10 @@ with tab_guia:
     st.markdown("**🔠 7. ABC/XYZ**: Segmentación estratégica cruzando volumen (ABC), volatilidad (XYZ) y racionalización MTS/MTO con ahorro de Working Capital.")
     st.markdown("**🚨 8. Excepciones**: Radar automático para riesgo de roturas (DOH < 15) y excesos (DOH > 60).")
     st.markdown("**🔀 9. What-If**: Simulador financiero interactivo. Estresa volúmenes, precios y costes para evaluar impacto en margen.")
+    st.markdown("**📊 10. Dashboard**: Incluye KPIs ejecutivos L12M vs N12M y exportación directa del **Executive S&OP Deck (PDF)**.")
 
 # ==========================================
-# MODULO 1: DEMANDA
+# MODULO 1: DEMANDA + PERSISTENCIA CLOUD & FVA
 # ==========================================
 with tab_demanda:
     if "tab1" not in modulos_permitidos:
@@ -1135,22 +1372,51 @@ with tab_demanda:
             btn_c1, btn_c2 = st.columns(2)
             with btn_c1:
                 if pais_sel != "TODOS" and cliente_sel != "TODOS" and sku_sel != "TODOS":
-                    if st.button("💾 Guardar / Save (RAM)", use_container_width=True):
+                    if st.button("💾 Guardar Consenso (RAM + GitHub)", use_container_width=True, type="primary"):
                         if st.session_state['df_ajustes'] is not None:
                             df_aj = st.session_state['df_ajustes'].copy()
                             df_aj = df_aj[~((df_aj['País'] == pais_sel) & (df_aj['customer cod'] == cliente_sel) & (df_aj['sku cod'] == sku_sel))]
                             df_mod = df_editado[df_editado['Consenso'] != df_editado['Estadistico']].copy()
-                            nuevas_filas = [
-                                {'Date': pd.to_datetime(f), 'País': pais_sel, 'customer cod': cliente_sel, 'sku cod': sku_sel, 'override_value': r['Consenso']}
-                                for f, r in df_mod.iterrows()
-                            ]
+                            ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
+                            nuevas_filas = []
+                            eventos_fva = []
+                            for f, r in df_mod.iterrows():
+                                est_v = round(float(r['Estadistico']), 2)
+                                ovr_v = round(float(r['Consenso']), 2)
+                                delta_kg = round(ovr_v - est_v, 2)
+                                delta_pct = round((delta_kg / est_v * 100), 1) if est_v > 0 else 0.0
+                                nuevas_filas.append({
+                                    'Date': pd.to_datetime(f),
+                                    'País': pais_sel,
+                                    'customer cod': cliente_sel,
+                                    'sku cod': sku_sel,
+                                    'override_value': ovr_v
+                                })
+                                eventos_fva.append({
+                                    "Fecha_Cambio (CET)": ahora_cet,
+                                    "Usuario": usuario_actual,
+                                    "Tipo_Ajuste": "Override Manual",
+                                    "Date": pd.to_datetime(f).strftime("%Y-%m-%d"),
+                                    "País": pais_sel,
+                                    "customer cod": cliente_sel,
+                                    "sku cod": sku_sel,
+                                    "Forecast_Estadistico": est_v,
+                                    "Consenso_Override": ovr_v,
+                                    "Delta_Kg": delta_kg,
+                                    "Delta_Pct_FVA": delta_pct
+                                })
                             if nuevas_filas:
                                 df_aj = pd.concat([df_aj, pd.DataFrame(nuevas_filas)], ignore_index=True)
                             st.session_state['df_ajustes'] = df_aj
-                            st.success("✅ Guardado Temporal en RAM")
+                            ok_cloud = github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Consensus override by {usuario_actual} on {sku_sel}")
+                            registrar_evento_fva_consenso(eventos_fva)
+                            if ok_cloud:
+                                st.success("✅ Guardado en RAM y sincronizado permanentemente en GitHub Cloud")
+                            else:
+                                st.success("✅ Guardado en RAM y almacenamiento local")
                             st.rerun()
                 else:
-                    st.info("⚠️ Selecciona País, Cliente y SKU para editar.")
+                    st.info("⚠️ Selecciona País, Cliente y SKU para editar y sincronizar en la nube.")
                     
             with btn_c2:
                 if not st.session_state['df_ajustes'].empty:
@@ -1172,13 +1438,48 @@ with tab_demanda:
             pct_macro = st.number_input("Variation % (e.g. 15, -20):", value=15.0, step=5.0, format="%.1f")
             if st.button("🚀 Apply Macro Factor"):
                 if pais_macro and cli_macro:
-                    with st.spinner("Processing..."):
+                    with st.spinner("Sincronizando Macro Factor en RAM y GitHub..."):
                         exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
                         if exito:
-                            st.success("Done!")
+                            st.success("Done & Synced to Cloud!")
                             st.rerun()
                         else:
                             st.error(msg)
+
+        st.divider()
+        with st.expander("📋 Historial de Cambios de Consenso & Auditoría FVA (Forecast Value Added)"):
+            st.caption("Registro permanente en GitHub de todos los ajustes manuales y Macro Factors aplicados sobre la base estadística Holt-Winters.")
+            col_fva1, col_fva2 = st.columns([1, 4])
+            with col_fva1:
+                if st.button("🔄 Refrescar Log FVA", use_container_width=True):
+                    st.session_state["df_fva_logs"] = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
+            df_fva_view = st.session_state.get("df_fva_logs", github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG))
+            if df_fva_view is None or df_fva_view.empty:
+                st.info("Aún no se han registrado modificaciones manuales de consenso en la nube.")
+            else:
+                fva_c1, fva_c2, fva_c3 = st.columns(3)
+                fva_c1.metric("Overrides Registrados", f"{len(df_fva_view)}")
+                fva_c2.metric("SKUs Intervenidos", f"{df_fva_view['sku cod'].nunique()}")
+                delta_sum_fva = pd.to_numeric(df_fva_view['Delta_Kg'], errors='coerce').fillna(0).sum()
+                fva_c3.metric("Volumen Neto Añadido (FVA)", f"{delta_sum_fva:+,.0f} Kg")
+
+                st.dataframe(
+                    df_fva_view.iloc[::-1].style.format({
+                        "Forecast_Estadistico": "{:,.0f} Kg",
+                        "Consenso_Override": "{:,.0f} Kg",
+                        "Delta_Kg": "{:+,.0f} Kg",
+                        "Delta_Pct_FVA": "{:+.1f}%"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                csv_fva = df_fva_view.iloc[::-1].to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    label="📥 Descargar Auditoría FVA (.csv)",
+                    data=csv_fva,
+                    file_name=f"Audit_FVA_Consenso_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
 
 # ==========================================
 # MODULO 2: PRODUCCIÓN (MPS)
@@ -2036,7 +2337,7 @@ with tab_whatif:
                     st.download_button(label="📄 Descargar Resumen PDF", data=bytes(pdf.output()), file_name="SOP_WhatIf.pdf", mime="application/pdf", type="primary")
 
 # ==========================================
-# MODULO 10: DASHBOARD EJECUTIVO
+# MODULO 10: DASHBOARD EJECUTIVO + EXECUTIVE S&OP DECK PDF
 # ==========================================
 with tab_kpis:
     if "tab10" not in modulos_permitidos:
@@ -2170,3 +2471,26 @@ with tab_kpis:
                     use_container_width=True,
                     hide_index=True
                 )
+
+                # ==========================================
+                # GENERADOR AUTOMÁTICO DEL EXECUTIVE S&OP DECK EN PDF
+                # ==========================================
+                if FPDF is not None:
+                    st.divider()
+                    st.markdown("### 📑 Exportar Dossier Directivo: Executive S&OP Deck (PDF)")
+                    st.caption("Genera al instante el informe ejecutivo para el Comité S&OP consolidando P&L (L12M vs N12M en GBP), Forecast Accuracy/Bias/FVA, Alertas de Rotura en M1, Cuellos de Botella en Planta (RCCP) y Liberación de Working Capital.")
+                    bytes_deck = generar_pdf_executive_sop_deck(
+                        pais_sel, cliente_sel, sku_sel, total_skus, total_clientes,
+                        fa_val, bias_val, wape_val,
+                        vol_12m_hist, rev_12m_hist, mar_12m_hist,
+                        vol_12m_fcst, rev_12m_fcst, mar_12m_fcst
+                    )
+                    if bytes_deck:
+                        st.download_button(
+                            label="📄 Descargar Executive S&OP Deck Completo (.pdf)",
+                            data=bytes_deck,
+                            file_name=f"Executive_SOP_Deck_{datetime.now().strftime('%Y_%m')}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
+                        )
