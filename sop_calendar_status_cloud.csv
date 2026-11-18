@@ -1,0 +1,6 @@
+﻿Fase,Etapa S&OP,Dias_Mes,Dia_Inicio,Dia_Fin,Owner,Entregable_Clave,Estado,Notas_Comite
+01. Data & Portfolio,1. Limpieza de Datos y Revisión de Cartera,Días 1 - 5,1,5,S&OP Manager / IT,Carga de 8 Tablas ERP y Torneo Auto-ML,✅ Completado,Datos validados sin errores de esquema.
+02. Demand Review,2. Revisión de Demanda y Consenso Comercial,Días 6 - 10,6,10,Commercial Manager,Overrides en Pestaña 1 y Snapshot FVA congelado,🔄 En Curso,Revisión de cuentas clave y promociones.
+03. Supply & RCCP,"3. Revisión de Suministro, MRP y Capacidad Planta",Días 11 - 16,11,16,Operations & Procurement,Nivelación Pre-Build RCCP (Pestaña 4) y Pegging MP,⏳ Pendiente,Validar turnos en Línea 3 Pellet y POs críticas.
+04. Pre-S&OP Finance,4. Pre-S&OP: Reconciliación Financiera y Escenarios,Días 17 - 21,17,21,Finance & S&OP Manager,"Puente Waterfall GBP, Budget Gap y Working Capital",⏳ Pendiente,Evaluar liberación de caja MTS -> MTO.
+05. Executive S&OP,5. Reunión Ejecutiva S&OP y Aprobación Plan Único,Días 22 - 25,22,25,SLT / General Management,Firma del Executive S&OP Deck PDF y Master Pack ERP,⏳ Pendiente,Aprobación final y lanzamiento de órdenes M1.
