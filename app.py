@@ -1985,6 +1985,7 @@ tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, t
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
 ])
 # >>> FIN DE LA PARTE 1 DE 2 (PEGA JUSTO DEBAJO LA PARTE 2) <<<
+
 # ==============================================================================
 # S&OP / IBP CORPORATE PLATFORM - PARTE 2 DE 2 (MÓDULOS 0 AL 10 + NPI + TURNOS + MTO/MTS FIX)
 # ==============================================================================
