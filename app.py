@@ -1095,11 +1095,11 @@ def obtener_parametros_stock(codigo, cob_defecto=2):
     return 0.0, int(cob_defecto), 0
 
 
-# --- HUELLA DIGITAL DEL DATASET ACTIVO PARA INVALIDAR CACHÉ AUTOMÁTICAMENTE ---
-_firma_skus = f"{len(df)}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
+# --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN PARA DETECTAR CAMBIOS DE ESCALA) ---
+_firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
 _firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
-_firma_stk = f"{len(df_stock)}_{df_stock['stock_disponible'].sum()}" if (df_stock is not None and not df_stock.empty) else "nostk"
-_firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()}"
+_firma_stk = f"{len(df_stock)}_{int(pd.to_numeric(df_stock['stock_disponible'], errors='coerce').fillna(0).sum())}" if (df_stock is not None and not df_stock.empty) else "nostk"
+_firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()):.1f}"
 DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}"
 
 
@@ -1409,16 +1409,11 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
 
 
 # ==========================================
-# MOTOR MPS Y MRP 100 % MATRICIAL 2D (SINCRONIZADO CON DATASET_SIGNATURE)
+# MOTOR MPS Y MRP 100 % MATRICIAL 2D (CON HASH EXPLÍCITO DE FIRMA `sig`)
 # ==========================================
 @st.cache_data(show_spinner=False)
-def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _sig=None):
-    """Calcula el MPS Global 2D invalidando la caché automáticamente cuando cambia el dataset (_sig)."""
-    if horiz is None: horiz = horizonte
-    if cob_fg is None: cob_fg = cobertura_fg
-    if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
-    if _sig is None: _sig = DATASET_SIGNATURE
-
+def _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig):
+    """Función interna cacheada: recibe `sig` SIN guion bajo para que Streamlit invalide caché al instante."""
     mat_fcst = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat_fcst is None or mat_fcst.empty:
         return pd.DataFrame()
@@ -1493,7 +1488,7 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _sig=None):
     skus_tile = np.tile(skus, H)
     descs_tile = np.tile([dict_sku_desc.get(s, str(s)) for s in skus], H)
 
-    df_mps_flat = pd.DataFrame({
+    return pd.DataFrame({
         'Date': fechas_rep,
         'sku cod': skus_tile,
         'sku desc': descs_tile,
@@ -1505,19 +1500,20 @@ def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, _sig=None):
         'Stock_Final': stk_fin_2d.ravel(),
         'DOH': doh_2d.ravel()
     })
-    return df_mps_flat
+
+
+def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, sig=None):
+    """Wrapper público que inyecta siempre DATASET_SIGNATURE antes de entrar en @st.cache_data."""
+    h = horiz if horiz is not None else int(horizonte)
+    c_fg = cob_fg if cob_fg is not None else int(cobertura_fg)
+    mod = metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel)
+    s_key = sig if sig is not None else str(DATASET_SIGNATURE)
+    return _calcular_mps_df_2d_cached(h, c_fg, mod, s_key).copy()
 
 
 @st.cache_data(show_spinner=False)
-def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _sig=None):
-    """Explosión BOM 100% Matricial 2D sincronizada con la firma del dataset activo (_sig)."""
-    if horiz is None: horiz = horizonte
-    if cob_fg is None: cob_fg = cobertura_fg
-    if cob_rm is None: cob_rm = cobertura_rm
-    if metodo_fcst is None: metodo_fcst = modelo_fcst_sel
-    if _sig is None: _sig = DATASET_SIGNATURE
-
-    df_mps_all = generar_mps_df_2d(horiz=horiz, cob_fg=cob_fg, metodo_fcst=metodo_fcst, _sig=_sig)
+def _calcular_mrp_global_cached(horiz, cob_fg, cob_rm, metodo_fcst, sig):
+    df_mps_all = _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig).copy()
     if df_bom is None or df_bom.empty or df_mps_all.empty:
         return pd.DataFrame()
 
@@ -1601,7 +1597,7 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _
     dem_futura_2d = np.vstack([salidas_rm_2d[1:, :], media_rec_vec.reshape(1, -1)])
     doh_2d = np.where(dem_futura_2d > 0, np.round((stk_fin_2d / dem_futura_2d) * 30.0, 0), 0.0)
 
-    df_mrp_flat = pd.DataFrame({
+    return pd.DataFrame({
         'Date': np.repeat(idx_fechas.values, M),
         'rm cod': np.tile(rms, H),
         'rm desc': np.tile([dict_rm_desc.get(r, str(r)) for r in rms], H),
@@ -1615,15 +1611,22 @@ def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, _
         'Stock_Final': stk_fin_2d.ravel(),
         'DOH': doh_2d.ravel()
     })
-    return df_mrp_flat
+
+
+def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, sig=None):
+    h = horiz if horiz is not None else int(horizonte)
+    c_fg = cob_fg if cob_fg is not None else int(cobertura_fg)
+    c_rm = cob_rm if cob_rm is not None else int(cobertura_rm)
+    mod = metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel)
+    s_key = sig if sig is not None else str(DATASET_SIGNATURE)
+    return _calcular_mrp_global_cached(h, c_fg, c_rm, mod, s_key).copy()
 
 
 # ==========================================
 # FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE VECTORIZADO
 # ==========================================
 @st.cache_data(show_spinner=False)
-def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, _sig=None):
-    if _sig is None: _sig = DATASET_SIGNATURE
+def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat is None or mat.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -1648,8 +1651,7 @@ def motor_simulador_whatif(skus_filtrados, dict_p, dict_m, dict_c, f_eur, f_dkk,
 
 
 @st.cache_data(show_spinner=False)
-def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12, _sig=None):
-    if _sig is None: _sig = DATASET_SIGNATURE
+def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     if mat is None or mat.empty or df_f.empty:
         return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
@@ -1711,7 +1713,6 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
         "mar_a": delta_mar_a, "mar_bc": delta_mar_bc, "mar_fva": delta_mar_fva
     }
     return v_total_con, r_total_con, m_total_con, puente_dict
-
 
 def generar_pdf_executive_sop_deck(
     pais_f, cli_f, sku_f, total_skus, total_clientes,
@@ -2740,7 +2741,7 @@ with tab_cap:
                             ))
 
 # ==========================================
-# MODULO 5: FINANZAS (VALORACIÓN ROBUSTA VÍA FACTOR DE CRECIMIENTO DE VOLUMEN)
+# MODULO 5: FINANZAS (100% REACTIVO Y ALINEADO POR PAÍS / CLIENTE / SKU)
 # ==========================================
 with tab_fin:
     if "tab5" not in modulos_permitidos:
@@ -2752,8 +2753,8 @@ with tab_fin:
         else:
             col1, col2 = st.columns(2)
             with col1:
-                opciones_pl = ["Consolidado Global", "Por País", "Por Cliente", "Por SKU"]
-                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:"), opciones_pl, key="fin_nivel")
+                opciones_pl = ["Seguir Filtros Superiores", "Consolidado Global", "Por País", "Por Cliente", "Por SKU"]
+                nivel_pl = st.selectbox(tr("📊 Nivel de Análisis:", "📊 Level of Analysis:"), opciones_pl, index=0, key="fin_nivel")
                 filtro_pl = None
                 if nivel_pl == "Por País":
                     filtro_pl = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()), key="fin_pais")
@@ -2763,147 +2764,158 @@ with tab_fin:
                     filtro_pl = st.selectbox("SKU:", sorted(df['sku cod'].dropna().unique()), key="fin_sku")
             with col2:
                 vista_wc = st.selectbox(tr("📦 Vista Working Capital:", "📦 Working Capital View:"), ["Total (PT + MP)", "Producto Terminado (PT)", "Materia Prima (MP)"], key="fin_wc")
-                
-            if st.button(tr("📈 Calcular P&L y Working Capital", "📈 Calculate P&L & Working Capital"), key="btn_calc_fin"):
-                with st.spinner(tr("Procesando P&L consolidado en GBP...", "Processing consolidated P&L in GBP...")):
-                    # 1. Filtrar histórico real
-                    if nivel_pl == "Por País":
-                        df_fin_target = df[df['País'] == filtro_pl].copy()
-                        skus_validos = set(df_fin_target['sku cod'].unique())
-                    elif nivel_pl == "Por Cliente":
-                        df_fin_target = df[df['customer cod'] == filtro_pl].copy()
-                        skus_validos = set(df_fin_target['sku cod'].unique())
-                    elif nivel_pl == "Por SKU":
-                        df_fin_target = df[df['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()].copy()
-                        skus_validos = {str(filtro_pl).strip()}
-                    else:
-                        df_fin_target = df.copy()
-                        skus_validos = set(df['sku cod'].unique())
 
-                    df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP', 'volume']].sum().reset_index()
-                    df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP', 'volume': 'Vol_Kg'})
+            # 1. Determinar el DataFrame objetivo según el selector (reactivo en tiempo real sin botón bloqueante)
+            if nivel_pl == "Seguir Filtros Superiores":
+                df_fin_target = df_final.copy()
+                titulo_estrategico = f"{pais_sel} | {cliente_sel} | {sku_sel}"
+            elif nivel_pl == "Por País":
+                df_fin_target = df[df['País'] == filtro_pl].copy()
+                titulo_estrategico = f"{tr('País', 'Country')}: {filtro_pl}"
+            elif nivel_pl == "Por Cliente":
+                df_fin_target = df[df['customer cod'] == filtro_pl].copy()
+                titulo_estrategico = f"{tr('Cliente', 'Customer')}: {filtro_pl}"
+            elif nivel_pl == "Por SKU":
+                df_fin_target = df[df['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()].copy()
+                titulo_estrategico = f"SKU: {filtro_pl}"
+            else:
+                df_fin_target = df.copy()
+                titulo_estrategico = tr("Consolidado Global", "Global Consolidated")
 
-                    # 2. Obtener revenue y margen medio histórico por kilo para este ámbito
-                    total_rev_hist = df_hist_pl['Revenue_GBP'].sum()
-                    total_mar_hist = df_hist_pl['Margin_GBP'].sum()
-                    total_vol_hist = df_hist_pl['Vol_Kg'].sum()
-                    precio_medio_gbp_kg = (total_rev_hist / total_vol_hist) if total_vol_hist > 0 else 4.0
-                    margen_medio_gbp_kg = (total_mar_hist / total_vol_hist) if total_vol_hist > 0 else 1.2
+            skus_validos = set(df_fin_target['sku cod'].astype(str).str.strip().unique())
 
-                    # 3. Generar forecast mensual estricto usando el MPS 2D
-                    df_mps_fin = generar_mps_df_2d()
-                    if not df_mps_fin.empty:
-                        df_mps_fin['sku_clean'] = df_mps_fin['sku cod'].astype(str).str.strip()
-                        df_mps_sub = df_mps_fin[df_mps_fin['sku_clean'].isin(skus_validos)].copy()
-                    else:
-                        df_mps_sub = pd.DataFrame()
+            # 2. Serie histórica mensual real del ámbito filtrado
+            df_hist_pl = df_fin_target.groupby(pd.Grouper(key='Date', freq='MS'))[['Rev_GBP', 'Mar_GBP', 'volume']].sum().reset_index()
+            df_hist_pl = df_hist_pl.rename(columns={'Rev_GBP': 'Revenue_GBP', 'Mar_GBP': 'Margin_GBP', 'volume': 'Vol_Kg'})
+            df_hist_pl['Tipo_Periodo'] = tr('Histórico Real', 'Actual History')
 
-                    if not df_mps_sub.empty:
-                        # Cuota de participación histórica por SKU
-                        vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
-                        vol_filtro_sku = df_fin_target.groupby('sku cod')['volume'].sum().to_dict()
+            # 3. Proyección financiera directa sobre la serie de volumen del ámbito filtrado (garantiza continuidad 1:1)
+            serie_vol_target = df_hist_pl.set_index('Date')['Vol_Kg'] if not df_hist_pl.empty else pd.Series(dtype=float)
+            serie_vol_limpia = limpiar_anomalias(serie_vol_target) if usar_limpieza_outliers else serie_vol_target
+            fcst_vol_target = calcular_forecast_serie_unica(serie_vol_limpia, int(horizonte), modelo_fcst_sel)
 
-                        def obtener_share(sku):
-                            g_vol = vol_global_sku.get(sku, 0.0)
-                            if g_vol <= 0:
-                                return 1.0 if nivel_pl == "Consolidado Global" else 0.0
-                            return float(vol_filtro_sku.get(sku, 0.0)) / float(g_vol)
+            # Aplicar overrides si existen para este ámbito
+            aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
+            if not aj_sub.empty:
+                if nivel_pl == "Por País":
+                    aj_sub = aj_sub[aj_sub['País'] == filtro_pl]
+                elif nivel_pl == "Por Cliente":
+                    aj_sub = aj_sub[aj_sub['customer cod'] == filtro_pl]
+                elif nivel_pl == "Por SKU":
+                    aj_sub = aj_sub[aj_sub['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()]
+                elif nivel_pl == "Seguir Filtros Superiores":
+                    if pais_sel != "TODOS": aj_sub = aj_sub[aj_sub['País'] == pais_sel]
+                    if cliente_sel != "TODOS": aj_sub = aj_sub[aj_sub['customer cod'] == cliente_sel]
+                    if sku_sel != "TODOS": aj_sub = aj_sub[aj_sub['sku cod'] == sku_sel]
 
-                        df_mps_sub['Share_Filtro'] = df_mps_sub['sku_clean'].apply(obtener_share)
-                        df_mps_sub['Salidas_Filtradas'] = df_mps_sub['Salidas_Brutas'] * df_mps_sub['Share_Filtro']
-                        df_mps_sub['Stock_Final_Filtrado'] = df_mps_sub['Stock_Final'] * df_mps_sub['Share_Filtro']
+                if not aj_sub.empty and (nivel_pl in ["Por SKU", "Por Cliente"] or sku_sel != "TODOS"):
+                    aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+                    for f_dt, v_ovr in aj_sub.dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().items():
+                        if f_dt in fcst_vol_target.index:
+                            fcst_vol_target.at[f_dt] = float(v_ovr)
 
-                        # Valoración robusta basada en precios medios ponderados reales del ámbito
-                        df_mps_sub['Revenue_GBP'] = df_mps_sub['Salidas_Filtradas'] * precio_medio_gbp_kg
-                        df_mps_sub['Margin_GBP'] = df_mps_sub['Salidas_Filtradas'] * margen_medio_gbp_kg
-                        
-                        coste_medio_fg = max(0.0, precio_medio_gbp_kg - margen_medio_gbp_kg)
-                        df_mps_sub['WorkingCapital_GBP'] = df_mps_sub['Stock_Final_Filtrado'] * coste_medio_fg
+            # Precio y margen unitario medio de los últimos 6 meses del ámbito seleccionado
+            df_ult6 = df_hist_pl.tail(6)
+            vol_u6 = float(df_ult6['Vol_Kg'].sum()) if not df_ult6.empty else 0.0
+            precio_u_ambito = float(df_ult6['Revenue_GBP'].sum() / vol_u6) if vol_u6 > 0 else 4.0
+            margen_u_ambito = float(df_ult6['Margin_GBP'].sum() / vol_u6) if vol_u6 > 0 else 1.2
+            coste_u_ambito = max(0.0, precio_u_ambito - margen_u_ambito)
 
-                        df_fcst_pl = df_mps_sub.groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
-                        df_wc_pt_filtrado = df_mps_sub[['Date', 'sku_clean', 'WorkingCapital_GBP']].rename(columns={'sku_clean': 'Elemento'}).copy()
-                        df_wc_pt_filtrado['Categoria'] = 'Producto Terminado'
-                    else:
-                        df_fcst_pl = pd.DataFrame()
-                        df_wc_pt_filtrado = pd.DataFrame()
+            df_fcst_pl = pd.DataFrame({
+                'Date': fcst_vol_target.index,
+                'Revenue_GBP': fcst_vol_target.values * precio_u_ambito,
+                'Margin_GBP': fcst_vol_target.values * margen_u_ambito,
+                'Vol_Kg': fcst_vol_target.values,
+                'Tipo_Periodo': tr('Proyección S&OP', 'S&OP Projection')
+            })
 
-                    df_plot_pl = pd.concat([df_hist_pl[['Date', 'Revenue_GBP', 'Margin_GBP']], df_fcst_pl], ignore_index=True).groupby('Date', as_index=False)[['Revenue_GBP', 'Margin_GBP']].sum()
-                    titulo_estrategico = filtro_pl if nivel_pl != "Consolidado Global" else tr("Consolidado Global", "Global Consolidated")
-                    
-                    df_mrp = generar_mrp_global()
-                    if not df_mrp.empty and df_stock is not None:
-                        mapa_coste_rm = df_stock.drop_duplicates('sku cod').set_index('sku cod')['Coste_Unitario'].to_dict()
-                        rms_validos = set(df_bom[df_bom['sku cod'].astype(str).str.strip().isin(skus_validos)]['rm cod'].astype(str).str.strip().unique()) if (df_bom is not None and not df_bom.empty) else set()
-                        df_mrp['rm_clean'] = df_mrp['rm cod'].astype(str).str.strip()
-                        df_mrp_sub = df_mrp[df_mrp['rm_clean'].isin(rms_validos)].copy()
-                        
-                        proporcion_total_filtro = df_fin_target['volume'].sum() / max(1.0, df['volume'].sum()) if nivel_pl != "Consolidado Global" else 1.0
-                        df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm_clean'].map(mapa_coste_rm), errors='coerce').fillna(1.2)
-                        df_mrp_sub['WorkingCapital_GBP'] = df_mrp_sub['Stock_Final'] * df_mrp_sub['Coste_U'] * fx_eur_gbp * min(1.0, max(0.05, proporcion_total_filtro))
-                        
-                        df_wc_mp_filtrado = df_mrp_sub[['Date', 'rm_clean', 'WorkingCapital_GBP']].rename(columns={'rm_clean': 'Elemento'}).copy()
-                        df_wc_mp_filtrado['Categoria'] = 'Materia Prima'
-                    else:
-                        df_wc_mp_filtrado = pd.DataFrame()
+            df_plot_pl = pd.concat([df_hist_pl, df_fcst_pl], ignore_index=True)
 
-                    df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado], ignore_index=True) if (not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty) else pd.DataFrame()
+            # 4. Cálculo proporcional de Working Capital (PT + MP)
+            df_mps_fin = generar_mps_df_2d()
+            proporcion_ambito = float(df_fin_target['volume'].sum() / max(1.0, df['volume'].sum()))
+            if not df_mps_fin.empty:
+                df_mps_fin['sku_clean'] = df_mps_fin['sku cod'].astype(str).str.strip()
+                df_mps_sub = df_mps_fin[df_mps_fin['sku_clean'].isin(skus_validos)].copy()
+                vol_g_sku = df.groupby('sku cod')['volume'].sum().to_dict()
+                vol_f_sku = df_fin_target.groupby('sku cod')['volume'].sum().to_dict()
+                df_mps_sub['Share'] = [float(vol_f_sku.get(s, 0.0)) / max(1.0, float(vol_g_sku.get(s, 1.0))) for s in df_mps_sub['sku_clean']]
+                df_mps_sub['P_U'] = df_mps_sub['sku_clean'].map(dict_price).fillna(precio_u_ambito)
+                df_mps_sub['M_U'] = df_mps_sub['sku_clean'].map(dict_margin).fillna(margen_u_ambito)
+                df_mps_sub['WorkingCapital_GBP'] = df_mps_sub['Stock_Final'] * df_mps_sub['Share'] * np.maximum(0.0, df_mps_sub['P_U'] - df_mps_sub['M_U'])
+                df_wc_pt_filtrado = df_mps_sub[['Date', 'sku_clean', 'WorkingCapital_GBP']].rename(columns={'sku_clean': 'Elemento'}).copy()
+                df_wc_pt_filtrado['Categoria'] = 'Producto Terminado'
+            else:
+                df_wc_pt_filtrado = pd.DataFrame()
 
-                    if df_stock is None or df_stock.empty or df_wc_total.empty:
-                        df_plot_pl['WC_PT_GBP'] = 0.0
-                        df_plot_pl['WC_MP_GBP'] = 0.0
-                        df_plot_pl['WC_Total_GBP'] = 0.0
-                    else:
-                        df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0.0)
-                        if 'Producto Terminado' not in df_wc_pivot.columns:
-                            df_wc_pivot['Producto Terminado'] = 0.0
-                        if 'Materia Prima' not in df_wc_pivot.columns:
-                            df_wc_pivot['Materia Prima'] = 0.0
-                        df_plot_pl = pd.merge(
-                            df_plot_pl,
-                            df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']],
-                            on='Date', how='left'
-                        ).fillna(0.0)
-                        df_plot_pl['WC_Total_GBP'] = df_plot_pl['WC_PT_GBP'] + df_plot_pl['WC_MP_GBP']
+            df_mrp = generar_mrp_global()
+            if not df_mrp.empty and df_stock is not None:
+                mapa_coste_rm = df_stock.drop_duplicates('sku cod').set_index('sku cod')['Coste_Unitario'].to_dict()
+                rms_validos = set(df_bom[df_bom['sku cod'].astype(str).str.strip().isin(skus_validos)]['rm cod'].astype(str).str.strip().unique()) if (df_bom is not None and not df_bom.empty) else set()
+                df_mrp['rm_clean'] = df_mrp['rm cod'].astype(str).str.strip()
+                df_mrp_sub = df_mrp[df_mrp['rm_clean'].isin(rms_validos)].copy()
+                df_mrp_sub['Coste_U'] = pd.to_numeric(df_mrp_sub['rm_clean'].map(mapa_coste_rm), errors='coerce').fillna(1.2)
+                df_mrp_sub['WorkingCapital_GBP'] = df_mrp_sub['Stock_Final'] * df_mrp_sub['Coste_U'] * fx_eur_gbp * proporcion_ambito
+                df_wc_mp_filtrado = df_mrp_sub[['Date', 'rm_clean', 'WorkingCapital_GBP']].rename(columns={'rm_clean': 'Elemento'}).copy()
+                df_wc_mp_filtrado['Categoria'] = 'Materia Prima'
+            else:
+                df_wc_mp_filtrado = pd.DataFrame()
 
-                    if not df_plot_pl.empty:
-                        tot_rev = df_plot_pl['Revenue_GBP'].sum()
-                        tot_mar = df_plot_pl['Margin_GBP'].sum()
-                        mar_pct = (tot_mar / tot_rev * 100) if tot_rev > 0 else 0
-                        avg_wc = df_plot_pl['WC_Total_GBP'].mean()
-                        
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric(t["kpi_rev"], f"£ {tot_rev:,.0f}")
-                        c2.metric(t["kpi_mar"], f"£ {tot_mar:,.0f} ({mar_pct:.1f}%)")
-                        c3.metric(t["kpi_wc"], f"£ {avg_wc:,.0f}")
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        fig_pl = go.Figure()
-                        fig_pl.add_trace(go.Bar(x=df_plot_pl['Date'], y=df_plot_pl['Revenue_GBP'], name='Revenue', marker_color='#1E3E5B'))
-                        fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name=t["kpi_mar"], mode='lines+markers', line=dict(color='#88FFBB', width=4)))
-                        fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
-                        st.plotly_chart(fig_pl, use_container_width=True)
+            df_wc_total = pd.concat([df_wc_pt_filtrado, df_wc_mp_filtrado], ignore_index=True) if (not df_wc_pt_filtrado.empty or not df_wc_mp_filtrado.empty) else pd.DataFrame()
 
-                        if vista_wc == "Total (PT + MP)" and not df_wc_total.empty:
-                            fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'], as_index=False)['WorkingCapital_GBP'].sum(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                        elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty:
-                            top_pt_wc = df_wc_pt_filtrado.groupby('Elemento')['WorkingCapital_GBP'].sum().nlargest(10).index
-                            df_pt_plot = df_wc_pt_filtrado[df_wc_pt_filtrado['Elemento'].isin(top_pt_wc)]
-                            fig_wc = px.area(df_pt_plot, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC Top 10 (PT): {titulo_estrategico}")
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                        elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty:
-                            top_mp_wc = df_wc_mp_filtrado.groupby('Elemento')['WorkingCapital_GBP'].sum().nlargest(10).index
-                            df_mp_plot = df_wc_mp_filtrado[df_wc_mp_filtrado['Elemento'].isin(top_mp_wc)]
-                            fig_wc = px.area(df_mp_plot, x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC Top 10 (MP): {titulo_estrategico}")
-                            st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
-                                
-                        df_plot_pl.set_index('Date', inplace=True)
-                        df_plot_pl.index = df_plot_pl.index.strftime('%Y-%m')
-                        st.dataframe(
-                            df_plot_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"})
-                            .style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}),
-                            use_container_width=True
-                        )
+            if df_stock is None or df_stock.empty or df_wc_total.empty:
+                df_plot_pl['WC_PT_GBP'] = 0.0
+                df_plot_pl['WC_MP_GBP'] = 0.0
+                df_plot_pl['WC_Total_GBP'] = 0.0
+            else:
+                df_wc_pivot = df_wc_total.pivot_table(index='Date', columns='Categoria', values='WorkingCapital_GBP', aggfunc='sum').reset_index().fillna(0.0)
+                if 'Producto Terminado' not in df_wc_pivot.columns: df_wc_pivot['Producto Terminado'] = 0.0
+                if 'Materia Prima' not in df_wc_pivot.columns: df_wc_pivot['Materia Prima'] = 0.0
+                df_plot_pl = pd.merge(
+                    df_plot_pl,
+                    df_wc_pivot.rename(columns={'Producto Terminado': 'WC_PT_GBP', 'Materia Prima': 'WC_MP_GBP'})[['Date', 'WC_PT_GBP', 'WC_MP_GBP']],
+                    on='Date', how='left'
+                ).fillna(0.0)
+                df_plot_pl['WC_Total_GBP'] = df_plot_pl['WC_PT_GBP'] + df_plot_pl['WC_MP_GBP']
+
+            if not df_plot_pl.empty:
+                tot_rev_fcst = df_fcst_pl['Revenue_GBP'].sum()
+                tot_mar_fcst = df_fcst_pl['Margin_GBP'].sum()
+                mar_pct = (tot_mar_fcst / tot_rev_fcst * 100) if tot_rev_fcst > 0 else 0.0
+                avg_wc = df_plot_pl[df_plot_pl['WC_Total_GBP'] > 0]['WC_Total_GBP'].mean() if (df_plot_pl['WC_Total_GBP'] > 0).any() else 0.0
+
+                c1, c2, c3 = st.columns(3)
+                c1.metric(f"{t['kpi_rev']} (Proyectado {horizonte}m)", f"£ {tot_rev_fcst:,.0f}")
+                c2.metric(f"{t['kpi_mar']} (Proyectado {horizonte}m)", f"£ {tot_mar_fcst:,.0f} ({mar_pct:.1f}%)")
+                c3.metric(t["kpi_wc"], f"£ {avg_wc:,.0f}")
+
+                fig_pl = go.Figure()
+                fig_pl.add_trace(go.Bar(x=df_hist_pl['Date'], y=df_hist_pl['Revenue_GBP'], name=tr('Revenue Histórico', 'Historical Revenue'), marker_color='#A0B2C6'))
+                fig_pl.add_trace(go.Bar(x=df_fcst_pl['Date'], y=df_fcst_pl['Revenue_GBP'], name=tr('Revenue Proyectado', 'Projected Revenue'), marker_color='#1E3E5B'))
+                fig_pl.add_trace(go.Scatter(x=df_plot_pl['Date'], y=df_plot_pl['Margin_GBP'], name=t["kpi_mar"], mode='lines+markers', line=dict(color='#88FFBB', width=4)))
+                fig_pl.update_layout(**LAYOUT_STYLE, title=f"Revenue & Margin: {titulo_estrategico} (GBP)", yaxis_title="GBP (£)", hovermode="x unified")
+                st.plotly_chart(fig_pl, use_container_width=True)
+
+                if vista_wc == "Total (PT + MP)" and not df_wc_total.empty:
+                    fig_wc = px.area(df_wc_total.groupby(['Date', 'Categoria'], as_index=False)['WorkingCapital_GBP'].sum(), x='Date', y='WorkingCapital_GBP', color='Categoria', title=f"Working Capital: {titulo_estrategico}", color_discrete_sequence=['#88FFBB', '#1E3E5B'])
+                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                elif vista_wc == "Producto Terminado (PT)" and not df_wc_pt_filtrado.empty:
+                    top_pt_wc = df_wc_pt_filtrado.groupby('Elemento')['WorkingCapital_GBP'].sum().nlargest(10).index
+                    fig_wc = px.area(df_wc_pt_filtrado[df_wc_pt_filtrado['Elemento'].isin(top_pt_wc)], x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC Top 10 (PT): {titulo_estrategico}")
+                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+                elif vista_wc == "Materia Prima (MP)" and not df_wc_mp_filtrado.empty:
+                    top_mp_wc = df_wc_mp_filtrado.groupby('Elemento')['WorkingCapital_GBP'].sum().nlargest(10).index
+                    fig_wc = px.area(df_wc_mp_filtrado[df_wc_mp_filtrado['Elemento'].isin(top_mp_wc)], x='Date', y='WorkingCapital_GBP', color='Elemento', title=f"WC Top 10 (MP): {titulo_estrategico}")
+                    st.plotly_chart(fig_wc.update_layout(**LAYOUT_STYLE, yaxis_title="GBP (£)"), use_container_width=True)
+
+                df_tbl_pl = df_plot_pl[['Date', 'Tipo_Periodo', 'Revenue_GBP', 'Margin_GBP', 'WC_PT_GBP', 'WC_MP_GBP', 'WC_Total_GBP']].copy()
+                df_tbl_pl['Date'] = pd.to_datetime(df_tbl_pl['Date']).dt.strftime('%Y-%m')
+                st.dataframe(
+                    df_tbl_pl.rename(columns={"Revenue_GBP": "Revenue (£)", "Margin_GBP": "Margin (£)", "WC_PT_GBP": "WC PT (£)", "WC_MP_GBP": "WC MP (£)", "WC_Total_GBP": "Total WC (£)"})
+                    .style.format({c: "£ {:,.0f}" for c in ["Revenue (£)", "Margin (£)", "WC PT (£)", "WC MP (£)", "Total WC (£)"]}),
+                    use_container_width=True,
+                    hide_index=True
+                )
 # ==========================================
 # MODULO 6: EJECUCIÓN ERP + S&OE (MOQ & LOTES MÚLTIPLOS) + MASTER PACK EXCEL
 # ==========================================
