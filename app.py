@@ -689,8 +689,8 @@ with col_f1:
 df_f1 = df if pais_sel == "TODOS" else df[df['País'] == pais_sel]
 
 with col_f2: 
-    cli_sel = st.selectbox("2. Cliente:", ["TODOS"] + sorted(df_f1['customer cod'].dropna().unique()))
-df_f2 = df_f1 if cli_sel == "TODOS" else df_f1[df_f1['customer cod'] == cli_sel]
+    cliente_sel = st.selectbox("2. Cliente:", ["TODOS"] + sorted(df_f1['customer cod'].dropna().unique()))
+df_f2 = df_f1 if cliente_sel == "TODOS" else df_f1[df_f1['customer cod'] == cliente_sel]
 
 with col_f3: 
     clase_sel = st.selectbox("3. Clase:", ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique()) if not df_abcxyz_global.empty else ["TODAS"])
