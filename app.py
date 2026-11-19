@@ -254,12 +254,12 @@ with st.sidebar:
     fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp = 0.85, 0.11, 0.20
     usar_limpieza_outliers = st.checkbox("🧹 Limpiar Outliers (IQR)", True)
 
-def val_tbl(u, c, p=False):
+def val_tbl(u, c, n, p=False):
     if not u: return None
     if isinstance(u, pd.DataFrame): return u
     try: u.seek(0); return pd.read_csv(io.BytesIO(u.read())) if getattr(u,'name','').endswith('.csv') else pd.read_excel(io.BytesIO(u.read()))
     except: return None
-
+        
 df_cloud_aj = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES); st.session_state.setdefault('df_ajustes', df_cloud_aj)
 df_cloud_np = github_leer_csv(NPI_CLOUD_FILE, COLS_NPI); st.session_state.setdefault('df_npi', df_cloud_np)
 st.session_state.setdefault('last_ajuste_file', None)
