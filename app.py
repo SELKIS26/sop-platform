@@ -445,6 +445,36 @@ def aplicar_moq_y_lote_multiplo(s, moq, mult): return s
 
 def construir_diagrama_sankey_red(*args): return None
 
+@st.cache_data(show_spinner=False, max_entries=5000)
+def limpiar_anomalias(serie):
+if len(serie) < 6: return serie
+q1, q3 = serie.quantile(0.25), serie.quantile(0.75)
+iqr = q3 - q1
+return serie.clip(lower=max(0, q1 - 1.5 * iqr), upper=q3 + 1.5 * iqr)
+
+@st.cache_data(show_spinner=False, max_entries=5000)
+def calcular_forecast_serie_unica(serie, steps, metodo="Auto-ML Best-Fit"):
+if len(serie) == 0: return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
+idx_fut = pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS")
+if len(serie) < 6: return pd.Series([max(0.0, float(serie.mean()))] * steps, index=idx_fut)
+
+if metodo == "Damped Moving Average (WMA)":
+    w = min(6, len(serie)); pesos = np.arange(1, w + 1, dtype=float)
+    base_wma = float((serie.tail(w).values * pesos).sum() / pesos.sum())
+    slope = float((serie.tail(3).mean() - serie.iloc[-6:-3].mean()) / 3.0) if len(serie) >= 6 else 0.0
+    return pd.Series([max(0.0, base_wma + slope * 0.5 * (0.88 ** (i + 1))) for i in range(steps)], index=idx_fut)
+elif metodo == "Croston TSB (Intermittent)":
+    vals_s = serie.values.astype(float); pos = vals_s[vals_s > 0]
+    if len(pos) == 0: return pd.Series([0.0] * steps, index=idx_fut)
+    return pd.Series([max(0.0, float((vals_s[-min(6, len(vals_s)):] > 0).mean()) * float(pos.mean()))] * steps, index=idx_fut)
+try: return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0.0, x))
+except Exception: return pd.Series([max(0.0, float(serie.tail(6).mean()))] * steps, index=idx_fut)
+
+def obtener_fcst_sku_rapido(sku_cod, steps, metodo_sel):
+mat = dict_fcst_matrices.get(metodo_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+s_clean = str(sku_cod).strip()
+return mat[s_clean].iloc[:steps] if mat is not None and s_clean in mat.columns else pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
+
 LAYOUT_STYLE = dict(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#e0e6ed'))
 
 # ==========================================
