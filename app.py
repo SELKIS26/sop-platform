@@ -2369,11 +2369,11 @@ with tab_demanda:
                 st.rerun()
 
         st.divider()
-        # --- NUEVO MÓDULO 1.B: GESTOR DE NUEVOS LANZAMIENTOS (NPI & NEW BUSINESS) ---
-        with st.expander(tr("🆕 Gestor de Nuevos Lanzamientos y Licitaciones Comerciales (NPI & New Business - 0 Kg Histórico)", "🆕 New Product Introduction (NPI) & New Business Manager (0 Kg History)"), expanded=False):
+        # --- NOVEDAD 1 (VISIBLE): GESTOR DE NUEVOS LANZAMIENTOS (NPI & NEW BUSINESS) ---
+        with st.expander(tr("🆕 Gestor de Nuevos Lanzamientos y Licitaciones Comerciales (NPI & New Business - 0 Kg Histórico)", "🆕 New Product Introduction (NPI) & New Business Manager (0 Kg History)"), expanded=True):
             st.caption(tr(
-                "Da de alta SKUs nuevos o contratos comerciales ganados que aún no existen en el histórico de ventas. Puedes vincularles un 'SKU Espejo' para heredar su perfil estacional e inyectarlos automáticamente en MPS, MRP, Capacidad de Planta y Finanzas (GBP).",
-                "Register new SKUs or won commercial tenders with zero sales history. Assign a 'Mirror SKU' to inherit its seasonal profile and automatically inject it into MPS, MRP, Plant Capacity, and Finance (GBP)."
+                "Da de alta SKUs nuevos o licitaciones comerciales ganadas sin histórico previo. Hereda la curva estacional de un 'SKU Espejo' e inyecta el nuevo SKU en MPS, MRP, Capacidad de Planta y P&L (GBP).",
+                "Register new SKUs or won commercial tenders with zero prior history. Inherits seasonal shape from a 'Mirror SKU' and injects into MPS, MRP, Plant Capacity, and P&L (GBP)."
             ))
             npi_c1, npi_c2, npi_c3, npi_c4 = st.columns(4)
             with npi_c1:
@@ -2756,7 +2756,7 @@ with tab_bom:
                 st.plotly_chart(fig_sk, use_container_width=True)
 
 # ==========================================
-# MODULO 4: CAPACIDAD (RCCP FILTRADO POR PLANTA / PAÍS + SIMULADOR DE TURNOS EXTRA + PRE-BUILD)
+# MODULO 4: CAPACIDAD (RCCP POR PLANTA + NOVEDAD 2 SIMULADOR DE TURNOS + PRE-BUILD)
 # ==========================================
 with tab_cap:
     if "tab4" not in modulos_permitidos:
@@ -2794,7 +2794,7 @@ with tab_cap:
                     tr("+2 Turnos Intensivos (+25% Horas)", "+2 Intensive Shifts (+25% Hours)"): 1.25,
                     tr("Operación Continua 24/7 (+35% Horas)", "24/7 Continuous Operation (+35% Hours)"): 1.35
                 }
-                turno_label_sel = st.selectbox(tr("⏱️ Simulador de Turnos / Horas Extra:", "⏱️ Extra Shifts / Overtime Simulator:"), list(opciones_turnos.keys()))
+                turno_label_sel = st.selectbox(tr("⏱️ Simulador de Turnos / Horas Extra:", "⏱️ Extra Shifts / Overtime Simulator:"), list(opciones_turnos.keys()), key="sel_turno_cap")
                 factor_turno = opciones_turnos[turno_label_sel]
             
             df_mps_concat = generar_mps_df_2d()
@@ -2840,13 +2840,13 @@ with tab_cap:
                     
                     df_capacidad['Utilizacion'] = (df_capacidad['Horas_Necesarias'] / df_capacidad['Horas_Disponibles']) * 100.0
 
-                    if factor_turno > 1.0:
-                        horas_extra_tot = (df_capacidad['Horas_Disponibles'] - df_capacidad['Horas_Base']).sum()
-                        coste_turnos_gbp = horas_extra_tot * 145.0
-                        st.info(tr(
-                            f"⏱️ **Simulación de Turnos Activa ({turno_label_sel}):** Capacidad ampliada en `+{horas_extra_tot:,.0f} horas` totales en el horizonte | Sobrecoste operativo estimado de turnos: **`£ {coste_turnos_gbp:,.0f}`** (£145/h).",
-                            f"⏱️ **Active Shift Simulation ({turno_label_sel}):** Capacity expanded by `+{horas_extra_tot:,.0f} hours` across horizon | Estimated overtime operating cost: **`£ {coste_turnos_gbp:,.0f}`** (£145/h)."
-                        ))
+                    # NOVEDAD 2: Panel de KPIs del Simulador de Turnos Extra
+                    horas_extra_tot = float((df_capacidad['Horas_Disponibles'] - df_capacidad['Horas_Base']).sum())
+                    coste_turnos_gbp = horas_extra_tot * 145.0
+                    t_k1, t_k2, t_k3 = st.columns(3)
+                    t_k1.metric(tr("⏱️ Régimen Activo", "⏱️ Active Shift Regime"), turno_label_sel.split("(")[0].strip())
+                    t_k2.metric(tr("➕ Horas Extra Añadidas", "➕ Added Overtime Hours"), f"+{horas_extra_tot:,.0f} h")
+                    t_k3.metric(tr("💷 Coste Operativo Turnos (£)", "💷 Shift Overtime Cost (£)"), f"£ {coste_turnos_gbp:,.0f}")
 
                     if maq_sel == "TODOS":
                         df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
@@ -3272,7 +3272,7 @@ with tab_ejec:
                     )
 
 # ==========================================
-# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + STOCK DE SEGURIDAD CIENTÍFICO (CON FILTRO CORREGIDO)
+# MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + NOVEDAD 3 FILTRO CORREGIDO
 # ==========================================
 with tab_abc:
     if "tab7" not in modulos_permitidos:
@@ -3398,7 +3398,6 @@ with tab_abc:
                     lbl_exceso_ss = tr('🟡 Exceso Stock (>SS Científico)', '🟡 Excess Stock (>Scientific SS)')
                     lbl_ok = tr('🟢 Alineado', '🟢 Aligned')
 
-                    # Diagnóstico S&OP completo: distingue cambio de política Y exceso de stock sobre SS Científico
                     df_audit['Estado_Auditoria'] = np.where(
                         (df_audit['Politica_Recomendada'] == 'MTO') & (df_audit['Categoria_Actual'] == 'MTS'),
                         lbl_mts_mto,
@@ -3422,10 +3421,17 @@ with tab_abc:
                     solo_alertas = st.checkbox(
                         tr("🔍 Mostrar solo SKUs con exceso de stock o cambio MTS ↔ MTO", "🔍 Show only SKUs with excess stock or policy change"),
                         value=False,
-                        key="chk_solo_alertas_abc"
+                        key="chk_solo_alertas_abc_v2"
                     )
-                    # Filtrado estricto: excluye cualquier SKU '🟢 Alineado' cuando el checkbox está marcado
-                    df_mostrar_audit = df_audit[df_audit['Estado_Auditoria'] != lbl_ok].copy() if solo_alertas else df_audit.copy()
+                    if solo_alertas:
+                        df_mostrar_audit = df_audit[df_audit['Estado_Auditoria'] != lbl_ok].copy()
+                        st.caption(tr(
+                            f"🔎 Filtro activo: Mostrando **{len(df_mostrar_audit)}** de {len(df_audit)} SKUs (excluidos {len(df_audit) - len(df_mostrar_audit)} SKUs en estado '🟢 Alineado').",
+                            f"🔎 Active filter: Showing **{len(df_mostrar_audit)}** of {len(df_audit)} SKUs (excluded {len(df_audit) - len(df_mostrar_audit)} '🟢 Aligned' SKUs)."
+                        ))
+                    else:
+                        df_mostrar_audit = df_audit.copy()
+
                     df_mostrar_audit = df_mostrar_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
 
                     if df_mostrar_audit.empty:
