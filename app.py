@@ -1,5 +1,5 @@
 # ==============================================================================
-# S&OP / IBP CORPORATE PLATFORM - PARTE 1 DE 2 (CORE ENGINE, NPI & 2D MATRIX)
+# S&OP / IBP CORPORATE PLATFORM - PARTE 1 DE 2 (CORE, NPI, TURNOS & 2D MATRIX)
 # ==============================================================================
 import streamlit as st
 import pandas as pd
@@ -110,18 +110,12 @@ LANGUAGES = ["Español", "English", "Polski", "Dansk"]
 if 'lang' not in st.session_state:
     st.session_state['lang'] = 'Español'
 
-
 def tr(es, en, pl=None, da=None):
-    """Traduce dinámicamente cualquier texto de la interfaz al idioma activo."""
     lang = st.session_state.get('lang', 'Español')
-    if lang == 'English':
-        return en
-    elif lang == 'Polski':
-        return pl if pl is not None else en
-    elif lang == 'Dansk':
-        return da if da is not None else en
+    if lang == 'English': return en
+    elif lang == 'Polski': return pl if pl is not None else en
+    elif lang == 'Dansk': return da if da is not None else en
     return es
-
 
 TEXTS = {
     "Español": {
@@ -166,9 +160,8 @@ TEXTS = {
     }
 }
 
-
 # ==========================================
-# MOTOR DE PERSISTENCIA EN GITHUB (API + LOCAL CON CACHÉ EN SESIÓN)
+# MOTOR DE PERSISTENCIA EN GITHUB
 # ==========================================
 def _github_creds():
     try:
@@ -178,7 +171,6 @@ def _github_creds():
     except Exception:
         return None, None
 
-
 def github_leer_csv(filename, cols_default, forzar_recarga=False):
     cache_key = f"_cloud_cache_{filename}"
     if not forzar_recarga and cache_key in st.session_state:
@@ -187,11 +179,7 @@ def github_leer_csv(filename, cols_default, forzar_recarga=False):
     token, repo = _github_creds()
     if token and repo:
         url = f"https://api.github.com/repos/{repo}/contents/{filename}"
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "SOP-Platform-Cloud"
-        }
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"}
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=8) as resp:
@@ -215,7 +203,6 @@ def github_leer_csv(filename, cols_default, forzar_recarga=False):
     st.session_state[cache_key] = df_empty.copy()
     return df_empty
 
-
 def github_guardar_csv(df_to_save, filename, commit_msg):
     cache_key = f"_cloud_cache_{filename}"
     st.session_state[cache_key] = df_to_save.copy()
@@ -229,11 +216,7 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
         return False
 
     url = f"https://api.github.com/repos/{repo}/contents/{filename}"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "SOP-Platform-Cloud"
-    }
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"}
     sha_actual = None
     try:
         req = urllib.request.Request(url, headers=headers)
@@ -244,58 +227,40 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
         pass
 
     csv_bytes = df_to_save.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    payload = {
-        "message": commit_msg,
-        "content": base64.b64encode(csv_bytes).decode("utf-8")
-    }
+    payload = {"message": commit_msg, "content": base64.b64encode(csv_bytes).decode("utf-8")}
     if sha_actual:
         payload["sha"] = sha_actual
     try:
-        req_put = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={**headers, "Content-Type": "application/json"},
-            method="PUT"
-        )
+        req_put = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={**headers, "Content-Type": "application/json"}, method="PUT")
         urllib.request.urlopen(req_put, timeout=8)
         return True
     except Exception:
         return False
-
 
 def registrar_y_leer_auditoria_permanente(nuevo_evento=None, forzar=False):
     cols_log = ["Fecha_Hora (CET)", "Username", "Nombre", "Rol"]
     df_actual = github_leer_csv(LOG_FILE, cols_log, forzar_recarga=forzar)
     if nuevo_evento is not None:
         df_actual = pd.concat([df_actual, pd.DataFrame([nuevo_evento])], ignore_index=True)
-        github_guardar_csv(
-            df_actual,
-            LOG_FILE,
-            f"Audit log: {nuevo_evento['Username']} ({nuevo_evento['Fecha_Hora (CET)']})"
-        )
+        github_guardar_csv(df_actual, LOG_FILE, f"Audit log: {nuevo_evento['Username']} ({nuevo_evento['Fecha_Hora (CET)']})")
     return df_actual
 
-
 def registrar_evento_fva_consenso(lista_eventos_fva):
-    if not lista_eventos_fva:
-        return
+    if not lista_eventos_fva: return
     df_fva = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
     df_fva = pd.concat([df_fva, pd.DataFrame(lista_eventos_fva)], ignore_index=True)
     usuario_log = lista_eventos_fva[0].get("Usuario", "user")
     github_guardar_csv(df_fva, FVA_LOG_FILE, f"FVA Consensus Log update by {usuario_log}")
     st.session_state["df_fva_logs"] = df_fva
 
-
 def _pdf_safe(texto):
     return str(texto).encode("latin-1", "replace").decode("latin-1")
-
 
 # ==========================================
 # GENERADORES DE DATOS DEMO (LIGERO Y BIG DATA EQUILIBRADO POR PLANTA)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def obtener_excels_demo_8_tablas():
-    """Genera los 8 DataFrames de Demo con las columnas exactas oficiales."""
     np.random.seed(42)
     fechas_hist = pd.date_range(start="2024-05-01", periods=28, freq="MS")
     mes_m1 = fechas_hist[-1] + pd.DateOffset(months=1)
@@ -309,7 +274,6 @@ def obtener_excels_demo_8_tablas():
         ("PN190G10", "PIENSO GRANULADO BROILER", 65000, 0.55, 0.95, 0.28, "Linea_3_Pellet", 5000, "MTS"),
         ("PR01299X", "PREMEZCLA VITAMINICA AVEC", 8000, 12.50, 18.50, 5.20, "Linea_4_Premix", 2200, "MTS"),
     ]
-
     maquinas_locales = ['Linea_1_Extrusion', 'Linea_2_Mezcla', 'Linea_3_Pellet', 'Linea_4_Premix']
 
     filas_ventas = []
@@ -319,16 +283,9 @@ def obtener_excels_demo_8_tablas():
             ruido = 0.65 if sku_cod == "PR01299X" else 0.12
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             filas_ventas.append({
-                "Date": f,
-                "País": "España",
-                "customer cod": "000007SCAAS",
-                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
-                "sku cod": sku_cod,
-                "sku desc": sku_desc,
-                "volume": vol,
-                "revenue": round(vol * precio_u, 2),
-                "margin": round(vol * margen_u, 2),
-                "currency": "EUR"
+                "Date": f, "País": "España", "customer cod": "000007SCAAS", "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
+                "sku cod": sku_cod, "sku desc": sku_desc, "volume": vol,
+                "revenue": round(vol * precio_u, 2), "margin": round(vol * margen_u, 2), "currency": "EUR"
             })
     df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
 
@@ -336,13 +293,7 @@ def obtener_excels_demo_8_tablas():
     for f in fechas_fut[:6]:
         for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
             override = int(base_vol * np.random.uniform(0.95, 1.10))
-            filas_ajustes.append({
-                "Date": f,
-                "País": "España",
-                "customer cod": "000007SCAAS",
-                "sku cod": sku_cod,
-                "override_value": override
-            })
+            filas_ajustes.append({"Date": f, "País": "España", "customer cod": "000007SCAAS", "sku cod": sku_cod, "override_value": override})
     df_2_ajustes = pd.DataFrame(filas_ajustes)[COLS_AJUSTES]
 
     filas_stock = [
@@ -360,47 +311,22 @@ def obtener_excels_demo_8_tablas():
         filas_bom.append({"sku cod": sku, "rm cod": "M09522E3", "rm desc": "PIGLET BOOZT (25 L) Z2", "Cantidad": 0.0363})
     df_4_bom = pd.DataFrame(filas_bom)[COLS_BOM]
 
-    df_5_rutas = pd.DataFrame([
-        {"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph}
-        for sku, _, _, _, _, _, maquina, kph, _ in skus_demo
-    ])[COLS_RUTAS]
-
-    filas_cal = []
-    for f in pd.date_range(start="2024-05-01", periods=48, freq="MS"):
-        for maq in maquinas_locales:
-            filas_cal.append({
-                "Date": f,
-                "Maquina": maq,
-                "Horas_Disponibles": 740
-            })
+    df_5_rutas = pd.DataFrame([{"sku cod": sku, "Maquina": maquina, "Kilos_por_Hora": kph} for sku, _, _, _, _, _, maquina, kph, _ in skus_demo])[COLS_RUTAS]
+    filas_cal = [{"Date": f, "Maquina": m, "Horas_Disponibles": 740} for f in pd.date_range("2024-05-01", periods=48, freq="MS") for m in maquinas_locales]
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
 
-    df_7_compras = pd.DataFrame([
-        {"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067},
-        {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821},
-    ])[COLS_COMPRAS]
-
+    df_7_compras = pd.DataFrame([{"Date": mes_m1, "rm cod": "M12250SS", "Cantidad_Kg": 11067}, {"Date": mes_m2, "rm cod": "M12250SS", "Cantidad_Kg": 9821}])[COLS_COMPRAS]
     df_8_prod = pd.DataFrame([
         {"Date": mes_m1, "sku cod": "A10800V3", "Cantidad_Kg": 15000},
         {"Date": mes_m1, "sku cod": "PN190G10", "Cantidad_Kg": 35000},
         {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 40000},
     ])[COLS_PROD]
 
-    return {
-        "hist": df_1_hist,
-        "ajustes": df_2_ajustes,
-        "stock": df_3_stock,
-        "bom": df_4_bom,
-        "rutas": df_5_rutas,
-        "cal": df_6_cal,
-        "compras_erp": df_7_compras,
-        "produccion_erp": df_8_prod,
-    }
+    return {"hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom, "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod}
 
 
 @st.cache_data(show_spinner=False)
 def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, n_clientes=80):
-    """Genera un dataset masivo equilibrado por planta/país (cada país tiene sus propias líneas y SKUs asignados)."""
     np.random.seed(42)
     paises = ["España", "UK", "Polonia", "Dinamarca"]
     monedas_map = {"España": "EUR", "UK": "GBP", "Polonia": "PLN", "Dinamarca": "DKK"}
@@ -425,7 +351,6 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     cli_descs = [f"Corporacion Agroalimentaria {k:04d}" for k in range(1, n_clientes + 1)]
 
     pais_por_sku = np.array([paises[i % len(paises)] for i in range(n_skus)])
-
     idx_sku = np.random.randint(0, n_skus, size=n_rows_hist)
     paises_venta = pais_por_sku[idx_sku]
     idx_pais_num = np.array([i % len(paises) for i in idx_sku])
@@ -440,15 +365,10 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     margenes_base = precios_base * np.random.uniform(0.18, 0.38, size=n_skus)
 
     df_1_hist = pd.DataFrame({
-        "Date": fechas_hist[idx_fecha],
-        "País": paises_venta,
-        "customer cod": np.array(cli_cods)[idx_cli],
-        "customer desc": np.array(cli_descs)[idx_cli],
-        "sku cod": np.array(sku_cods)[idx_sku],
-        "sku desc": np.array(sku_descs)[idx_sku],
-        "volume": vols,
-        "revenue": np.round(vols * precios_base[idx_sku], 2),
-        "margin": np.round(vols * margenes_base[idx_sku], 2),
+        "Date": fechas_hist[idx_fecha], "País": paises_venta, "customer cod": np.array(cli_cods)[idx_cli],
+        "customer desc": np.array(cli_descs)[idx_cli], "sku cod": np.array(sku_cods)[idx_sku],
+        "sku desc": np.array(sku_descs)[idx_sku], "volume": vols,
+        "revenue": np.round(vols * precios_base[idx_sku], 2), "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta])
     })[COLS_HIST]
 
@@ -456,19 +376,13 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     paises_aj = pais_por_sku[idx_aj_sku]
     cli_aj = [cli_cods[(i % len(paises)) + np.random.randint(0, 5) * len(paises)] for i in idx_aj_sku]
     df_2_ajustes = pd.DataFrame({
-        "Date": np.random.choice(fechas_fut[:6], size=300),
-        "País": paises_aj,
-        "customer cod": cli_aj,
-        "sku cod": np.array(sku_cods)[idx_aj_sku],
-        "override_value": np.random.randint(2000, 15000, size=300)
+        "Date": np.random.choice(fechas_fut[:6], size=300), "País": paises_aj, "customer cod": cli_aj,
+        "sku cod": np.array(sku_cods)[idx_aj_sku], "override_value": np.random.randint(2000, 15000, size=300)
     }).drop_duplicates(subset=["Date", "País", "customer cod", "sku cod"])[COLS_AJUSTES]
 
     df_3_stock = pd.DataFrame({
-        "sku cod": sku_cods + rm_cods,
-        "sku desc": sku_descs + rm_descs,
-        "stock_disponible": np.random.randint(500, 12000, size=n_skus + n_rms),
-        "Cobertura_Meses": np.random.choice([1, 2], size=n_skus + n_rms, p=[0.7, 0.3]),
-        "LT_Meses": np.random.choice([0, 1, 2], size=n_skus + n_rms, p=[0.3, 0.5, 0.2]),
+        "sku cod": sku_cods + rm_cods, "sku desc": sku_descs + rm_descs, "stock_disponible": np.random.randint(500, 12000, size=n_skus + n_rms),
+        "Cobertura_Meses": np.random.choice([1, 2], size=n_skus + n_rms, p=[0.7, 0.3]), "LT_Meses": np.random.choice([0, 1, 2], size=n_skus + n_rms, p=[0.3, 0.5, 0.2]),
         "Categoria": np.random.choice(["MTS", "MTO"], size=n_skus + n_rms, p=[0.85, 0.15]),
         "Coste_Unitario": np.round(np.concatenate([precios_base - margenes_base, np.random.uniform(0.4, 5.0, size=n_rms)]), 2)
     })[COLS_STOCK]
@@ -477,44 +391,20 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     bom_rm_idx = np.arange(len(bom_sku_idx)) % n_rms
     np.random.shuffle(bom_rm_idx)
     df_4_bom = pd.DataFrame({
-        "sku cod": np.array(sku_cods)[bom_sku_idx],
-        "rm cod": np.array(rm_cods)[bom_rm_idx],
-        "rm desc": np.array(rm_descs)[bom_rm_idx],
-        "Cantidad": np.round(np.random.uniform(0.05, 0.35, size=len(bom_sku_idx)), 4)
+        "sku cod": np.array(sku_cods)[bom_sku_idx], "rm cod": np.array(rm_cods)[bom_rm_idx],
+        "rm desc": np.array(rm_descs)[bom_rm_idx], "Cantidad": np.round(np.random.uniform(0.05, 0.35, size=len(bom_sku_idx)), 4)
     }).drop_duplicates(subset=["sku cod", "rm cod"])[COLS_BOM]
 
-    maquinas_asignadas = [
-        np.random.choice(maquinas_por_pais[pais_por_sku[i]]) for i in range(n_skus)
-    ]
-    df_5_rutas = pd.DataFrame({
-        "sku cod": sku_cods,
-        "Maquina": maquinas_asignadas,
-        "Kilos_por_Hora": np.random.randint(8500, 18000, size=n_skus)
-    })[COLS_RUTAS]
+    maquinas_asignadas = [np.random.choice(maquinas_por_pais[pais_por_sku[i]]) for i in range(n_skus)]
+    df_5_rutas = pd.DataFrame({"sku cod": sku_cods, "Maquina": maquinas_asignadas, "Kilos_por_Hora": np.random.randint(8500, 18000, size=n_skus)})[COLS_RUTAS]
 
-    filas_cal = [
-        {"Date": f, "Maquina": m, "Horas_Disponibles": 740}
-        for f in pd.date_range("2024-05-01", periods=48, freq="MS")
-        for m in todas_las_maquinas
-    ]
+    filas_cal = [{"Date": f, "Maquina": m, "Horas_Disponibles": 740} for f in pd.date_range("2024-05-01", periods=48, freq="MS") for m in todas_las_maquinas]
     df_6_cal = pd.DataFrame(filas_cal)[COLS_CAL]
 
-    df_7_compras = pd.DataFrame({
-        "Date": np.random.choice([mes_m1, mes_m2], size=150),
-        "rm cod": np.random.choice(rm_cods, size=150),
-        "Cantidad_Kg": np.random.randint(2000, 15000, size=150)
-    })[COLS_COMPRAS]
+    df_7_compras = pd.DataFrame([{"Date": np.random.choice([mes_m1, mes_m2], size=150), "rm cod": np.random.choice(rm_cods, size=150), "Cantidad_Kg": np.random.randint(2000, 15000, size=150)}])[COLS_COMPRAS]
+    df_8_prod = pd.DataFrame([{"Date": np.random.choice([mes_m1, mes_m2], size=200), "sku cod": np.random.choice(sku_cods, size=200), "Cantidad_Kg": np.random.randint(2000, 12000, size=200)}])[COLS_PROD]
 
-    df_8_prod = pd.DataFrame({
-        "Date": np.random.choice([mes_m1, mes_m2], size=200),
-        "sku cod": np.random.choice(sku_cods, size=200),
-        "Cantidad_Kg": np.random.randint(2000, 12000, size=200)
-    })[COLS_PROD]
-
-    return {
-        "hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom,
-        "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod
-    }
+    return {"hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom, "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod}
 
 
 @st.cache_data(show_spinner=False)
@@ -522,53 +412,32 @@ def generar_plantillas_oficiales_excel():
     buf_tpl = io.BytesIO()
     demos_tpl = obtener_excels_demo_8_tablas()
     mapa_hojas = [
-        ("1_Historico_Ventas", demos_tpl["hist"].head(5)),
-        ("2_Ajustes_Consenso", demos_tpl["ajustes"].head(2)),
-        ("3_Stock_Actual", demos_tpl["stock"].head(5)),
-        ("4_BOM", demos_tpl["bom"].head(5)),
-        ("5_Rutas_Routing", demos_tpl["rutas"].head(5)),
-        ("6_Calendario", demos_tpl["cal"].head(5)),
-        ("7_ERP_Compras_POs", demos_tpl["compras_erp"].head(2)),
-        ("8_ERP_Produccion", demos_tpl["produccion_erp"].head(2)),
+        ("1_Historico_Ventas", demos_tpl["hist"].head(5)), ("2_Ajustes_Consenso", demos_tpl["ajustes"].head(2)),
+        ("3_Stock_Actual", demos_tpl["stock"].head(5)), ("4_BOM", demos_tpl["bom"].head(5)),
+        ("5_Rutas_Routing", demos_tpl["rutas"].head(5)), ("6_Calendario", demos_tpl["cal"].head(5)),
+        ("7_ERP_Compras_POs", demos_tpl["compras_erp"].head(2)), ("8_ERP_Produccion", demos_tpl["produccion_erp"].head(2)),
     ]
     with pd.ExcelWriter(buf_tpl, engine="openpyxl") as writer:
-        for nombre_hoja, df_ejemplo in mapa_hojas:
-            df_ejemplo.to_excel(writer, index=False, sheet_name=nombre_hoja)
+        for nombre_hoja, df_ejemplo in mapa_hojas: df_ejemplo.to_excel(writer, index=False, sheet_name=nombre_hoja)
     return buf_tpl.getvalue()
-
 
 # ==========================================
 # 0. CONTROL DE ACCESO Y ROLES (LOGIN)
 # ==========================================
 credenciales = {
     "usernames": {
-        "amancebo": {
-            "email": "amancebo@abagri.com",
-            "name": "Ángel Mancebo",
-            "password": "Sop2026"
-        },
-        "borja": {
-            "email": "bdelrio@abagri.com",
-            "name": "Borja Del Rio",
-            "password": "BorjaDR"
-        }
+        "amancebo": {"email": "amancebo@abagri.com", "name": "Ángel Mancebo", "password": "Sop2026"},
+        "borja": {"email": "bdelrio@abagri.com", "name": "Borja Del Rio", "password": "BorjaDR"}
     }
 }
 
 if stauth is not None:
     stauth.Hasher.hash_passwords(credenciales)
-    authenticator = stauth.Authenticate(
-        credentials=credenciales,
-        cookie_name="sop_abagri_token",
-        key="abcdef12345",
-        cookie_expiry_days=30
-    )
+    authenticator = stauth.Authenticate(credentials=credenciales, cookie_name="sop_abagri_token", key="abcdef12345", cookie_expiry_days=30)
     authenticator.login("main")
 else:
     authenticator = None
-    if "authentication_status" not in st.session_state:
-        st.session_state["authentication_status"] = None
-
+    if "authentication_status" not in st.session_state: st.session_state["authentication_status"] = None
     if not st.session_state["authentication_status"]:
         with st.form("login_local_form"):
             st.subheader(tr("🔐 Acceso S&OP (Modo Local)", "🔐 S&OP Access (Local Mode)", "🔐 Dostęp S&OP", "🔐 S&OP Adgang"))
@@ -592,78 +461,42 @@ elif st.session_state.get("authentication_status") is None:
     st.stop()
 
 usuario_actual = st.session_state["username"]
-
-PERMISOS = {
-    "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"],
-    "borja": ["tab0", "tab2"]
-}
+PERMISOS = {"amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"], "borja": ["tab0", "tab2"]}
 modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
 
 if not st.session_state.get("acceso_registrado", False):
     ahora_es = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
     rol_usuario = "Manager de Producción" if usuario_actual == "borja" else "Administrador Global"
-    nuevo_evento = {
-        "Fecha_Hora (CET)": ahora_es,
-        "Username": usuario_actual,
-        "Nombre": st.session_state.get("name", usuario_actual),
-        "Rol": rol_usuario
-    }
+    nuevo_evento = {"Fecha_Hora (CET)": ahora_es, "Username": usuario_actual, "Nombre": st.session_state.get("name", usuario_actual), "Rol": rol_usuario}
     st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(nuevo_evento)
     st.session_state["acceso_registrado"] = True
 
 with st.sidebar:
-    st.session_state['lang'] = st.selectbox(
-        TEXTS[st.session_state['lang']]["sidebar_lang"],
-        LANGUAGES,
-        index=LANGUAGES.index(st.session_state['lang'])
-    )
+    st.session_state['lang'] = st.selectbox(TEXTS[st.session_state['lang']]["sidebar_lang"], LANGUAGES, index=LANGUAGES.index(st.session_state['lang']))
     st.divider()
-
     st.markdown(f"👤 **{tr('Bienvenido/a', 'Welcome', 'Witaj', 'Velkommen')}, {st.session_state['name']}**")
-    if usuario_actual == "borja":
-        st.caption(tr("🔹 Rol: Manager de Producción", "🔹 Role: Production Manager", "🔹 Rola: Kierownik Produkcji", "🔹 Rolle: Produktionschef"))
-    else:
-        st.caption(tr("🔹 Rol: Administrador Global", "🔹 Role: Global Administrator", "🔹 Rola: Administrator Globalny", "🔹 Rolle: Global Administrator"))
-
-    if authenticator is not None:
-        authenticator.logout(tr("Cerrar Sesión", "Sign Out", "Wyloguj", "Log ud"), "main")
+    st.caption(tr("🔹 Rol: Manager de Producción", "🔹 Role: Production Manager") if usuario_actual == "borja" else tr("🔹 Rol: Administrador Global", "🔹 Role: Global Administrator"))
+    
+    if authenticator is not None: authenticator.logout(tr("Cerrar Sesión", "Sign Out", "Wyloguj", "Log ud"), "main")
     else:
         if st.button(tr("Cerrar Sesión", "Sign Out", "Wyloguj", "Log ud")):
-            st.session_state["authentication_status"] = None
-            st.session_state["acceso_registrado"] = False
-            st.rerun()
+            st.session_state["authentication_status"] = None; st.session_state["acceso_registrado"] = False; st.rerun()
 
     if usuario_actual == "amancebo":
         with st.expander(tr("🛡️ Registro de Accesos (Admin)", "🛡️ Access Audit Log (Admin)", "🛡️ Dziennik Dostępu (Admin)", "🛡️ Adgangslog (Admin)")):
-            if st.button(tr("🔄 Actualizar Historial GitHub", "🔄 Refresh GitHub Log", "🔄 Odśwież dziennik GitHub", "🔄 Opdater GitHub Log"), use_container_width=True):
-                st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(None, forzar=True)
+            if st.button(tr("🔄 Actualizar Historial GitHub", "🔄 Refresh GitHub Log"), use_container_width=True): st.session_state["df_audit_logs"] = registrar_y_leer_auditoria_permanente(None, forzar=True)
             df_logs = st.session_state.get("df_audit_logs", registrar_y_leer_auditoria_permanente(None))
-            if df_logs is None or df_logs.empty:
-                st.caption(tr("Sin registros todavía.", "No records yet.", "Brak wpisów.", "Ingen optegnelser endnu."))
+            if df_logs is None or df_logs.empty: st.caption(tr("Sin registros todavía.", "No records yet.", "Brak wpisów.", "Ingen optegnelser endnu."))
             else:
-                st.caption(f"{tr('Total accesos registrados', 'Total logged accesses', 'Łączna liczba logowań', 'Samlede adgange')}: **{len(df_logs)}**")
+                st.caption(f"{tr('Total accesos registrados', 'Total logged accesses')}: **{len(df_logs)}**")
                 st.dataframe(df_logs.iloc[::-1], use_container_width=True, hide_index=True)
-                csv_logs = df_logs.iloc[::-1].to_csv(index=False).encode("utf-8-sig")
-                st.download_button(
-                    label=tr("📥 Descargar Historial (.csv)", "📥 Download Access Log (.csv)", "📥 Pobierz dziennik (.csv)", "📥 Download Log (.csv)"),
-                    data=csv_logs,
-                    file_name=f"Audit_Log_SOP_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
 
     st.divider()
-
-    with st.expander(tr("📲 Compartir App (QR)", "📲 Share App (QR)", "📲 Udostępnij aplikację (QR)", "📲 Del App (QR)")):
+    with st.expander(tr("📲 Compartir App (QR)", "📲 Share App (QR)")):
         enlace_app = "https://sop-mancew.streamlit.app/"
         if qrcode is not None:
-            st.caption(tr("Escanea para entrar desde móvil:", "Scan to open on mobile:", "Zeskanuj telefonem:", "Scan for at åbne på mobil:"))
-            img_qr = qrcode.make(enlace_app)
-            buf = io.BytesIO()
-            img_qr.save(buf, format="PNG")
-            st.image(buf.getvalue(), use_container_width=True)
-        else:
-            st.caption(f"🔗 Link: {enlace_app}")
+            img_qr = qrcode.make(enlace_app); buf = io.BytesIO(); img_qr.save(buf, format="PNG"); st.image(buf.getvalue(), use_container_width=True)
+        else: st.caption(f"🔗 Link: {enlace_app}")
 
 t = TEXTS[st.session_state['lang']]
 st.title(t["title"])
@@ -672,166 +505,83 @@ st.title(t["title"])
 # 1. CONFIGURACIÓN Y CARGA DE ARCHIVOS (CON BIG DATA STRESS-TEST)
 # ==========================================
 with st.sidebar:
-    st.markdown(f"### {tr('🧪 Modo Demostración (1-Clic)', '🧪 Demo Mode (1-Click)', '🧪 Tryb Demo (1-Klik)', '🧪 Demotilstand (1-Klik)')}")
-    if "modo_demo_8" not in st.session_state:
-        st.session_state["modo_demo_8"] = False
-
-    escala_demo = st.radio(
-        tr("📊 Escala del Dataset Demo:", "📊 Demo Dataset Scale:", "📊 Skala Danych Demo:", "📊 Demo Dataskala:"),
-        [
-            "⚡ Ligero (5 SKUs / 140 filas)",
-            "🔥 Big Data Stress-Test (500 SKUs / 150.000 ventas / 2.500 BOM)"
-        ],
-        index=0
-    )
-
+    st.markdown(f"### {tr('🧪 Modo Demostración (1-Clic)', '🧪 Demo Mode (1-Click)')}")
+    if "modo_demo_8" not in st.session_state: st.session_state["modo_demo_8"] = False
+    escala_demo = st.radio(tr("📊 Escala del Dataset Demo:", "📊 Demo Dataset Scale:"), ["⚡ Ligero (5 SKUs / 140 filas)", "🔥 Big Data Stress-Test (500 SKUs / 150.000 ventas / 2.500 BOM)"], index=0)
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
-        if st.button(tr("🚀 Cargar 8 Tablas", "🚀 Load 8 Tables", "🚀 Załaduj 8 Tabel", "🚀 Indlæs 8 Tabeller"), use_container_width=True, type="primary"):
-            st.session_state["modo_demo_8"] = True
-            st.rerun()
+        if st.button(tr("🚀 Cargar 8 Tablas", "🚀 Load 8 Tables"), use_container_width=True, type="primary"): st.session_state["modo_demo_8"] = True; st.rerun()
     with col_btn2:
-        if st.button(tr("🗑️ Limpiar Demo", "🗑️ Clear Demo", "🗑️ Wyczyść Demo", "🗑️ Ryd Demo"), use_container_width=True):
-            st.session_state["modo_demo_8"] = False
-            st.rerun()
+        if st.button(tr("🗑️ Limpiar Demo", "🗑️ Clear Demo"), use_container_width=True): st.session_state["modo_demo_8"] = False; st.rerun()
+    if st.session_state["modo_demo_8"]: st.success(tr(f"✅ 8 Tablas Demo activas ({escala_demo.split('(')[0].strip()}).", f"✅ 8 Demo Tables active ({escala_demo.split('(')[0].strip()})."))
 
-    if st.session_state["modo_demo_8"]:
-        st.success(tr(
-            f"✅ 8 Tablas Demo activas ({escala_demo.split('(')[0].strip()}). Si arrastras un Excel abajo, sustituirá a esa tabla.",
-            f"✅ 8 Demo Tables active ({escala_demo.split('(')[0].strip()}). Uploading any Excel below overrides that specific table."
-        ))
-
-    st.download_button(
-        label=tr("📥 Descargar 8 Plantillas Oficiales (.xlsx)", "📥 Download 8 Official Templates (.xlsx)", "📥 Pobierz 8 Oficjalnych Szablonów (.xlsx)", "📥 Download 8 Officielle Skabeloner (.xlsx)"),
-        data=generar_plantillas_oficiales_excel(),
-        file_name="Plantillas_Oficiales_SOP_8_Tablas.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
-    )
-
-    st.header(tr("📂 1. Datos Maestros S&OP", "📂 1. S&OP Master Data", "📂 1. Dane Podstawowe S&OP", "📂 1. S&OP Stamdata"))
-    file_hist = st.file_uploader(tr("1. Histórico Ventas", "1. Sales History", "1. Historia Sprzedaży", "1. Salgshistorik"), type=['xlsx', 'csv'])
-    file_ajustes = st.file_uploader(tr("2. Ajustes Consenso", "2. Consensus Overrides", "2. Korekty Konsensusu", "2. Konsensusjusteringer"), type=['xlsx', 'csv'])
-    file_stock = st.file_uploader(tr("3. Stock Actual", "3. Current Inventory", "3. Aktualny Zapas", "3. Nuværende Lager"), type=['xlsx', 'csv'])
-    file_bom = st.file_uploader(tr("4. BOM (Recetas)", "4. BOM (Formulations)", "4. BOM (Receptury)", "4. BOM (Stykliste)"), type=['xlsx', 'csv'])
-    file_rutas = st.file_uploader(tr("5. Rutas / Routing", "5. Production Routing", "5. Marszruty Produkcyjne", "5. Produktionsruter"), type=['xlsx', 'csv'])
-    file_cal = st.file_uploader(tr("6. Calendario", "6. Plant Calendar", "6. Kalendarz Zakładu", "6. Fabriks-kalender"), type=['xlsx', 'csv'])
+    st.header(tr("📂 1. Datos Maestros S&OP", "📂 1. S&OP Master Data"))
+    file_hist = st.file_uploader(tr("1. Histórico Ventas", "1. Sales History"), type=['xlsx', 'csv'])
+    file_ajustes = st.file_uploader(tr("2. Ajustes Consenso", "2. Consensus Overrides"), type=['xlsx', 'csv'])
+    file_stock = st.file_uploader(tr("3. Stock Actual", "3. Current Inventory"), type=['xlsx', 'csv'])
+    file_bom = st.file_uploader(tr("4. BOM (Recetas)", "4. BOM (Formulations)"), type=['xlsx', 'csv'])
+    file_rutas = st.file_uploader(tr("5. Rutas / Routing", "5. Production Routing"), type=['xlsx', 'csv'])
+    file_cal = st.file_uploader(tr("6. Calendario", "6. Plant Calendar"), type=['xlsx', 'csv'])
     
-    st.divider()
-    st.header(tr("🚀 2. ERP Pipeline (Ejecución)", "🚀 2. ERP Pipeline (Execution)", "🚀 2. Zlecenia ERP (Realizacja)", "🚀 2. ERP Pipeline (Udførelse)"))
-    file_compras_erp = st.file_uploader(tr("7. ERP Compras / POs", "7. ERP Purchase Orders (POs)", "7. Zamówienia Zakupu ERP (PO)", "7. ERP Indkøbsordrer (PO)"), type=['xlsx', 'csv'])
-    file_produccion_erp = st.file_uploader(tr("8. ERP Producción / Prd. Orders", "8. ERP Production Orders", "8. Zlecenia Produkcyjne ERP", "8. ERP Produktionsordrer"), type=['xlsx', 'csv'])
+    st.header(tr("🚀 2. ERP Pipeline (Ejecución)", "🚀 2. ERP Pipeline (Execution)"))
+    file_compras_erp = st.file_uploader(tr("7. ERP Compras / POs", "7. ERP Purchase Orders (POs)"), type=['xlsx', 'csv'])
+    file_produccion_erp = st.file_uploader(tr("8. ERP Producción / Prd. Orders", "8. ERP Production Orders"), type=['xlsx', 'csv'])
 
     if st.session_state.get("modo_demo_8", False):
-        if "Big Data" in escala_demo:
-            demos = obtener_excels_big_data_8_tablas()
-        else:
-            demos = obtener_excels_demo_8_tablas()
-        if file_hist is None:            file_hist            = demos["hist"]
-        if file_ajustes is None:         file_ajustes         = demos["ajustes"]
-        if file_stock is None:           file_stock           = demos["stock"]
-        if file_bom is None:             file_bom             = demos["bom"]
-        if file_rutas is None:           file_rutas           = demos["rutas"]
-        if file_cal is None:             file_cal             = demos["cal"]
-        if file_compras_erp is None:     file_compras_erp     = demos["compras_erp"]
-        if file_produccion_erp is None:  file_produccion_erp  = demos["produccion_erp"]
+        demos = obtener_excels_big_data_8_tablas() if "Big Data" in escala_demo else obtener_excels_demo_8_tablas()
+        if file_hist is None: file_hist = demos["hist"]
+        if file_ajustes is None: file_ajustes = demos["ajustes"]
+        if file_stock is None: file_stock = demos["stock"]
+        if file_bom is None: file_bom = demos["bom"]
+        if file_rutas is None: file_rutas = demos["rutas"]
+        if file_cal is None: file_cal = demos["cal"]
+        if file_compras_erp is None: file_compras_erp = demos["compras_erp"]
+        if file_produccion_erp is None: file_produccion_erp = demos["produccion_erp"]
 
-    st.divider()
-    st.header(tr("📅 3. Parámetros y Motor IA", "📅 3. Parameters & AI Engine", "📅 3. Parametry i Silnik AI", "📅 3. Parametre & AI-motor"))
-    modelo_fcst_sel = st.selectbox(
-        tr("🏆 Algoritmo de Forecasting:", "🏆 Forecasting Algorithm:", "🏆 Algorytm Prognozowania:", "🏆 Prognosealgoritme:"),
-        ["Auto-ML Best-Fit", "Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"]
-    )
-    horizonte = st.slider(tr("Horizonte (Meses):", "Horizon (Months):", "Horyzont (Miesiące):", "Horisont (Måneder):"), 1, 24, 12)
-    cobertura_fg = st.slider(tr("Cob. PT (Meses):", "FG Coverage (Months):", "Pokrycie WG (Miesiące):", "FG Dækning (Måneder):"), 0, 6, 1)
-    cobertura_rm = st.slider(tr("Cob. MP (Meses):", "RM Coverage (Months):", "Pokrycie SM (Miesiące):", "RM Dækning (Måneder):"), 0, 6, 2)
-    
+    st.header(tr("📅 3. Parámetros y Motor IA", "📅 3. Parameters & AI Engine"))
+    modelo_fcst_sel = st.selectbox(tr("🏆 Algoritmo de Forecasting:", "🏆 Forecasting Algorithm:"), ["Auto-ML Best-Fit", "Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"])
+    horizonte = st.slider(tr("Horizonte (Meses):", "Horizon (Months):"), 1, 24, 12)
+    cobertura_fg = st.slider(tr("Cob. PT (Meses):", "FG Coverage (Months):"), 0, 6, 1)
+    cobertura_rm = st.slider(tr("Cob. MP (Meses):", "RM Coverage (Months):"), 0, 6, 2)
     if "tab5" in modulos_permitidos:
-        st.divider()
-        st.header(tr("💱 4. Finanzas (FX a GBP)", "💱 4. Finance (FX to GBP)", "💱 4. Finanse (Kursy na GBP)", "💱 4. Økonomi (Valuta til GBP)"))
         fx_eur_gbp = st.number_input("EUR -> GBP:", value=0.85, step=0.01)
         fx_dkk_gbp = st.number_input("DKK -> GBP:", value=0.11, step=0.01)
         fx_pln_gbp = st.number_input("PLN -> GBP:", value=0.20, step=0.01)
-    else:
-        fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp = 0.85, 0.11, 0.20
-    
-    st.divider()
-    usar_limpieza_outliers = st.checkbox(tr("🧹 Limpiar Outliers (IQR)", "🧹 Clean Outliers (IQR)", "🧹 Usuń Wartości Odstające", "🧹 Rens Outliers"), value=True)
+    else: fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp = 0.85, 0.11, 0.20
+    usar_limpieza_outliers = st.checkbox(tr("🧹 Limpiar Outliers (IQR)", "🧹 Clean Outliers (IQR)"), value=True)
 
 
 @st.cache_data(show_spinner=False)
 def _leer_archivo_subido_bytes(contenido_bytes, nombre_archivo):
-    if nombre_archivo.endswith('.csv'):
-        return pd.read_csv(io.BytesIO(contenido_bytes))
-    return pd.read_excel(io.BytesIO(contenido_bytes))
+    return pd.read_csv(io.BytesIO(contenido_bytes)) if nombre_archivo.endswith('.csv') else pd.read_excel(io.BytesIO(contenido_bytes))
 
 
 def validar_y_cargar_tabla(uploaded_file, columnas_obligatorias, nombre_tabla, permitir_vacio=False):
-    if uploaded_file is None:
-        return None
-        
-    if isinstance(uploaded_file, pd.DataFrame):
-        d = uploaded_file.copy()
+    if uploaded_file is None: return None
+    if isinstance(uploaded_file, pd.DataFrame): d = uploaded_file.copy()
     else:
         try:
-            uploaded_file.seek(0)
-            raw_bytes = uploaded_file.read()
-            fname = getattr(uploaded_file, 'name', 'file.xlsx')
-            d = _leer_archivo_subido_bytes(raw_bytes, fname).copy()
-        except Exception as e:
-            st.error(f"❌ {tr('Error al leer el archivo para', 'Error reading file for')} **{nombre_tabla}**: {e}")
-            return None
-
-    if d is None:
-        st.error(f"❌ {tr('No se pudo procesar el archivo de', 'Could not process file for')} **{nombre_tabla}**.")
-        return None
-
+            uploaded_file.seek(0); d = _leer_archivo_subido_bytes(uploaded_file.read(), getattr(uploaded_file, 'name', 'file.xlsx')).copy()
+        except Exception: return None
     d.columns = d.columns.astype(str).str.strip()
-
-    columnas_faltantes = [col for col in columnas_obligatorias if col not in d.columns]
-    if columnas_faltantes:
-        st.error(
-            f"🚨 **{tr('Nombre de columna incorrecto en', 'Incorrect column name in')} [{nombre_tabla}]**\n\n"
-            f"{tr('Faltan las siguientes columnas obligatorias exactas', 'Missing exact mandatory columns')}: `{columnas_faltantes}`\n\n"
-            f"{tr('Columnas esperadas', 'Expected columns')}: `{columnas_obligatorias}`\n\n"
-            f"{tr('Columnas detectadas en tu archivo', 'Detected columns in your file')}: `{d.columns.tolist()}`"
-        )
-        return None
-
-    if d.empty and not permitir_vacio:
-        st.warning(f"⚠️ {tr('El archivo', 'File')} **{nombre_tabla}** {tr('tiene las columnas correctas pero está vacío.', 'has valid columns but contains no rows.')}")
-        return None
-
-    return d
+    return None if (d.empty and not permitir_vacio) else d
 
 
-# --- CARGA Y VALIDACIÓN ESTRICTA DE LAS 8 TABLAS + NPI CLOUD + SINCRONIZACIÓN GITHUB ---
 if 'df_ajustes' not in st.session_state or not isinstance(st.session_state['df_ajustes'], pd.DataFrame):
     df_cloud_init = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES)
-    if not df_cloud_init.empty and set(COLS_AJUSTES).issubset(df_cloud_init.columns):
-        st.session_state['df_ajustes'] = df_cloud_init[COLS_AJUSTES].copy()
-    else:
-        st.session_state['df_ajustes'] = pd.DataFrame(columns=COLS_AJUSTES)
+    st.session_state['df_ajustes'] = df_cloud_init[COLS_AJUSTES].copy() if not df_cloud_init.empty else pd.DataFrame(columns=COLS_AJUSTES)
 
 if 'df_npi' not in st.session_state or not isinstance(st.session_state['df_npi'], pd.DataFrame):
     df_npi_init = github_leer_csv(NPI_CLOUD_FILE, COLS_NPI)
-    if not df_npi_init.empty and set(COLS_NPI).issubset(df_npi_init.columns):
-        st.session_state['df_npi'] = df_npi_init[COLS_NPI].copy()
-    else:
-        st.session_state['df_npi'] = pd.DataFrame(columns=COLS_NPI)
+    st.session_state['df_npi'] = df_npi_init[COLS_NPI].copy() if not df_npi_init.empty else pd.DataFrame(columns=COLS_NPI)
 
-if 'last_ajuste_file' not in st.session_state:
-    st.session_state['last_ajuste_file'] = None
+if 'last_ajuste_file' not in st.session_state: st.session_state['last_ajuste_file'] = None
 
 df_raw = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
-
 id_ajuste_actual = f"DEMO_AJUSTES_{escala_demo}" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
 if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
     df_aj_cargado = validar_y_cargar_tabla(file_ajustes, COLS_AJUSTES, "2. Ajustes Consenso", permitir_vacio=True)
-    if isinstance(df_aj_cargado, pd.DataFrame) and not df_aj_cargado.empty:
-        st.session_state['df_ajustes'] = df_aj_cargado
-    elif str(id_ajuste_actual).startswith("DEMO_AJUSTES") and isinstance(df_aj_cargado, pd.DataFrame):
-        st.session_state['df_ajustes'] = df_aj_cargado
+    if isinstance(df_aj_cargado, pd.DataFrame) and not df_aj_cargado.empty: st.session_state['df_ajustes'] = df_aj_cargado
     st.session_state['last_ajuste_file'] = id_ajuste_actual
 elif file_ajustes is None and str(st.session_state['last_ajuste_file']).startswith("DEMO_AJUSTES"):
     df_cloud_fallback = github_leer_csv(CLOUD_AJUSTES_FILE, COLS_AJUSTES)
@@ -847,10 +597,7 @@ df_compras_erp = validar_y_cargar_tabla(file_compras_erp, COLS_COMPRAS, "7. ERP 
 df_produccion_erp = validar_y_cargar_tabla(file_produccion_erp, COLS_PROD, "8. ERP Producción / Prd. Orders", permitir_vacio=True)
 
 if df_raw is None or df_raw.empty:
-    st.info(tr(
-        "👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo (Ligera o Big Data 150.000 filas) o sube **1. Histórico Ventas**.",
-        "👈 Click **'🚀 Load 8 Tables'** in the sidebar to start the Demo (Light or Big Data 150,000 rows) or upload **1. Sales History**."
-    ))
+    st.info(tr("👈 Pulsa **'🚀 Cargar 8 Tablas'** en la barra lateral para iniciar la Demo o sube **1. Histórico Ventas**.", "👈 Click **'🚀 Load 8 Tables'** in the sidebar to start the Demo or upload **1. Sales History**."))
     st.stop()
 
 
@@ -858,47 +605,27 @@ if df_raw is None or df_raw.empty:
 df_npi_active = st.session_state.get('df_npi', pd.DataFrame(columns=COLS_NPI))
 if df_npi_active is not None and not df_npi_active.empty:
     f_max_raw = pd.to_datetime(df_raw['Date'], dayfirst=True, errors='coerce').max()
-    if pd.isna(f_max_raw):
-        f_max_raw = pd.Timestamp.today().replace(day=1)
+    if pd.isna(f_max_raw): f_max_raw = pd.Timestamp.today().replace(day=1)
     fechas_semilla_npi = pd.date_range(end=f_max_raw.replace(day=1), periods=6, freq="MS")
+    filas_hist_npi, filas_stk_npi, filas_rut_npi = [], [], []
 
-    filas_hist_npi = []
-    filas_stk_npi = []
-    filas_rut_npi = []
     for _, r_npi in df_npi_active.iterrows():
         s_npi = str(r_npi['sku cod']).strip()
-        d_npi = str(r_npi['sku desc']).strip()
-        p_npi = str(r_npi['País']).strip()
-        c_npi = str(r_npi['customer cod']).strip()
-        cd_npi = str(r_npi['customer desc']).strip()
         vol_npi = max(1.0, float(pd.to_numeric(r_npi['Volumen_Mensual_Kg'], errors='coerce') or 1000.0))
         pr_npi = max(0.1, float(pd.to_numeric(r_npi['Precio_Unit_EUR'], errors='coerce') or 3.5))
         mg_npi = float(pd.to_numeric(r_npi['Margen_Unit_EUR'], errors='coerce') or 1.1)
-        maq_npi = str(r_npi['Maquina']).strip()
-        kph_npi = max(100.0, float(pd.to_numeric(r_npi['Kilos_por_Hora'], errors='coerce') or 4000.0))
         pol_npi = str(r_npi.get('Politica_Stock', 'MTS')).strip().upper()
-
         for f_s in fechas_semilla_npi:
             filas_hist_npi.append({
-                "Date": f_s, "País": p_npi, "customer cod": c_npi, "customer desc": cd_npi,
-                "sku cod": s_npi, "sku desc": d_npi, "volume": vol_npi,
-                "revenue": round(vol_npi * pr_npi, 2), "margin": round(vol_npi * mg_npi, 2), "currency": "EUR"
+                "Date": f_s, "País": str(r_npi['País']).strip(), "customer cod": str(r_npi['customer cod']).strip(), "customer desc": str(r_npi['customer desc']).strip(),
+                "sku cod": s_npi, "sku desc": str(r_npi['sku desc']).strip(), "volume": vol_npi, "revenue": round(vol_npi * pr_npi, 2), "margin": round(vol_npi * mg_npi, 2), "currency": "EUR"
             })
-        filas_stk_npi.append({
-            "sku cod": s_npi, "sku desc": d_npi, "stock_disponible": 0.0,
-            "Cobertura_Meses": 1 if pol_npi == "MTS" else 0, "LT_Meses": 1,
-            "Categoria": pol_npi, "Coste_Unitario": max(0.1, round(pr_npi - mg_npi, 2))
-        })
-        filas_rut_npi.append({
-            "sku cod": s_npi, "Maquina": maq_npi, "Kilos_por_Hora": kph_npi
-        })
+        filas_stk_npi.append({"sku cod": s_npi, "sku desc": str(r_npi['sku desc']).strip(), "stock_disponible": 0.0, "Cobertura_Meses": 1 if pol_npi == "MTS" else 0, "LT_Meses": 1, "Categoria": pol_npi, "Coste_Unitario": max(0.1, round(pr_npi - mg_npi, 2))})
+        filas_rut_npi.append({"sku cod": s_npi, "Maquina": str(r_npi['Maquina']).strip(), "Kilos_por_Hora": max(100.0, float(pd.to_numeric(r_npi['Kilos_por_Hora'], errors='coerce') or 4000.0))})
 
-    if filas_hist_npi:
-        df_raw = pd.concat([df_raw, pd.DataFrame(filas_hist_npi)[COLS_HIST]], ignore_index=True)
-    if df_stock is not None and filas_stk_npi:
-        df_stock = pd.concat([df_stock, pd.DataFrame(filas_stk_npi)[COLS_STOCK]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
-    if df_rutas is not None and filas_rut_npi:
-        df_rutas = pd.concat([df_rutas, pd.DataFrame(filas_rut_npi)[COLS_RUTAS]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
+    if filas_hist_npi: df_raw = pd.concat([df_raw, pd.DataFrame(filas_hist_npi)[COLS_HIST]], ignore_index=True)
+    if df_stock is not None and filas_stk_npi: df_stock = pd.concat([df_stock, pd.DataFrame(filas_stk_npi)[COLS_STOCK]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
+    if df_rutas is not None and filas_rut_npi: df_rutas = pd.concat([df_rutas, pd.DataFrame(filas_rut_npi)[COLS_RUTAS]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
 
 
 # ==========================================
@@ -909,18 +636,14 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
     d = df_in.copy()
     d['Date'] = pd.to_datetime(d['Date'], dayfirst=True, errors='coerce')
     d = d.dropna(subset=['Date'])
-    fecha_max = d['Date'].max()
-    fecha_corte = fecha_max - pd.DateOffset(months=24)
-    d = d[d['Date'] >= fecha_corte].copy()
-
+    d = d[d['Date'] >= d['Date'].max() - pd.DateOffset(months=24)].copy()
     d['sku cod'] = d['sku cod'].astype(str).str.strip()
     d['volume'] = pd.to_numeric(d['volume'], errors='coerce').fillna(0.0)
     d['revenue'] = pd.to_numeric(d['revenue'], errors='coerce').fillna(0.0)
     d['margin'] = pd.to_numeric(d['margin'], errors='coerce').fillna(0.0)
 
     dict_fx = {'EUR': f_eur, 'DKK': f_dkk, 'PLN': f_pln, 'GBP': 1.0}
-    d['Moneda'] = d['currency'].astype(str).str.strip().str.upper()
-    d['FX'] = d['Moneda'].map(dict_fx).fillna(1.0)
+    d['FX'] = d['currency'].astype(str).str.strip().str.upper().map(dict_fx).fillna(1.0)
     d['Rev_GBP'] = d['revenue'] * d['FX']
     d['Mar_GBP'] = d['margin'] * d['FX']
 
@@ -928,13 +651,7 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
     df_fin_b['unit_price'] = np.where(df_fin_b['volume'] > 0, df_fin_b['Rev_GBP'] / df_fin_b['volume'], 0.0)
     df_fin_b['unit_margin'] = np.where(df_fin_b['volume'] > 0, df_fin_b['Mar_GBP'] / df_fin_b['volume'], 0.0)
 
-    d_price = dict(zip(df_fin_b['sku cod'], df_fin_b['unit_price']))
-    d_margin = dict(zip(df_fin_b['sku cod'], df_fin_b['unit_margin']))
-    d_curr = dict(zip(df_fin_b['sku cod'], ['GBP'] * len(df_fin_b)))
-    d_desc = d.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
-
-    return d, d_price, d_margin, d_curr, d_desc
-
+    return d, dict(zip(df_fin_b['sku cod'], df_fin_b['unit_price'])), dict(zip(df_fin_b['sku cod'], df_fin_b['unit_margin'])), dict(zip(df_fin_b['sku cod'], ['GBP'] * len(df_fin_b))), d.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
 
 df, dict_price, dict_margin, dict_currency, dict_sku_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
 
@@ -944,73 +661,45 @@ df, dict_price, dict_margin, dict_currency, dict_sku_desc = preprocesar_historic
 # ==========================================
 @st.cache_data(show_spinner=False)
 def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True, npi_records=None):
-    if df_in is None or df_in.empty:
-        return {}, {}
-
+    if df_in is None or df_in.empty: return {}, {}
     df_m = df_in.groupby([pd.Grouper(key='Date', freq='MS'), 'sku cod'])['volume'].sum().unstack(fill_value=0.0)
-    idx_full = pd.date_range(start=df_m.index.min(), end=df_m.index.max(), freq="MS")
-    df_m = df_m.reindex(idx_full, fill_value=0.0)
+    df_m = df_m.reindex(pd.date_range(start=df_m.index.min(), end=df_m.index.max(), freq="MS"), fill_value=0.0)
     df_m.columns = [str(c).strip() for c in df_m.columns]
-
     vals = df_m.values.astype(float)
-    T, N = vals.shape
-    skus = df_m.columns.tolist()
+    T, N = vals.shape; skus = df_m.columns.tolist()
 
     if usar_outliers and T >= 6:
-        q25 = np.percentile(vals, 25, axis=0, keepdims=True)
-        q75 = np.percentile(vals, 75, axis=0, keepdims=True)
-        iqr = q75 - q25
-        vals_clean = np.clip(vals, np.maximum(0.0, q25 - 1.5 * iqr), q75 + 1.5 * iqr)
-    else:
-        vals_clean = vals.copy()
+        q25, q75 = np.percentile(vals, 25, axis=0, keepdims=True), np.percentile(vals, 75, axis=0, keepdims=True)
+        vals_clean = np.clip(vals, np.maximum(0.0, q25 - 1.5 * (q75 - q25)), q75 + 1.5 * (q75 - q25))
+    else: vals_clean = vals.copy()
 
     meses_num = df_m.index.month.values
-    media_global_sku = np.maximum(vals_clean.mean(axis=0, keepdims=True), 1e-6)
     indices_est = np.ones((12, N), dtype=float)
     if T >= 12:
+        media_global_sku = np.maximum(vals_clean.mean(axis=0, keepdims=True), 1e-6)
         for m in range(1, 13):
             mask_m = (meses_num == m)
-            if mask_m.any():
-                indices_est[m - 1, :] = np.clip(vals_clean[mask_m, :].mean(axis=0) / media_global_sku[0, :], 0.4, 2.2)
+            if mask_m.any(): indices_est[m - 1, :] = np.clip(vals_clean[mask_m, :].mean(axis=0) / media_global_sku[0, :], 0.4, 2.2)
 
     w_rec = min(6, T)
     pesos = np.arange(1, w_rec + 1, dtype=float).reshape(-1, 1)
     nivel_wma = (vals_clean[-w_rec:, :] * pesos).sum(axis=0) / pesos.sum()
-
-    if T >= 6:
-        mitad = min(6, T // 2)
-        media_rec = vals_clean[-mitad:, :].mean(axis=0)
-        media_ant = vals_clean[-2 * mitad:-mitad, :].mean(axis=0)
-        slope = (media_rec - media_ant) / float(mitad)
-    else:
-        slope = np.zeros(N, dtype=float)
-
-    mask_pos = (vals_clean > 0).astype(float)
-    prob_dem = mask_pos[-w_rec:, :].mean(axis=0)
-    sum_pos = (vals_clean * mask_pos).sum(axis=0)
-    cnt_pos = np.maximum(mask_pos.sum(axis=0), 1.0)
-    tam_pos = sum_pos / cnt_pos
-    nivel_croston = prob_dem * tam_pos
+    slope = (vals_clean[-min(6, T // 2):, :].mean(axis=0) - vals_clean[-2 * min(6, T // 2):-min(6, T // 2), :].mean(axis=0)) / float(min(6, T // 2)) if T >= 6 else np.zeros(N, dtype=float)
+    nivel_croston = (vals_clean > 0).astype(float)[-w_rec:, :].mean(axis=0) * ((vals_clean * (vals_clean > 0).astype(float)).sum(axis=0) / np.maximum((vals_clean > 0).astype(float).sum(axis=0), 1.0))
 
     h_val = min(6, max(1, T - 1))
-    actual_val = vals[-h_val:, :]
-    meses_val = df_m.index[-h_val:].month.values - 1
-
-    pred_hw_val = np.maximum(0.0, nivel_wma.reshape(1, -1) * indices_est[meses_val, :])
+    pred_hw_val = np.maximum(0.0, nivel_wma.reshape(1, -1) * indices_est[df_m.index[-h_val:].month.values - 1, :])
     pred_wma_val = np.repeat(np.maximum(0.0, nivel_wma.reshape(1, -1)), h_val, axis=0)
     pred_cro_val = np.repeat(np.maximum(0.0, nivel_croston.reshape(1, -1)), h_val, axis=0)
+    denom_val = np.maximum(vals[-h_val:, :].sum(axis=0), 1.0)
 
-    denom_val = np.maximum(actual_val.sum(axis=0), 1.0)
-    wape_hw = np.abs(actual_val - pred_hw_val).sum(axis=0) / denom_val * 100.0
-    wape_wma = np.abs(actual_val - pred_wma_val).sum(axis=0) / denom_val * 100.0
-    wape_cro = np.abs(actual_val - pred_cro_val).sum(axis=0) / denom_val * 100.0
+    wape_hw = np.abs(vals[-h_val:, :] - pred_hw_val).sum(axis=0) / denom_val * 100.0
+    wape_wma = np.abs(vals[-h_val:, :] - pred_wma_val).sum(axis=0) / denom_val * 100.0
+    wape_cro = np.abs(vals[-h_val:, :] - pred_cro_val).sum(axis=0) / denom_val * 100.0
 
     idx_fut = pd.date_range(start=df_m.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS")
     meses_fut = idx_fut.month.values - 1
-
-    fcst_hw = np.zeros((steps, N), dtype=float)
-    fcst_wma = np.zeros((steps, N), dtype=float)
-    fcst_cro = np.zeros((steps, N), dtype=float)
+    fcst_hw, fcst_wma, fcst_cro = np.zeros((steps, N), dtype=float), np.zeros((steps, N), dtype=float), np.zeros((steps, N), dtype=float)
 
     for s in range(steps):
         amort = (0.88 ** (s + 1))
@@ -1021,55 +710,26 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True,
 
     matriz_wapes = np.vstack([wape_hw, wape_wma, wape_cro])
     ganador_idx = np.argmin(matriz_wapes, axis=0)
-    nombres_mod = ["Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"]
-
     fcst_best = np.choose(ganador_idx.reshape(1, -1), [fcst_hw, fcst_wma, fcst_cro])
 
-    # Aplicar curva de lanzamiento y estacionalidad espejo a los SKUs NPI (New Business)
     if npi_records:
         sku_to_col = {s: i for i, s in enumerate(skus)}
         for r_npi in npi_records:
-            s_npi = str(r_npi.get('sku cod', '')).strip()
-            s_esp = str(r_npi.get('SKU_Espejo', '')).strip()
-            vol_obj = float(r_npi.get('Volumen_Mensual_Kg', 0.0))
-            m_ini = max(1, int(r_npi.get('Mes_Inicio', 1)))
+            s_npi, s_esp = str(r_npi.get('sku cod', '')).strip(), str(r_npi.get('SKU_Espejo', '')).strip()
+            vol_obj, m_ini = float(r_npi.get('Volumen_Mensual_Kg', 0.0)), max(1, int(r_npi.get('Mes_Inicio', 1)))
             if s_npi in sku_to_col:
                 c_idx = sku_to_col[s_npi]
                 est_vec = indices_est[:, sku_to_col[s_esp]] if s_esp in sku_to_col else np.ones(12)
                 for s in range(steps):
-                    if (s + 1) < m_ini:
-                        val_m = 0.0
-                    else:
-                        val_m = vol_obj * est_vec[meses_fut[s]]
-                    fcst_best[s, c_idx] = val_m
-                    fcst_hw[s, c_idx] = val_m
-                    fcst_wma[s, c_idx] = val_m
-                    fcst_cro[s, c_idx] = val_m
+                    val_m = 0.0 if (s + 1) < m_ini else vol_obj * est_vec[meses_fut[s]]
+                    fcst_best[s, c_idx] = fcst_hw[s, c_idx] = fcst_wma[s, c_idx] = fcst_cro[s, c_idx] = val_m
 
-    dict_series = {
-        "Auto-ML Best-Fit": pd.DataFrame(fcst_best, index=idx_fut, columns=skus),
-        "Holt-Winters Seasonal": pd.DataFrame(fcst_hw, index=idx_fut, columns=skus),
-        "Damped Moving Average (WMA)": pd.DataFrame(fcst_wma, index=idx_fut, columns=skus),
-        "Croston TSB (Intermittent)": pd.DataFrame(fcst_cro, index=idx_fut, columns=skus),
-    }
+    nombres_mod = ["Holt-Winters Seasonal", "Damped Moving Average (WMA)", "Croston TSB (Intermittent)"]
+    meta_torneo = {s_cod: {"Ganador": nombres_mod[int(ganador_idx[j])], "WAPE_HW": round(float(wape_hw[j]), 1), "WAPE_WMA": round(float(wape_wma[j]), 1), "WAPE_Croston": round(float(wape_cro[j]), 1), "WAPE_Min": round(float(matriz_wapes[int(ganador_idx[j]), j]), 1), "Std_Mensual": float(vals_clean[:, j].std()), "Media_Mensual": float(vals_clean[:, j].mean())} for j, s_cod in enumerate(skus)}
 
-    meta_torneo = {}
-    for j, s_cod in enumerate(skus):
-        g_i = int(ganador_idx[j])
-        meta_torneo[s_cod] = {
-            "Ganador": nombres_mod[g_i],
-            "WAPE_HW": round(float(wape_hw[j]), 1),
-            "WAPE_WMA": round(float(wape_wma[j]), 1),
-            "WAPE_Croston": round(float(wape_cro[j]), 1),
-            "WAPE_Min": round(float(matriz_wapes[g_i, j]), 1),
-            "Std_Mensual": float(vals_clean[:, j].std()),
-            "Media_Mensual": float(vals_clean[:, j].mean())
-        }
+    return {"Auto-ML Best-Fit": pd.DataFrame(fcst_best, index=idx_fut, columns=skus), "Holt-Winters Seasonal": pd.DataFrame(fcst_hw, index=idx_fut, columns=skus), "Damped Moving Average (WMA)": pd.DataFrame(fcst_wma, index=idx_fut, columns=skus), "Croston TSB (Intermittent)": pd.DataFrame(fcst_cro, index=idx_fut, columns=skus)}, meta_torneo
 
-    return dict_series, meta_torneo
-
-
-npi_records_tuple = tuple(df_npi_active.to_dict('records')) if (df_npi_active is not None and not df_npi_active.empty) else None
+npi_records_tuple = tuple(st.session_state.get('df_npi', pd.DataFrame(columns=COLS_NPI)).to_dict('records')) if not st.session_state.get('df_npi', pd.DataFrame(columns=COLS_NPI)).empty else None
 dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(df, steps=24, usar_outliers=usar_limpieza_outliers, npi_records=npi_records_tuple)
 
 
@@ -1078,117 +738,55 @@ dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(d
 # ==========================================
 @st.cache_data(ttl=300, show_spinner=False)
 def calcular_abc_xyz_global(df_in):
-    if df_in is None or df_in.empty:
-        return pd.DataFrame()
-    
+    if df_in is None or df_in.empty: return pd.DataFrame()
     df_vol = df_in.groupby('sku cod')['volume'].sum().reset_index().sort_values('volume', ascending=False)
-    if df_vol['volume'].sum() == 0:
-        return pd.DataFrame()
-        
+    if df_vol['volume'].sum() == 0: return pd.DataFrame()
     df_vol['cum_pct'] = df_vol['volume'].cumsum() / df_vol['volume'].sum()
     df_vol['ABC'] = np.where(df_vol['cum_pct'] <= 0.8, 'A', np.where(df_vol['cum_pct'] <= 0.95, 'B', 'C'))
     
-    df_mes = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index()
-    df_cv = df_mes.groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
-    df_cv['std'] = df_cv['std'].fillna(0.0)
-    df_cv['CV'] = (df_cv['std'] / df_cv['mean'].replace(0, 1)).replace([np.inf, -np.inf], 0).fillna(0)
+    df_cv = df_in.groupby(['sku cod', pd.Grouper(key='Date', freq='MS')])['volume'].sum().reset_index().groupby('sku cod')['volume'].agg(['mean', 'std']).reset_index()
+    df_cv['CV'] = (df_cv['std'].fillna(0.0) / df_cv['mean'].replace(0, 1)).replace([np.inf, -np.inf], 0).fillna(0)
     df_cv['XYZ'] = np.where(df_cv['CV'] <= 0.5, 'X', np.where(df_cv['CV'] <= 1.0, 'Y', 'Z'))
     
     df_res = pd.merge(df_vol[['sku cod', 'volume', 'ABC']], df_cv[['sku cod', 'mean', 'std', 'CV', 'XYZ']], on='sku cod')
     df_res['Clase'] = df_res['ABC'] + df_res['XYZ']
-
-    mapa_desc = df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
-    df_res['sku desc'] = df_res['sku cod'].map(mapa_desc).fillna(df_res['sku cod'].astype(str))
-
+    df_res['sku desc'] = df_res['sku cod'].map(df_in.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()).fillna(df_res['sku cod'].astype(str))
     df_mg_agg = df_in.groupby('sku cod').agg({'volume': 'sum', 'Mar_GBP': 'sum'}).reset_index()
-    df_mg_agg['Margen Unitario'] = np.where(df_mg_agg['volume'] > 0, df_mg_agg['Mar_GBP'] / df_mg_agg['volume'], 0.0)
-    mapa_mg = dict(zip(df_mg_agg['sku cod'], df_mg_agg['Margen Unitario']))
-    df_res['Margen Unitario'] = df_res['sku cod'].map(mapa_mg).replace([np.inf, -np.inf], 0).fillna(0.0)
-
+    df_res['Margen Unitario'] = df_res['sku cod'].map(dict(zip(df_mg_agg['sku cod'], np.where(df_mg_agg['volume'] > 0, df_mg_agg['Mar_GBP'] / df_mg_agg['volume'], 0.0)))).replace([np.inf, -np.inf], 0).fillna(0.0)
     return df_res
-
 
 df_abcxyz_global = calcular_abc_xyz_global(df)
 
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-with col_f1:
-    lista_paises = ["TODOS"] + sorted(df['País'].dropna().astype(str).unique().tolist())
-    pais_sel = st.selectbox(tr("1. País:", "1. Country:", "1. Kraj:", "1. Land:"), lista_paises)
+with col_f1: pais_sel = st.selectbox(tr("1. País:", "1. Country:"), ["TODOS"] + sorted(df['País'].dropna().astype(str).unique().tolist()))
 df_filtro1 = df if pais_sel == "TODOS" else df[df['País'].astype(str) == pais_sel]
 
-with col_f2:
-    lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().astype(str).unique().tolist())
-    cliente_sel = st.selectbox(tr("2. Cliente:", "2. Customer:", "2. Klient:", "2. Kunde:"), lista_clientes)
+with col_f2: cliente_sel = st.selectbox(tr("2. Cliente:", "2. Customer:"), ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().astype(str).unique().tolist()))
 df_filtro2 = df_filtro1 if cliente_sel == "TODOS" else df_filtro1[df_filtro1['customer cod'].astype(str) == cliente_sel]
 
-with col_f3:
-    lista_clases = ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique().tolist()) if not df_abcxyz_global.empty else ["TODAS"]
-    clase_sel = st.selectbox(tr("3. Clase ABC/XYZ:", "3. ABC/XYZ Class:", "3. Klasa ABC/XYZ:", "3. ABC/XYZ Klasse:"), lista_clases)
+with col_f3: clase_sel = st.selectbox(tr("3. Clase ABC/XYZ:", "3. ABC/XYZ Class:"), ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique().tolist()) if not df_abcxyz_global.empty else ["TODAS"])
+df_filtro3 = df_filtro2[df_filtro2['sku cod'].isin(df_abcxyz_global[df_abcxyz_global['Clase'] == clase_sel]['sku cod'].unique())] if clase_sel != "TODAS" and not df_abcxyz_global.empty else df_filtro2
 
-if clase_sel != "TODAS" and not df_abcxyz_global.empty:
-    skus_en_clase = df_abcxyz_global[df_abcxyz_global['Clase'] == clase_sel]['sku cod'].unique()
-    df_filtro3 = df_filtro2[df_filtro2['sku cod'].isin(skus_en_clase)]
-else:
-    df_filtro3 = df_filtro2
-
-with col_f4:
-    lista_skus = ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().astype(str).unique().tolist())
-    sku_sel = st.selectbox(tr("4. Filtrar SKU (PT):", "4. Filter SKU (FG):", "4. Filtruj SKU (WG):", "4. Filtrer SKU (FG):"), lista_skus)
+with col_f4: sku_sel = st.selectbox(tr("4. Filtrar SKU (PT):", "4. Filter SKU (FG):"), ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().astype(str).unique().tolist()))
 df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'].astype(str) == sku_sel]
 
 col_objetivo = 'volume'
-
-if df_bom is not None and not df_bom.empty:
-    dict_rm_desc = dict(zip(df_bom['rm cod'].astype(str).str.strip(), df_bom['rm desc']))
-else:
-    dict_rm_desc = {}
-
-dict_prd_erp = {}
-if df_produccion_erp is not None and not df_produccion_erp.empty:
-    df_p_tmp = df_produccion_erp.copy()
-    df_p_tmp['sku cod'] = df_p_tmp['sku cod'].astype(str).str.strip()
-    df_p_tmp['Date'] = pd.to_datetime(df_p_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-    df_p_tmp['Cantidad_Kg'] = pd.to_numeric(df_p_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
-    dict_prd_erp = df_p_tmp.dropna(subset=['Date']).groupby(['sku cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
-
-dict_cmp_erp = {}
-if df_compras_erp is not None and not df_compras_erp.empty:
-    df_c_tmp = df_compras_erp.copy()
-    df_c_tmp['rm cod'] = df_c_tmp['rm cod'].astype(str).str.strip()
-    df_c_tmp['Date'] = pd.to_datetime(df_c_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-    df_c_tmp['Cantidad_Kg'] = pd.to_numeric(df_c_tmp['Cantidad_Kg'], errors='coerce').fillna(0)
-    dict_cmp_erp = df_c_tmp.dropna(subset=['Date']).groupby(['rm cod', 'Date'])['Cantidad_Kg'].sum().to_dict()
-
+dict_rm_desc = dict(zip(df_bom['rm cod'].astype(str).str.strip(), df_bom['rm desc'])) if df_bom is not None and not df_bom.empty else {}
+dict_prd_erp = df_produccion_erp.copy().assign(Date=lambda x: pd.to_datetime(x['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp(), Cantidad_Kg=lambda x: pd.to_numeric(x['Cantidad_Kg'], errors='coerce').fillna(0), skucod=lambda x: x['sku cod'].astype(str).str.strip()).dropna(subset=['Date']).groupby(['skucod', 'Date'])['Cantidad_Kg'].sum().to_dict() if df_produccion_erp is not None and not df_produccion_erp.empty else {}
+dict_cmp_erp = df_compras_erp.copy().assign(Date=lambda x: pd.to_datetime(x['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp(), Cantidad_Kg=lambda x: pd.to_numeric(x['Cantidad_Kg'], errors='coerce').fillna(0), rmcod=lambda x: x['rm cod'].astype(str).str.strip()).dropna(subset=['Date']).groupby(['rmcod', 'Date'])['Cantidad_Kg'].sum().to_dict() if df_compras_erp is not None and not df_compras_erp.empty else {}
 
 # ==========================================
 # 3. FUNCIONES CORE Y MOTOR MATRICIAL 2D (CON FIRMA DE CACHÉ DATASET_SIGNATURE)
 # ==========================================
 @st.cache_data(show_spinner=False)
 def _indexar_stock_rapido(df_s):
-    if df_s is None or df_s.empty:
-        return {}
-    d = df_s.copy()
-    d['sku_clean'] = d['sku cod'].astype(str).str.strip()
-    d['stk'] = pd.to_numeric(d['stock_disponible'], errors='coerce').fillna(0.0)
-    d['cob'] = pd.to_numeric(d['Cobertura_Meses'], errors='coerce').fillna(1).astype(int)
-    d['lt'] = pd.to_numeric(d['LT_Meses'], errors='coerce').fillna(0).astype(int)
-    d['cat'] = d['Categoria'].astype(str).str.strip().str.upper()
-    res = {}
-    for s_c, grp in d.groupby('sku_clean'):
-        cob_v = 0 if (grp['cat'].iloc[0] == 'MTO') else int(grp['cob'].iloc[0])
-        res[s_c] = (float(grp['stk'].sum()), cob_v, int(grp['lt'].iloc[0]))
-    return res
-
+    if df_s is None or df_s.empty: return {}
+    d = df_s.copy().assign(sku_clean=lambda x: x['sku cod'].astype(str).str.strip(), stk=lambda x: pd.to_numeric(x['stock_disponible'], errors='coerce').fillna(0.0), cob=lambda x: pd.to_numeric(x['Cobertura_Meses'], errors='coerce').fillna(1).astype(int), lt=lambda x: pd.to_numeric(x['LT_Meses'], errors='coerce').fillna(0).astype(int), cat=lambda x: x['Categoria'].astype(str).str.strip().str.upper())
+    return {s_c: (float(grp['stk'].sum()), 0 if grp['cat'].iloc[0] == 'MTO' else int(grp['cob'].iloc[0]), int(grp['lt'].iloc[0])) for s_c, grp in d.groupby('sku_clean')}
 
 mapa_stock_fast = _indexar_stock_rapido(df_stock)
 
-
-def obtener_parametros_stock(codigo, cob_defecto=2):
-    s_clean = str(codigo).strip()
-    if s_clean in mapa_stock_fast:
-        return mapa_stock_fast[s_clean]
-    return 0.0, int(cob_defecto), 0
-
+def obtener_parametros_stock(codigo, cob_defecto=2): return mapa_stock_fast.get(str(codigo).strip(), (0.0, int(cob_defecto), 0))
 
 # --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN Y NPI PARA INVALIDAR CACHÉ) ---
 _firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
@@ -1198,311 +796,159 @@ _firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_st
 _firma_npi = f"{len(st.session_state.get('df_npi', []))}"
 DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}|{_firma_npi}"
 
-
 @st.cache_data(show_spinner=False, max_entries=5000)
 def limpiar_anomalias(serie):
-    if len(serie) < 6:
-        return serie
-    q1, q3 = serie.quantile(0.25), serie.quantile(0.75)
-    iqr = q3 - q1
+    if len(serie) < 6: return serie
+    q1, q3 = serie.quantile(0.25), serie.quantile(0.75); iqr = q3 - q1
     return serie.clip(lower=max(0, q1 - 1.5 * iqr), upper=q3 + 1.5 * iqr)
-
 
 @st.cache_data(show_spinner=False, max_entries=5000)
 def calcular_forecast_serie_unica(serie, steps, metodo="Auto-ML Best-Fit"):
-    if len(serie) == 0:
-        return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
+    if len(serie) == 0: return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
     idx_fut = pd.date_range(start=serie.index[-1] + pd.DateOffset(months=1), periods=steps, freq="MS")
-    if len(serie) < 6:
-        return pd.Series([max(0.0, float(serie.mean()))] * steps, index=idx_fut)
-
+    if len(serie) < 6: return pd.Series([max(0.0, float(serie.mean()))] * steps, index=idx_fut)
     if metodo == "Damped Moving Average (WMA)":
-        w = min(6, len(serie))
-        pesos = np.arange(1, w + 1, dtype=float)
+        w = min(6, len(serie)); pesos = np.arange(1, w + 1, dtype=float)
         base_wma = float((serie.tail(w).values * pesos).sum() / pesos.sum())
         slope = float((serie.tail(3).mean() - serie.iloc[-6:-3].mean()) / 3.0) if len(serie) >= 6 else 0.0
-        vals = [max(0.0, base_wma + slope * 0.5 * (0.88 ** (i + 1))) for i in range(steps)]
-        return pd.Series(vals, index=idx_fut)
-
+        return pd.Series([max(0.0, base_wma + slope * 0.5 * (0.88 ** (i + 1))) for i in range(steps)], index=idx_fut)
     elif metodo == "Croston TSB (Intermittent)":
-        vals_s = serie.values.astype(float)
-        pos = vals_s[vals_s > 0]
-        if len(pos) == 0:
-            return pd.Series([0.0] * steps, index=idx_fut)
-        prob_p = float((vals_s[-min(6, len(vals_s)):] > 0).mean())
-        tam_m = float(pos.mean())
-        return pd.Series([max(0.0, prob_p * tam_m)] * steps, index=idx_fut)
-
-    try:
-        return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0.0, x))
-    except Exception:
-        return pd.Series([max(0.0, float(serie.tail(6).mean()))] * steps, index=idx_fut)
-
+        vals_s = serie.values.astype(float); pos = vals_s[vals_s > 0]
+        if len(pos) == 0: return pd.Series([0.0] * steps, index=idx_fut)
+        return pd.Series([max(0.0, float((vals_s[-min(6, len(vals_s)):] > 0).mean()) * float(pos.mean()))] * steps, index=idx_fut)
+    try: return ExponentialSmoothing(serie, trend="add", seasonal="add" if len(serie) >= 24 else None, seasonal_periods=12).fit().forecast(steps).apply(lambda x: max(0.0, x))
+    except Exception: return pd.Series([max(0.0, float(serie.tail(6).mean()))] * steps, index=idx_fut)
 
 def obtener_fcst_sku_rapido(sku_cod, steps, metodo_sel):
     mat = dict_fcst_matrices.get(metodo_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
     s_clean = str(sku_cod).strip()
-    if mat is not None and s_clean in mat.columns:
-        return mat[s_clean].iloc[:steps]
-    return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
-
+    return mat[s_clean].iloc[:steps] if mat is not None and s_clean in mat.columns else pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
 
 def aplicar_variacion_cliente(pais, cliente, pct):
     try:
         sub = df[(df['País'] == pais) & (df['customer cod'] == cliente)].copy()
-        if sub.empty:
-            return False, tr("No hay histórico para ese País y Cliente.", "No sales history for that Country and Customer.")
+        if sub.empty: return False, tr("No hay histórico para ese País y Cliente.", "No sales history for that Country and Customer.")
         factor = 1.0 + (float(pct) / 100.0)
         df_aj = st.session_state['df_ajustes'].copy()
         df_aj = df_aj[~((df_aj['País'] == pais) & (df_aj['customer cod'] == cliente))]
-        nuevas = []
-        eventos_fva = []
-        ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
+        nuevas, eventos_fva, ahora_cet = [], [], datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
         for sku_c in sub['sku cod'].unique():
             fcst = obtener_fcst_sku_rapido(sku_c, horizonte, modelo_fcst_sel)
             for f_dt, val in fcst.items():
-                est_val = round(float(val), 2)
-                ovr_val = round(float(val) * factor, 2)
-                nuevas.append({
-                    'Date': f_dt, 'País': pais, 'customer cod': cliente,
-                    'sku cod': sku_c, 'override_value': ovr_val
-                })
-                eventos_fva.append({
-                    "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
-                    "Tipo_Ajuste": f"Macro Factor ({pct:+.1f}%)",
-                    "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
-                    "País": pais, "customer cod": cliente, "sku cod": sku_c,
-                    "Forecast_Estadistico": est_val, "Consenso_Override": ovr_val,
-                    "Delta_Kg": round(ovr_val - est_val, 2), "Delta_Pct_FVA": round(float(pct), 1)
-                })
-        if nuevas:
-            df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
+                est_val, ovr_val = round(float(val), 2), round(float(val) * factor, 2)
+                nuevas.append({'Date': f_dt, 'País': pais, 'customer cod': cliente, 'sku cod': sku_c, 'override_value': ovr_val})
+                eventos_fva.append({"Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual, "Tipo_Ajuste": f"Macro Factor ({pct:+.1f}%)", "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"), "País": pais, "customer cod": cliente, "sku cod": sku_c, "Forecast_Estadistico": est_val, "Consenso_Override": ovr_val, "Delta_Kg": round(ovr_val - est_val, 2), "Delta_Pct_FVA": round(float(pct), 1)})
+        if nuevas: df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
         st.session_state['df_ajustes'] = df_aj
         github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Macro Factor ({pct:+.1f}%) by {usuario_actual} on {cliente}")
         registrar_evento_fva_consenso(eventos_fva)
         return True, "OK"
-    except Exception as e:
-        return False, str(e)
-
+    except Exception as e: return False, str(e)
 
 def congelar_snapshot_ciclo_sop(df_target):
-    if df_target is None or df_target.empty:
-        return 0
+    if df_target is None or df_target.empty: return 0
     ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
     aj_all = st.session_state.get('df_ajustes', pd.DataFrame(columns=COLS_AJUSTES)).copy()
-    if not aj_all.empty:
-        aj_all['Date_M'] = pd.to_datetime(aj_all['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-
+    if not aj_all.empty: aj_all['Date_M'] = pd.to_datetime(aj_all['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
     pares = df_target[['País', 'customer cod', 'sku cod']].drop_duplicates().head(300)
-    eventos_snap = []
-    h_snap = min(horizonte, 6)
+    eventos_snap, h_snap = [], min(horizonte, 6)
 
     for _, row_p in pares.iterrows():
         p_val, c_val, s_val = row_p['País'], row_p['customer cod'], row_p['sku cod']
         fcst_est = obtener_fcst_sku_rapido(s_val, h_snap, modelo_fcst_sel)
-        mapa_ovr = {}
-        if not aj_all.empty:
-            sub_aj = aj_all[(aj_all['País'] == p_val) & (aj_all['customer cod'] == c_val) & (aj_all['sku cod'] == s_val)]
-            if not sub_aj.empty:
-                mapa_ovr = sub_aj.dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().to_dict()
-
+        mapa_ovr = aj_all[(aj_all['País'] == p_val) & (aj_all['customer cod'] == c_val) & (aj_all['sku cod'] == s_val)].dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().to_dict() if not aj_all.empty else {}
         for f_dt, val_e in fcst_est.items():
             f_m = pd.to_datetime(f_dt).replace(day=1)
-            est_v = round(float(val_e), 2)
-            ovr_v = round(float(mapa_ovr.get(f_m, est_v)), 2)
-            delta_kg = round(ovr_v - est_v, 2)
-            delta_pct = round((delta_kg / est_v * 100), 1) if est_v > 0 else 0.0
-            eventos_snap.append({
-                "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
-                "Tipo_Ajuste": "Snapshot Ciclo S&OP",
-                "Date": f_m.strftime("%Y-%m-%d"), "País": p_val,
-                "customer cod": c_val, "sku cod": s_val,
-                "Forecast_Estadistico": est_v, "Consenso_Override": ovr_v,
-                "Delta_Kg": delta_kg, "Delta_Pct_FVA": delta_pct
-            })
-
-    if eventos_snap:
-        registrar_evento_fva_consenso(eventos_snap)
+            est_v, ovr_v = round(float(val_e), 2), round(float(mapa_ovr.get(f_m, round(float(val_e), 2))), 2)
+            eventos_snap.append({"Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual, "Tipo_Ajuste": "Snapshot Ciclo S&OP", "Date": f_m.strftime("%Y-%m-%d"), "País": p_val, "customer cod": c_val, "sku cod": s_val, "Forecast_Estadistico": est_v, "Consenso_Override": ovr_v, "Delta_Kg": round(ovr_v - est_v, 2), "Delta_Pct_FVA": round(((ovr_v - est_v) / est_v * 100), 1) if est_v > 0 else 0.0})
+    if eventos_snap: registrar_evento_fva_consenso(eventos_snap)
     return len(eventos_snap)
-
 
 @st.cache_data(show_spinner=False)
 def calcular_kpis_forecast(df_in, usar_outliers):
-    if df_in is None or df_in.empty:
-        return 0.0, 0.0, 0.0
+    if df_in is None or df_in.empty: return 0.0, 0.0, 0.0
     df_eval = df_in.groupby('Date')['volume'].sum().resample("MS").sum().reset_index()
-    if len(df_eval) < 6:
-        return 0.0, 0.0, 0.0
-    
+    if len(df_eval) < 6: return 0.0, 0.0, 0.0
     serie = df_eval.set_index('Date')['volume']
     serie_limpia = limpiar_anomalias(serie) if usar_outliers else serie
-    try:
-        modelo = ExponentialSmoothing(serie_limpia, trend="add", seasonal="add" if len(serie_limpia) >= 24 else None, seasonal_periods=12).fit()
-        fitted_values = modelo.fittedvalues
-    except Exception:
-        fitted_values = serie_limpia.shift(1).fillna(serie_limpia.mean())
-        
+    try: fitted_values = ExponentialSmoothing(serie_limpia, trend="add", seasonal="add" if len(serie_limpia) >= 24 else None, seasonal_periods=12).fit().fittedvalues
+    except Exception: fitted_values = serie_limpia.shift(1).fillna(serie_limpia.mean())
     df_eval['Forecast'] = fitted_values.values
     df_eval['Error'] = df_eval['volume'] - df_eval['Forecast']
     df_eval['Abs_Error'] = df_eval['Error'].abs()
-    
     sum_actual = df_eval['volume'].sum()
-    sum_abs_error = df_eval['Abs_Error'].sum()
-    sum_error = df_eval['Error'].sum()
-    
-    wape = (sum_abs_error / sum_actual) * 100 if sum_actual > 0 else 0.0
-    forecast_accuracy = max(0.0, 100.0 - wape)
-    bias = (sum_error / sum_actual) * 100 if sum_actual > 0 else 0.0
-    
-    return forecast_accuracy, bias, wape
-
+    return max(0.0, 100.0 - ((df_eval['Abs_Error'].sum() / sum_actual) * 100 if sum_actual > 0 else 0.0)), ((df_eval['Error'].sum() / sum_actual) * 100 if sum_actual > 0 else 0.0), ((df_eval['Abs_Error'].sum() / sum_actual) * 100 if sum_actual > 0 else 0.0)
 
 def estilo_doh(val):
-    if pd.isna(val):
-        return ''
-    if val < 15:
-        return 'background-color: #ffcccc; color: #900; font-weight: bold;'
-    elif val > 60:
-        return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
-    else:
-        return 'background-color: #e6ffe6; color: #006600;'
-
+    if pd.isna(val): return ''
+    if val < 15: return 'background-color: #ffcccc; color: #900; font-weight: bold;'
+    elif val > 60: return 'background-color: #ffe6cc; color: #b35900; font-weight: bold;'
+    else: return 'background-color: #e6ffe6; color: #006600;'
 
 def aplicar_moq_y_lote_multiplo(serie_necesidad, moq_kg, lote_mult_kg):
     vals = pd.to_numeric(serie_necesidad, errors='coerce').fillna(0.0).values
     res = np.zeros_like(vals, dtype=float)
-    moq_val = max(0.0, float(moq_kg))
-    mult_val = max(1.0, float(lote_mult_kg))
+    moq_val, mult_val = max(0.0, float(moq_kg)), max(1.0, float(lote_mult_kg))
     for idx, v in enumerate(vals):
-        if v <= 0:
-            res[idx] = 0.0
-        else:
-            base_v = max(v, moq_val)
-            if mult_val > 1.0:
-                res[idx] = np.ceil(base_v / mult_val) * mult_val
-            else:
-                res[idx] = base_v
+        res[idx] = np.ceil(max(v, moq_val) / mult_val) * mult_val if v > 0 and mult_val > 1.0 else (max(v, moq_val) if v > 0 else 0.0)
     return pd.Series(res, index=serie_necesidad.index)
 
-
 def construir_diagrama_sankey_red(df_mps_all, df_b, df_r, df_v):
-    if df_mps_all is None or df_mps_all.empty or df_b is None or df_b.empty:
-        return None
-
+    if df_mps_all is None or df_mps_all.empty or df_b is None or df_b.empty: return None
     df_mps_tot = df_mps_all.groupby('sku cod', as_index=False)[['Entradas_Netas', 'Recepciones_ERP']].sum()
     df_mps_tot['Fab_Total_Kg'] = df_mps_tot['Entradas_Netas'] + df_mps_tot['Recepciones_ERP']
     df_mps_tot = df_mps_tot[df_mps_tot['Fab_Total_Kg'] > 0].copy()
-    if df_mps_tot.empty:
-        return None
+    if df_mps_tot.empty: return None
 
-    top_skus_net = df_mps_tot.nlargest(8, 'Fab_Total_Kg')['sku cod'].astype(str).str.strip().tolist()
-    df_mps_top = df_mps_tot[df_mps_tot['sku cod'].astype(str).str.strip().isin(top_skus_net)].copy()
-
-    mapa_maq = {}
-    if df_r is not None and not df_r.empty and 'Maquina' in df_r.columns:
-        mapa_maq = dict(zip(df_r['sku cod'].astype(str).str.strip(), df_r['Maquina'].astype(str).str.strip()))
-
+    df_mps_top = df_mps_tot[df_mps_tot['sku cod'].astype(str).str.strip().isin(df_mps_tot.nlargest(8, 'Fab_Total_Kg')['sku cod'].astype(str).str.strip().tolist())].copy()
+    mapa_maq = dict(zip(df_r['sku cod'].astype(str).str.strip(), df_r['Maquina'].astype(str).str.strip())) if df_r is not None and not df_r.empty and 'Maquina' in df_r.columns else {}
     enlaces = []
     for _, row_p in df_mps_top.iterrows():
-        sku_c = str(row_p['sku cod']).strip()
-        fab_kg = float(row_p['Fab_Total_Kg'])
-        maq_c = f"⚙️ {mapa_maq.get(sku_c, 'Linea_General')}"
-        nodo_sku = f"📦 {sku_c}"
-
+        sku_c, fab_kg = str(row_p['sku cod']).strip(), float(row_p['Fab_Total_Kg'])
+        maq_c, nodo_sku = f"⚙️ {mapa_maq.get(sku_c, 'Linea_General')}", f"📦 {sku_c}"
         sub_b = df_b[df_b['sku cod'].astype(str).str.strip() == sku_c]
         if not sub_b.empty:
             for _, rb in sub_b.iterrows():
-                rm_c = str(rb['rm cod']).strip()
                 cant = float(pd.to_numeric(rb['Cantidad'], errors='coerce')) if pd.notna(rb['Cantidad']) else 0.0
-                if cant > 0:
-                    nodo_rm = f"🧩 {rm_c}"
-                    enlaces.append((nodo_rm, maq_c, fab_kg * cant))
+                if cant > 0: enlaces.append((f"🧩 {str(rb['rm cod']).strip()}", maq_c, fab_kg * cant))
         enlaces.append((maq_c, nodo_sku, fab_kg))
-
         if df_v is not None and not df_v.empty:
             sub_v = df_v[df_v['sku cod'].astype(str).str.strip() == sku_c]
-            if not sub_v.empty:
-                tot_v_sku = sub_v['volume'].sum()
-                if tot_v_sku > 0:
-                    for pais_k, vol_p in sub_v.groupby('País')['volume'].sum().items():
-                        prop = float(vol_p) / float(tot_v_sku)
-                        if prop > 0:
-                            enlaces.append((nodo_sku, f"🌍 {pais_k}", fab_kg * prop))
+            if not sub_v.empty and sub_v['volume'].sum() > 0:
+                for pais_k, vol_p in sub_v.groupby('País')['volume'].sum().items():
+                    if (float(vol_p) / float(sub_v['volume'].sum())) > 0: enlaces.append((nodo_sku, f"🌍 {pais_k}", fab_kg * (float(vol_p) / float(sub_v['volume'].sum()))))
 
-    if not enlaces:
-        return None
-
+    if not enlaces: return None
     df_links = pd.DataFrame(enlaces, columns=['Origen', 'Destino', 'Valor']).groupby(['Origen', 'Destino'])['Valor'].sum().reset_index()
     nodos_unicos = pd.unique(df_links[['Origen', 'Destino']].values.ravel('K')).tolist()
     mapa_idx = {n: i for i, n in enumerate(nodos_unicos)}
+    colores_nodos = ["#88FFBB" if n.startswith("🧩") else ("#1E3E5B" if n.startswith("⚙️") else ("#3A6B9C" if n.startswith("📦") else "#E6A100")) for n in nodos_unicos]
 
-    colores_nodos = [
-        "#88FFBB" if n.startswith("🧩") else ("#1E3E5B" if n.startswith("⚙️") else ("#3A6B9C" if n.startswith("📦") else "#E6A100"))
-        for n in nodos_unicos
-    ]
-
-    fig_sankey = go.Figure(data=[go.Sankey(
-        node=dict(pad=18, thickness=20, line=dict(color="#e0e6ed", width=1), label=nodos_unicos, color=colores_nodos),
-        link=dict(
-            source=[mapa_idx[o] for o in df_links['Origen']],
-            target=[mapa_idx[d] for d in df_links['Destino']],
-            value=df_links['Valor'].round(0).tolist(),
-            color="rgba(160, 178, 198, 0.38)"
-        )
-    )])
-    fig_sankey.update_layout(
-        title=tr(
-            "🕸️ Flujo E2E de la Red de Suministro (Top 8 SKUs): Materias Primas → Líneas de Planta → SKUs PT → Mercados (Kg)",
-            "🕸️ End-to-End Supply Network Flow (Top 8 SKUs): Raw Materials → Plant Lines → FG SKUs → Markets (Kg)"
-        ),
-        font=dict(size=12, family="Arial, sans-serif"), height=460, margin=dict(l=15, r=15, t=45, b=15)
-    )
+    fig_sankey = go.Figure(data=[go.Sankey(node=dict(pad=18, thickness=20, line=dict(color="#e0e6ed", width=1), label=nodos_unicos, color=colores_nodos), link=dict(source=[mapa_idx[o] for o in df_links['Origen']], target=[mapa_idx[d] for d in df_links['Destino']], value=df_links['Valor'].round(0).tolist(), color="rgba(160, 178, 198, 0.38)"))])
+    fig_sankey.update_layout(title=tr("🕸️ Flujo E2E de la Red de Suministro (Top 8 SKUs): Materias Primas → Líneas de Planta → SKUs PT → Mercados (Kg)", "🕸️ End-to-End Supply Network Flow (Top 8 SKUs): Raw Materials → Plant Lines → FG SKUs → Markets (Kg)"), font=dict(size=12, family="Arial, sans-serif"), height=460, margin=dict(l=15, r=15, t=45, b=15))
     return fig_sankey
 
-
 def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, serie_erp=None):
-    idx = serie_salidas.index
-    n = len(idx)
-    salidas = np.nan_to_num(serie_salidas.values.astype(float), nan=0.0)
-    rec_erp = np.nan_to_num(serie_erp.values.astype(float), nan=0.0) if serie_erp is not None else np.zeros(n, dtype=float)
-
-    stk_ini = np.zeros(n, dtype=float)
-    stk_obj = np.zeros(n, dtype=float)
-    entradas = np.zeros(n, dtype=float)
-    stk_fin = np.zeros(n, dtype=float)
-
-    stock_corriente = float(stock_inicial)
-    media_reciente = float(salidas[-3:].mean()) if n > 0 else 0.0
-    cob = int(cobertura_meses)
+    idx, n = serie_salidas.index, len(serie_salidas.index)
+    salidas, rec_erp = np.nan_to_num(serie_salidas.values.astype(float), nan=0.0), np.nan_to_num(serie_erp.values.astype(float), nan=0.0) if serie_erp is not None else np.zeros(n, dtype=float)
+    stk_ini, stk_obj, entradas, stk_fin = np.zeros(n, dtype=float), np.zeros(n, dtype=float), np.zeros(n, dtype=float), np.zeros(n, dtype=float)
+    stock_corriente, media_reciente, cob = float(stock_inicial), float(salidas[-3:].mean()) if n > 0 else 0.0, int(cobertura_meses)
 
     for i in range(n):
         fut_slice = salidas[i + 1 : i + 1 + cob]
-        faltantes = max(0, cob - len(fut_slice))
-        salida_futura = float(fut_slice.sum()) + faltantes * media_reciente
-
-        stk_ini[i] = stock_corriente
-        stk_obj[i] = salida_futura
-
-        nec_real = salidas[i] + salida_futura - stock_corriente - rec_erp[i]
-        ent_sug = max(0.0, nec_real)
-
+        salida_futura = float(fut_slice.sum()) + max(0, cob - len(fut_slice)) * media_reciente
+        stk_ini[i], stk_obj[i] = stock_corriente, salida_futura
+        ent_sug = max(0.0, salidas[i] + salida_futura - stock_corriente - rec_erp[i])
         entradas[i] = ent_sug
         stock_corriente = stock_corriente + ent_sug + rec_erp[i] - salidas[i]
         stk_fin[i] = stock_corriente
 
-    plan = pd.DataFrame({
-        'Salidas_Brutas': salidas, 'Recepciones_ERP': rec_erp,
-        'Stock_Inicial': stk_ini, 'Stock_Objetivo': stk_obj,
-        'Entradas_Netas': entradas, 'Stock_Final': stk_fin
-    }, index=idx)
-
+    plan = pd.DataFrame({'Salidas_Brutas': salidas, 'Recepciones_ERP': rec_erp, 'Stock_Inicial': stk_ini, 'Stock_Objetivo': stk_obj, 'Entradas_Netas': entradas, 'Stock_Final': stk_fin}, index=idx)
     demanda_futura_media = plan['Salidas_Brutas'].rolling(window=3, min_periods=1).mean().shift(-1)
-    if n > 0:
-        demanda_futura_media.iloc[-1] = media_reciente
+    if n > 0: demanda_futura_media.iloc[-1] = media_reciente
     plan['DOH'] = np.where(demanda_futura_media > 0, (plan['Stock_Final'] / demanda_futura_media) * 30.0, 0.0)
     plan['DOH'] = plan['DOH'].fillna(0).round(0)
     return plan
-
 
 # ==========================================
 # MOTOR MPS Y MRP 100 % MATRICIAL 2D (CON HASH EXPLÍCITO DE FIRMA `sig`)
@@ -1510,68 +956,46 @@ def calcular_necesidades_netas(serie_salidas, stock_inicial, cobertura_meses, se
 @st.cache_data(show_spinner=False)
 def _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig):
     mat_fcst = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat_fcst is None or mat_fcst.empty:
-        return pd.DataFrame()
-
+    if mat_fcst is None or mat_fcst.empty: return pd.DataFrame()
     mat_h = mat_fcst.iloc[:horiz].copy()
-    idx_fechas = mat_h.index
-    skus = [str(s).strip() for s in mat_h.columns.tolist()]
+    idx_fechas, skus = mat_h.index, [str(s).strip() for s in mat_h.columns.tolist()]
     mat_h.columns = skus
     H, N = mat_h.shape
-
     salidas_2d = np.nan_to_num(mat_h.values.astype(float), nan=0.0)
 
     aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
     if aj_df is not None and not aj_df.empty:
         aj_tmp = aj_df.copy()
-        aj_tmp['sku cod'] = aj_tmp['sku cod'].astype(str).str.strip()
-        aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        aj_tmp['sku cod'], aj_tmp['Date_M'] = aj_tmp['sku cod'].astype(str).str.strip(), pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
         piv_aj = aj_tmp.dropna(subset=['Date_M']).pivot_table(index='Date_M', columns='sku cod', values='override_value', aggfunc='sum')
         for c_sku in piv_aj.columns.intersection(mat_h.columns):
             col_loc = mat_h.columns.get_loc(c_sku)
             for f_dt, val_ovr in piv_aj[c_sku].dropna().items():
-                if f_dt in idx_fechas:
-                    salidas_2d[idx_fechas.get_loc(f_dt), col_loc] = float(val_ovr)
+                if f_dt in idx_fechas: salidas_2d[idx_fechas.get_loc(f_dt), col_loc] = float(val_ovr)
 
     rec_erp_2d = np.zeros((H, N), dtype=float)
     if dict_prd_erp:
-        sku_to_j = {s: j for j, s in enumerate(skus)}
-        fecha_to_i = {f: i for i, f in enumerate(idx_fechas)}
+        sku_to_j, fecha_to_i = {s: j for j, s in enumerate(skus)}, {f: i for i, f in enumerate(idx_fechas)}
         for (s_k, f_k), v_erp in dict_prd_erp.items():
-            s_clean = str(s_k).strip()
-            if s_clean in sku_to_j and f_k in fecha_to_i:
-                rec_erp_2d[fecha_to_i[f_k], sku_to_j[s_clean]] = float(v_erp)
+            if str(s_k).strip() in sku_to_j and f_k in fecha_to_i: rec_erp_2d[fecha_to_i[f_k], sku_to_j[str(s_k).strip()]] = float(v_erp)
 
-    stk_ini_vec = np.zeros(N, dtype=float)
-    cob_vec = np.full(N, int(cob_fg), dtype=int)
+    stk_ini_vec, cob_vec = np.zeros(N, dtype=float), np.full(N, int(cob_fg), dtype=int)
     for j, s_k in enumerate(skus):
         st_v, cb_v, _ = obtener_parametros_stock(s_k, cob_fg)
-        stk_ini_vec[j] = st_v
-        cob_vec[j] = cb_v
+        stk_ini_vec[j], cob_vec[j] = st_v, cb_v
 
-    stk_ini_2d = np.zeros((H, N), dtype=float)
-    stk_obj_2d = np.zeros((H, N), dtype=float)
-    entradas_2d = np.zeros((H, N), dtype=float)
-    stk_fin_2d = np.zeros((H, N), dtype=float)
-
-    stock_corr = stk_ini_vec.copy()
-    media_rec_vec = salidas_2d[-min(3, H):, :].mean(axis=0)
-    cobs_unicas = np.unique(cob_vec)
+    stk_ini_2d, stk_obj_2d, entradas_2d, stk_fin_2d = np.zeros((H, N), dtype=float), np.zeros((H, N), dtype=float), np.zeros((H, N), dtype=float), np.zeros((H, N), dtype=float)
+    stock_corr, media_rec_vec, cobs_unicas = stk_ini_vec.copy(), salidas_2d[-min(3, H):, :].mean(axis=0), np.unique(cob_vec)
 
     for i in range(H):
         salida_futura = np.zeros(N, dtype=float)
         for c_val in cobs_unicas:
-            if c_val <= 0:
-                continue
+            if c_val <= 0: continue
             mask_c = (cob_vec == c_val)
             fut_slice = salidas_2d[i + 1 : i + 1 + c_val, mask_c]
-            falt = max(0, int(c_val) - fut_slice.shape[0])
-            salida_futura[mask_c] = fut_slice.sum(axis=0) + falt * media_rec_vec[mask_c]
-
-        stk_ini_2d[i, :] = stock_corr
-        stk_obj_2d[i, :] = salida_futura
-        nec_real = salidas_2d[i, :] + salida_futura - stock_corr - rec_erp_2d[i, :]
-        ent_sug = np.maximum(0.0, nec_real)
+            salida_futura[mask_c] = fut_slice.sum(axis=0) + max(0, int(c_val) - fut_slice.shape[0]) * media_rec_vec[mask_c]
+        stk_ini_2d[i, :], stk_obj_2d[i, :] = stock_corr, salida_futura
+        ent_sug = np.maximum(0.0, salidas_2d[i, :] + salida_futura - stock_corr - rec_erp_2d[i, :])
         entradas_2d[i, :] = ent_sug
         stock_corr = stock_corr + ent_sug + rec_erp_2d[i, :] - salidas_2d[i, :]
         stk_fin_2d[i, :] = stock_corr
@@ -1579,105 +1003,51 @@ def _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig):
     dem_futura_2d = np.vstack([salidas_2d[1:, :], media_rec_vec.reshape(1, -1)])
     doh_2d = np.where(dem_futura_2d > 0, np.round((stk_fin_2d / dem_futura_2d) * 30.0, 0), 0.0)
 
-    fechas_rep = np.repeat(idx_fechas.values, N)
-    skus_tile = np.tile(skus, H)
-    descs_tile = np.tile([dict_sku_desc.get(s, str(s)) for s in skus], H)
-
-    return pd.DataFrame({
-        'Date': fechas_rep,
-        'sku cod': skus_tile,
-        'sku desc': descs_tile,
-        'Salidas_Brutas': salidas_2d.ravel(),
-        'Recepciones_ERP': rec_erp_2d.ravel(),
-        'Stock_Inicial': stk_ini_2d.ravel(),
-        'Stock_Objetivo': stk_obj_2d.ravel(),
-        'Entradas_Netas': entradas_2d.ravel(),
-        'Stock_Final': stk_fin_2d.ravel(),
-        'DOH': doh_2d.ravel()
-    })
-
+    return pd.DataFrame({'Date': np.repeat(idx_fechas.values, N), 'sku cod': np.tile(skus, H), 'sku desc': np.tile([dict_sku_desc.get(s, str(s)) for s in skus], H), 'Salidas_Brutas': salidas_2d.ravel(), 'Recepciones_ERP': rec_erp_2d.ravel(), 'Stock_Inicial': stk_ini_2d.ravel(), 'Stock_Objetivo': stk_obj_2d.ravel(), 'Entradas_Netas': entradas_2d.ravel(), 'Stock_Final': stk_fin_2d.ravel(), 'DOH': doh_2d.ravel()})
 
 def generar_mps_df_2d(horiz=None, cob_fg=None, metodo_fcst=None, sig=None):
-    h = horiz if horiz is not None else int(horizonte)
-    c_fg = cob_fg if cob_fg is not None else int(cobertura_fg)
-    mod = metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel)
-    s_key = sig if sig is not None else str(DATASET_SIGNATURE)
-    return _calcular_mps_df_2d_cached(h, c_fg, mod, s_key).copy()
-
+    return _calcular_mps_df_2d_cached(horiz if horiz is not None else int(horizonte), cob_fg if cob_fg is not None else int(cobertura_fg), metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel), sig if sig is not None else str(DATASET_SIGNATURE)).copy()
 
 @st.cache_data(show_spinner=False)
 def _calcular_mrp_global_cached(horiz, cob_fg, cob_rm, metodo_fcst, sig):
     df_mps_all = _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig).copy()
-    if df_bom is None or df_bom.empty or df_mps_all.empty:
-        return pd.DataFrame()
-
-    df_mps_all['Prod_Total'] = df_mps_all['Entradas_Netas'] + df_mps_all['Recepciones_ERP']
-    df_mps_all['sku_clean'] = df_mps_all['sku cod'].astype(str).str.strip()
-
-    df_b_clean = df_bom.copy()
-    df_b_clean['sku_clean'] = df_b_clean['sku cod'].astype(str).str.strip()
-    df_b_clean['rm_clean'] = df_b_clean['rm cod'].astype(str).str.strip()
-    df_b_clean['cant_num'] = pd.to_numeric(df_b_clean['Cantidad'], errors='coerce').fillna(0.0)
+    if df_bom is None or df_bom.empty or df_mps_all.empty: return pd.DataFrame()
+    df_mps_all['Prod_Total'], df_mps_all['sku_clean'] = df_mps_all['Entradas_Netas'] + df_mps_all['Recepciones_ERP'], df_mps_all['sku cod'].astype(str).str.strip()
+    df_b_clean = df_bom.copy().assign(sku_clean=lambda x: x['sku cod'].astype(str).str.strip(), rm_clean=lambda x: x['rm cod'].astype(str).str.strip(), cant_num=lambda x: pd.to_numeric(x['Cantidad'], errors='coerce').fillna(0.0))
     df_b_clean = df_b_clean[df_b_clean['cant_num'] > 0]
-
-    df_explosion = pd.merge(
-        df_mps_all[['Date', 'sku_clean', 'Prod_Total']],
-        df_b_clean[['sku_clean', 'rm_clean', 'cant_num']],
-        on='sku_clean', how='inner'
-    )
-    if df_explosion.empty:
-        return pd.DataFrame()
-
+    df_explosion = pd.merge(df_mps_all[['Date', 'sku_clean', 'Prod_Total']], df_b_clean[['sku_clean', 'rm_clean', 'cant_num']], on='sku_clean', how='inner')
+    if df_explosion.empty: return pd.DataFrame()
     df_explosion['Necesidad_Bruta'] = df_explosion['Prod_Total'] * df_explosion['cant_num']
     piv_rm = df_explosion.pivot_table(index='Date', columns='rm_clean', values='Necesidad_Bruta', aggfunc='sum').fillna(0.0)
 
-    idx_fechas = piv_rm.index
-    rms = [str(r).strip() for r in piv_rm.columns.tolist()]
+    idx_fechas, rms = piv_rm.index, [str(r).strip() for r in piv_rm.columns.tolist()]
     piv_rm.columns = rms
     H, M = piv_rm.shape
     salidas_rm_2d = piv_rm.values.astype(float)
 
     rec_erp_rm_2d = np.zeros((H, M), dtype=float)
     if dict_cmp_erp:
-        rm_to_j = {r: j for j, r in enumerate(rms)}
-        fecha_to_i = {f: i for i, f in enumerate(idx_fechas)}
+        rm_to_j, fecha_to_i = {r: j for j, r in enumerate(rms)}, {f: i for i, f in enumerate(idx_fechas)}
         for (r_k, f_k), v_erp in dict_cmp_erp.items():
-            r_clean = str(r_k).strip()
-            if r_clean in rm_to_j and f_k in fecha_to_i:
-                rec_erp_rm_2d[fecha_to_i[f_k], rm_to_j[r_clean]] = float(v_erp)
+            if str(r_k).strip() in rm_to_j and f_k in fecha_to_i: rec_erp_rm_2d[fecha_to_i[f_k], rm_to_j[str(r_k).strip()]] = float(v_erp)
 
-    stk_ini_vec = np.zeros(M, dtype=float)
-    cob_vec = np.full(M, int(cob_rm), dtype=int)
-    lt_vec = np.zeros(M, dtype=int)
+    stk_ini_vec, cob_vec, lt_vec = np.zeros(M, dtype=float), np.full(M, int(cob_rm), dtype=int), np.zeros(M, dtype=int)
     for j, r_k in enumerate(rms):
         st_v, cb_v, lt_v = obtener_parametros_stock(r_k, cob_rm)
-        stk_ini_vec[j] = st_v
-        cob_vec[j] = cb_v
-        lt_vec[j] = lt_v
+        stk_ini_vec[j], cob_vec[j], lt_vec[j] = st_v, cb_v, lt_v
 
-    stk_ini_2d = np.zeros((H, M), dtype=float)
-    stk_obj_2d = np.zeros((H, M), dtype=float)
-    entradas_2d = np.zeros((H, M), dtype=float)
-    stk_fin_2d = np.zeros((H, M), dtype=float)
-
-    stock_corr = stk_ini_vec.copy()
-    media_rec_vec = salidas_rm_2d[-min(3, H):, :].mean(axis=0)
-    cobs_unicas = np.unique(cob_vec)
+    stk_ini_2d, stk_obj_2d, entradas_2d, stk_fin_2d = np.zeros((H, M), dtype=float), np.zeros((H, M), dtype=float), np.zeros((H, M), dtype=float), np.zeros((H, M), dtype=float)
+    stock_corr, media_rec_vec, cobs_unicas = stk_ini_vec.copy(), salidas_rm_2d[-min(3, H):, :].mean(axis=0), np.unique(cob_vec)
 
     for i in range(H):
         salida_futura = np.zeros(M, dtype=float)
         for c_val in cobs_unicas:
-            if c_val <= 0:
-                continue
+            if c_val <= 0: continue
             mask_c = (cob_vec == c_val)
             fut_slice = salidas_rm_2d[i + 1 : i + 1 + c_val, mask_c]
-            falt = max(0, int(c_val) - fut_slice.shape[0])
-            salida_futura[mask_c] = fut_slice.sum(axis=0) + falt * media_rec_vec[mask_c]
-
-        stk_ini_2d[i, :] = stock_corr
-        stk_obj_2d[i, :] = salida_futura
-        nec_real = salidas_rm_2d[i, :] + salida_futura - stock_corr - rec_erp_rm_2d[i, :]
-        ent_sug = np.maximum(0.0, nec_real)
+            salida_futura[mask_c] = fut_slice.sum(axis=0) + max(0, int(c_val) - fut_slice.shape[0]) * media_rec_vec[mask_c]
+        stk_ini_2d[i, :], stk_obj_2d[i, :] = stock_corr, salida_futura
+        ent_sug = np.maximum(0.0, salidas_rm_2d[i, :] + salida_futura - stock_corr - rec_erp_rm_2d[i, :])
         entradas_2d[i, :] = ent_sug
         stock_corr = stock_corr + ent_sug + rec_erp_rm_2d[i, :] - salidas_rm_2d[i, :]
         stk_fin_2d[i, :] = stock_corr
@@ -1685,264 +1055,113 @@ def _calcular_mrp_global_cached(horiz, cob_fg, cob_rm, metodo_fcst, sig):
     lanz_2d = entradas_2d.copy()
     for j in range(M):
         lt_j = int(lt_vec[j])
-        if lt_j > 0 and lt_j < H:
-            lanz_2d[:-lt_j, j] = entradas_2d[lt_j:, j]
+        if lt_j > 0 and lt_j < H: lanz_2d[:-lt_j, j] = entradas_2d[lt_j:, j]
 
     dem_futura_2d = np.vstack([salidas_rm_2d[1:, :], media_rec_vec.reshape(1, -1)])
     doh_2d = np.where(dem_futura_2d > 0, np.round((stk_fin_2d / dem_futura_2d) * 30.0, 0), 0.0)
 
-    return pd.DataFrame({
-        'Date': np.repeat(idx_fechas.values, M),
-        'rm cod': np.tile(rms, H),
-        'rm desc': np.tile([dict_rm_desc.get(r, str(r)) for r in rms], H),
-        'LT_Meses': np.tile(lt_vec, H),
-        'Salidas_Brutas': salidas_rm_2d.ravel(),
-        'Stock_Inicial': stk_ini_2d.ravel(),
-        'Recepciones_ERP': rec_erp_rm_2d.ravel(),
-        'Stock_Objetivo': stk_obj_2d.ravel(),
-        'Entradas_Netas': entradas_2d.ravel(),
-        'Lanzamiento_Pedidos': lanz_2d.ravel(),
-        'Stock_Final': stk_fin_2d.ravel(),
-        'DOH': doh_2d.ravel()
-    })
-
+    return pd.DataFrame({'Date': np.repeat(idx_fechas.values, M), 'rm cod': np.tile(rms, H), 'rm desc': np.tile([dict_rm_desc.get(r, str(r)) for r in rms], H), 'LT_Meses': np.tile(lt_vec, H), 'Salidas_Brutas': salidas_rm_2d.ravel(), 'Stock_Inicial': stk_ini_2d.ravel(), 'Recepciones_ERP': rec_erp_rm_2d.ravel(), 'Stock_Objetivo': stk_obj_2d.ravel(), 'Entradas_Netas': entradas_2d.ravel(), 'Lanzamiento_Pedidos': lanz_2d.ravel(), 'Stock_Final': stk_fin_2d.ravel(), 'DOH': doh_2d.ravel()})
 
 def generar_mrp_global(horiz=None, cob_fg=None, cob_rm=None, metodo_fcst=None, sig=None):
-    h = horiz if horiz is not None else int(horizonte)
-    c_fg = cob_fg if cob_fg is not None else int(cobertura_fg)
-    c_rm = cob_rm if cob_rm is not None else int(cobertura_rm)
-    mod = metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel)
-    s_key = sig if sig is not None else str(DATASET_SIGNATURE)
-    return _calcular_mrp_global_cached(h, c_fg, c_rm, mod, s_key).copy()
-
+    return _calcular_mrp_global_cached(horiz if horiz is not None else int(horizonte), cob_fg if cob_fg is not None else int(cobertura_fg), cob_rm if cob_rm is not None else int(cobertura_rm), metodo_fcst if metodo_fcst is not None else str(modelo_fcst_sel), sig if sig is not None else str(DATASET_SIGNATURE)).copy()
 
 # ==========================================
-# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE (ESCALADO POR SHARE DE FILTRO)
+# FUNCIONES AUXILIARES PARA TABS 9 Y 10 + WATERFALL BRIDGE
 # ==========================================
 @st.cache_data(show_spinner=False)
 def motor_simulador_whatif(df_f, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, horiz, metodo_fcst, s_vol, s_pre, s_cos, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat is None or mat.empty or df_f is None or df_f.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
-    vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
-
-    skus_filtrados = [str(s).strip() for s in df_f['sku cod'].unique()]
-    cols_validas = [s for s in skus_filtrados if s in mat.columns]
-    if not cols_validas:
-        return pd.DataFrame(), pd.DataFrame()
+    if mat is None or mat.empty or df_f is None or df_f.empty: return pd.DataFrame(), pd.DataFrame()
+    vol_global_sku, vol_filtro_sku = df.groupby('sku cod')['volume'].sum().to_dict(), df_f.groupby('sku cod')['volume'].sum().to_dict()
+    cols_validas = [s for s in [str(x).strip() for x in df_f['sku cod'].unique()] if s in mat.columns]
+    if not cols_validas: return pd.DataFrame(), pd.DataFrame()
 
     vols_sku_global = mat[cols_validas].iloc[:horiz].sum(axis=0)
     l_base, l_wi = [], []
     for sku, vol_g in vols_sku_global.items():
-        g_tot = float(vol_global_sku.get(sku, 0.0))
-        f_tot = float(vol_filtro_sku.get(sku, 0.0))
-        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
-
+        share_sku = (float(vol_filtro_sku.get(sku, 0.0)) / float(vol_global_sku.get(sku, 0.0))) if float(vol_global_sku.get(sku, 0.0)) > 0 else 0.0
         vol = float(vol_g) * share_sku
         p, m = dict_p.get(sku, 0.0), dict_m.get(sku, 0.0)
         c_base = p - m
         mon = str(dict_c.get(sku, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
         l_base.append({'Revenue': vol * p * t_fx, 'Margin': vol * m * t_fx})
-        l_wi.append({
-            'Revenue': vol * (1 + s_vol / 100.0) * p * (1 + s_pre / 100.0) * t_fx,
-            'Margin': vol * (1 + s_vol / 100.0) * (p * (1 + s_pre / 100.0) - c_base * (1 + s_cos / 100.0)) * t_fx
-        })
+        l_wi.append({'Revenue': vol * (1 + s_vol / 100.0) * p * (1 + s_pre / 100.0) * t_fx, 'Margin': vol * (1 + s_vol / 100.0) * (p * (1 + s_pre / 100.0) - c_base * (1 + s_cos / 100.0)) * t_fx})
     return pd.DataFrame(l_base), pd.DataFrame(l_wi)
-
 
 @st.cache_data(show_spinner=False)
 def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur, f_dkk, f_pln, max_date_global, metodo_fcst, horiz=12, sig=None):
     mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-    if mat is None or mat.empty or df_f is None or df_f.empty:
-        return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
+    if mat is None or mat.empty or df_f is None or df_f.empty: return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
 
     min_date_12m = max_date_global - pd.DateOffset(months=11)
     vols_l12 = df_f[(df_f['Date'] >= min_date_12m) & (df_f['Date'] <= max_date_global)].groupby('sku cod')['volume'].sum().to_dict()
     mapa_abc = dict(zip(abc_df['sku cod'], abc_df['ABC'])) if (abc_df is not None and not abc_df.empty and 'ABC' in abc_df.columns) else {}
-
-    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
-    vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
+    vol_global_sku, vol_filtro_sku = df.groupby('sku cod')['volume'].sum().to_dict(), df_f.groupby('sku cod')['volume'].sum().to_dict()
 
     mapa_aj = {}
     if aj_df is not None and not aj_df.empty:
         aj_clean = aj_df.copy()
         aj_clean['sku cod'] = aj_clean['sku cod'].astype(str).str.strip()
-        paises_f = set(df_f['País'].dropna().unique())
-        clientes_f = set(df_f['customer cod'].dropna().unique())
+        paises_f, clientes_f = set(df_f['País'].dropna().unique()), set(df_f['customer cod'].dropna().unique())
         aj_clean = aj_clean[aj_clean['País'].isin(paises_f) & aj_clean['customer cod'].isin(clientes_f)]
         if not aj_clean.empty:
             aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
             mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
-    mat_h = mat.iloc[:horiz]
-    idx_fut = mat_h.index
-
+    mat_h, idx_fut = mat.iloc[:horiz], mat.iloc[:horiz].index
     v_total_con, r_total_con, m_total_con = 0.0, 0.0, 0.0
     delta_rev_a, delta_rev_bc, delta_rev_fva = 0.0, 0.0, 0.0
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
     for sku in df_f['sku cod'].unique():
         s_clean = str(sku).strip()
-        if s_clean not in mat_h.columns:
-            continue
-
-        g_tot = float(vol_global_sku.get(s_clean, 0.0))
-        f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
-        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
-
+        if s_clean not in mat_h.columns: continue
+        share_sku = (float(vol_filtro_sku.get(s_clean, 0.0)) / float(vol_global_sku.get(s_clean, 0.0))) if float(vol_global_sku.get(s_clean, 0.0)) > 0 else 0.0
         vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
         serie_est = mat_h[s_clean].values.astype(float) * share_sku
         serie_con = serie_est.copy()
 
         if mapa_aj:
             for m_i, f_dt in enumerate(idx_fut):
-                if (s_clean, f_dt) in mapa_aj:
-                    serie_con[m_i] = float(mapa_aj[(s_clean, f_dt)])
+                if (s_clean, f_dt) in mapa_aj: serie_con[m_i] = float(mapa_aj[(s_clean, f_dt)])
 
-        vol_est_sku = float(serie_est.sum())
-        vol_con_sku = float(serie_con.sum())
-
+        vol_est_sku, vol_con_sku = float(serie_est.sum()), float(serie_con.sum())
         p, mg = dict_p.get(s_clean, 0.0), dict_m.get(s_clean, 0.0)
         mon = str(dict_c.get(s_clean, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
 
-        v_total_con += vol_con_sku
-        r_total_con += vol_con_sku * p * t_fx
-        m_total_con += vol_con_sku * mg * t_fx
+        v_total_con += vol_con_sku; r_total_con += vol_con_sku * p * t_fx; m_total_con += vol_con_sku * mg * t_fx
+        d_est_vol, d_fva_vol = vol_est_sku - vol_l12_sku, vol_con_sku - vol_est_sku
+        if mapa_abc.get(s_clean, 'B') == 'A': delta_rev_a += d_est_vol * p * t_fx; delta_mar_a += d_est_vol * mg * t_fx
+        else: delta_rev_bc += d_est_vol * p * t_fx; delta_mar_bc += d_est_vol * mg * t_fx
+        delta_rev_fva += d_fva_vol * p * t_fx; delta_mar_fva += d_fva_vol * mg * t_fx
 
-        d_est_vol = vol_est_sku - vol_l12_sku
-        d_fva_vol = vol_con_sku - vol_est_sku
-        if mapa_abc.get(s_clean, 'B') == 'A':
-            delta_rev_a += d_est_vol * p * t_fx
-            delta_mar_a += d_est_vol * mg * t_fx
-        else:
-            delta_rev_bc += d_est_vol * p * t_fx
-            delta_mar_bc += d_est_vol * mg * t_fx
+    return v_total_con, r_total_con, m_total_con, {"rev_a": delta_rev_a, "rev_bc": delta_rev_bc, "rev_fva": delta_rev_fva, "mar_a": delta_mar_a, "mar_bc": delta_mar_bc, "mar_fva": delta_mar_fva}
 
-        delta_rev_fva += d_fva_vol * p * t_fx
-        delta_mar_fva += d_fva_vol * mg * t_fx
-
-    puente_dict = {
-        "rev_a": delta_rev_a, "rev_bc": delta_rev_bc, "rev_fva": delta_rev_fva,
-        "mar_a": delta_mar_a, "mar_bc": delta_mar_bc, "mar_fva": delta_mar_fva
-    }
-    return v_total_con, r_total_con, m_total_con, puente_dict
-
-
-def generar_pdf_executive_sop_deck(
-    pais_f, cli_f, sku_f, total_skus, total_clientes,
-    fa_val, bias_val, wape_val,
-    vol_l12, rev_l12, mar_l12,
-    vol_n12, rev_n12, mar_n12,
-    vol_bud=None, rev_bud=None, mar_bud=None
-):
-    if FPDF is None:
-        return None
-
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    pdf.add_page()
-    pdf.set_fill_color(30, 62, 91)
-    pdf.rect(0, 0, 210, 32, 'F')
-    pdf.set_font("Arial", 'B', 16)
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_y(8)
-    pdf.cell(0, 8, txt=_pdf_safe("EXECUTIVE S&OP DECK - MONTHLY CYCLE"), ln=True, align='C')
-    pdf.set_font("Arial", '', 10)
-    ahora_str = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M CET")
-    pdf.cell(0, 6, txt=_pdf_safe(f"AB Agri Global Supply Chain | Generated: {ahora_str} | Scope: Country={pais_f} | Customer={cli_f} | SKU={sku_f}"), ln=True, align='C')
-    pdf.ln(12)
-
-    pdf.set_text_color(30, 62, 91)
-    pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("1. Consolidated P&L: L12M vs. Annual Budget vs. N12M Consensus (GBP)"), ln=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 6, txt=_pdf_safe(f"   - Active Portfolio Scope: {total_skus} SKUs (FG) | {total_clientes} Active Customers | Model: {modelo_fcst_sel}"), ln=True)
-
-    v_b = vol_bud if vol_bud is not None else vol_l12 * 1.05
-    r_b = rev_bud if rev_bud is not None else rev_l12 * 1.05
-    m_b = mar_bud if mar_bud is not None else mar_l12 * 1.05
-
-    gap_vol_b = vol_n12 - v_b
-    gap_rev_b = rev_n12 - r_b
-    gap_mar_b = mar_n12 - m_b
-
-    pdf.ln(2)
-    pdf.set_fill_color(224, 230, 237)
-    pdf.set_font("Arial", 'B', 9)
-    pdf.cell(46, 8, _pdf_safe("S&OP Metric"), 1, 0, 'L', True)
-    pdf.cell(36, 8, _pdf_safe("Last 12M (Hist)"), 1, 0, 'R', True)
-    pdf.cell(36, 8, _pdf_safe("Annual Budget"), 1, 0, 'R', True)
-    pdf.cell(36, 8, _pdf_safe("Next 12M (Plan)"), 1, 0, 'R', True)
-    pdf.cell(36, 8, _pdf_safe("Gap vs Budget"), 1, 1, 'R', True)
-
-    pdf.set_font("Arial", '', 9)
-    pdf.cell(46, 8, _pdf_safe("Total Volume (Kg)"), 1, 0, 'L')
-    pdf.cell(36, 8, _pdf_safe(f"{vol_l12:,.0f} Kg"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"{v_b:,.0f} Kg"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"{vol_n12:,.0f} Kg"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"{gap_vol_b:+,.0f} Kg"), 1, 1, 'R')
-
-    pdf.cell(46, 8, _pdf_safe("Consolidated Revenue"), 1, 0, 'L')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {rev_l12:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {r_b:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {rev_n12:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {gap_rev_b:+,.0f}"), 1, 1, 'R')
-
-    pdf.cell(46, 8, _pdf_safe("Gross Margin (GBP)"), 1, 0, 'L')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {mar_l12:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {m_b:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {mar_n12:,.0f}"), 1, 0, 'R')
-    pdf.cell(36, 8, _pdf_safe(f"GBP {gap_mar_b:+,.0f}"), 1, 1, 'R')
-    pdf.ln(5)
-
-    pdf.set_text_color(30, 62, 91)
-    pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("2. Demand Model Statistical Reliability (L12M)"), ln=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 6, txt=_pdf_safe(f"   - Forecast Accuracy (FA): {fa_val:.1f}%  |  WAPE: {wape_val:.1f}%  |  Global Bias: {bias_val:+.1f}%"), ln=True)
-
+def generar_pdf_executive_sop_deck(pais_f, cli_f, sku_f, total_skus, total_clientes, fa_val, bias_val, wape_val, vol_l12, rev_l12, mar_l12, vol_n12, rev_n12, mar_n12, vol_bud=None, rev_bud=None, mar_bud=None):
+    if FPDF is None: return None
+    pdf = FPDF(); pdf.set_auto_page_break(auto=True, margin=15); pdf.add_page(); pdf.set_fill_color(30, 62, 91); pdf.rect(0, 0, 210, 32, 'F'); pdf.set_font("Arial", 'B', 16); pdf.set_text_color(255, 255, 255); pdf.set_y(8); pdf.cell(0, 8, txt=_pdf_safe("EXECUTIVE S&OP DECK - MONTHLY CYCLE"), ln=True, align='C'); pdf.set_font("Arial", '', 10); pdf.cell(0, 6, txt=_pdf_safe(f"AB Agri Global Supply Chain | Generated: {datetime.now(ZoneInfo('Europe/Madrid')).strftime('%Y-%m-%d %H:%M CET')} | Scope: Country={pais_f} | Customer={cli_f} | SKU={sku_f}"), ln=True, align='C'); pdf.ln(12)
+    pdf.set_text_color(30, 62, 91); pdf.set_font("Arial", 'B', 13); pdf.cell(0, 9, txt=_pdf_safe("1. Consolidated P&L: L12M vs. Annual Budget vs. N12M Consensus (GBP)"), ln=True); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(0, 6, txt=_pdf_safe(f"   - Active Portfolio Scope: {total_skus} SKUs (FG) | {total_clientes} Active Customers | Model: {modelo_fcst_sel}"), ln=True)
+    v_b = vol_bud if vol_bud is not None else vol_l12 * 1.05; r_b = rev_bud if rev_bud is not None else rev_l12 * 1.05; m_b = mar_bud if mar_bud is not None else mar_l12 * 1.05
+    pdf.ln(2); pdf.set_fill_color(224, 230, 237); pdf.set_font("Arial", 'B', 9); pdf.cell(46, 8, _pdf_safe("S&OP Metric"), 1, 0, 'L', True); pdf.cell(36, 8, _pdf_safe("Last 12M (Hist)"), 1, 0, 'R', True); pdf.cell(36, 8, _pdf_safe("Annual Budget"), 1, 0, 'R', True); pdf.cell(36, 8, _pdf_safe("Next 12M (Plan)"), 1, 0, 'R', True); pdf.cell(36, 8, _pdf_safe("Gap vs Budget"), 1, 1, 'R', True)
+    pdf.set_font("Arial", '', 9); pdf.cell(46, 8, _pdf_safe("Total Volume (Kg)"), 1, 0, 'L'); pdf.cell(36, 8, _pdf_safe(f"{vol_l12:,.0f} Kg"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"{v_b:,.0f} Kg"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"{vol_n12:,.0f} Kg"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"{vol_n12 - v_b:+,.0f} Kg"), 1, 1, 'R')
+    pdf.cell(46, 8, _pdf_safe("Consolidated Revenue"), 1, 0, 'L'); pdf.cell(36, 8, _pdf_safe(f"GBP {rev_l12:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {r_b:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {rev_n12:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {rev_n12 - r_b:+,.0f}"), 1, 1, 'R')
+    pdf.cell(46, 8, _pdf_safe("Gross Margin (GBP)"), 1, 0, 'L'); pdf.cell(36, 8, _pdf_safe(f"GBP {mar_l12:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {m_b:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {mar_n12:,.0f}"), 1, 0, 'R'); pdf.cell(36, 8, _pdf_safe(f"GBP {mar_n12 - m_b:+,.0f}"), 1, 1, 'R'); pdf.ln(5)
+    pdf.set_text_color(30, 62, 91); pdf.set_font("Arial", 'B', 13); pdf.cell(0, 9, txt=_pdf_safe("2. Demand Model Statistical Reliability (L12M)"), ln=True); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(0, 6, txt=_pdf_safe(f"   - Forecast Accuracy (FA): {fa_val:.1f}%  |  WAPE: {wape_val:.1f}%  |  Global Bias: {bias_val:+.1f}%"), ln=True)
     df_fva_hist = github_leer_csv(FVA_LOG_FILE, COLS_FVA_LOG)
-    if not df_fva_hist.empty and 'Delta_Kg' in df_fva_hist.columns:
-        tot_cambios = len(df_fva_hist)
-        delta_neto_fva = pd.to_numeric(df_fva_hist['Delta_Kg'], errors='coerce').fillna(0).sum()
-        pdf.cell(0, 6, txt=_pdf_safe(f"   - Consensus Governance (FVA Cloud): {tot_cambios} logged entries | Net Impact: {delta_neto_fva:+,.0f} Kg"), ln=True)
-    pdf.ln(4)
-
-    pdf.set_text_color(30, 62, 91)
-    pdf.set_font("Arial", 'B', 13)
-    pdf.cell(0, 9, txt=_pdf_safe("3. Month 1 Operational Exception Radar & RCCP Line Saturation"), ln=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", '', 9)
-
+    if not df_fva_hist.empty and 'Delta_Kg' in df_fva_hist.columns: pdf.cell(0, 6, txt=_pdf_safe(f"   - Consensus Governance (FVA Cloud): {len(df_fva_hist)} logged entries | Net Impact: {pd.to_numeric(df_fva_hist['Delta_Kg'], errors='coerce').fillna(0).sum():+,.0f} Kg"), ln=True)
+    pdf.ln(4); pdf.set_text_color(30, 62, 91); pdf.set_font("Arial", 'B', 13); pdf.cell(0, 9, txt=_pdf_safe("3. Month 1 Operational Exception Radar & RCCP Line Saturation"), ln=True); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
     df_mps_d = generar_mps_df_2d()
     if not df_mps_d.empty:
         df_mps_d['Date'] = pd.to_datetime(df_mps_d['Date'])
-        m1_dt = sorted(df_mps_d['Date'].unique())[0]
-        df_alert_pt = df_mps_d[(df_mps_d['Date'] == m1_dt) & ((df_mps_d['DOH'] < 15) | (df_mps_d['DOH'] > 60))].sort_values('DOH').head(5)
-        for _, r_pt in df_alert_pt.iterrows():
-            est_al = "STOCKOUT (<15d)" if r_pt['DOH'] < 15 else "EXCESS (>60d)"
-            pdf.cell(0, 5, txt=_pdf_safe(f"   * FG [{r_pt['sku cod']}] {str(r_pt['sku desc'])[:28]} -> {est_al} | DOH: {r_pt['DOH']:.0f}d | End Stock: {r_pt['Stock_Final']:,.0f} Kg"), ln=True)
-
+        for _, r_pt in df_mps_d[(df_mps_d['Date'] == sorted(df_mps_d['Date'].unique())[0]) & ((df_mps_d['DOH'] < 15) | (df_mps_d['DOH'] > 60))].sort_values('DOH').head(5).iterrows():
+            pdf.cell(0, 5, txt=_pdf_safe(f"   * FG [{r_pt['sku cod']}] {str(r_pt['sku desc'])[:28]} -> {'STOCKOUT (<15d)' if r_pt['DOH'] < 15 else 'EXCESS (>60d)'} | DOH: {r_pt['DOH']:.0f}d | End Stock: {r_pt['Stock_Final']:,.0f} Kg"), ln=True)
     df_act_pdf = github_leer_csv(ACTION_LOG_FILE, COLS_ACTION_LOG)
     if not df_act_pdf.empty:
-        pdf.ln(4)
-        pdf.set_text_color(30, 62, 91)
-        pdf.set_font("Arial", 'B', 13)
-        pdf.cell(0, 9, txt=_pdf_safe("4. Executive S&OP Committee Action Log & Decisions"), ln=True)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Arial", '', 9)
-        for _, r_a in df_act_pdf.head(6).iterrows():
-            pdf.cell(0, 5, txt=_pdf_safe(f"   - [{r_a.get('Estado', '')}] {r_a.get('Area_S&OP', '')}: {str(r_a.get('Accion_Acordada', ''))[:55]} (Owner: {r_a.get('Responsable', '')} | GBP {pd.to_numeric(r_a.get('Impacto_GBP', 0), errors='coerce'):,.0f})"), ln=True)
-
+        pdf.ln(4); pdf.set_text_color(30, 62, 91); pdf.set_font("Arial", 'B', 13); pdf.cell(0, 9, txt=_pdf_safe("4. Executive S&OP Committee Action Log & Decisions"), ln=True); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", '', 9)
+        for _, r_a in df_act_pdf.head(6).iterrows(): pdf.cell(0, 5, txt=_pdf_safe(f"   - [{r_a.get('Estado', '')}] {r_a.get('Area_S&OP', '')}: {str(r_a.get('Accion_Acordada', ''))[:55]} (Owner: {r_a.get('Responsable', '')} | GBP {pd.to_numeric(r_a.get('Impacto_GBP', 0), errors='coerce'):,.0f})"), ln=True)
     return bytes(pdf.output())
-
 
 # ==========================================
 # PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1)
@@ -1950,41 +1169,26 @@ def generar_pdf_executive_sop_deck(
 df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
 serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
 serie_modelo = limpiar_anomalias(serie_real) if usar_limpieza_outliers else serie_real
-
-if sku_sel != "TODOS" and pais_sel == "TODOS" and cliente_sel == "TODOS":
-    fcst_base_serie = obtener_fcst_sku_rapido(sku_sel, horizonte, modelo_fcst_sel)
-else:
-    fcst_base_serie = calcular_forecast_serie_unica(serie_modelo, horizonte, modelo_fcst_sel)
-
-df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_base_serie.copy()})
-df_comparativo.index.name = 'Date'
+fcst_base_serie = obtener_fcst_sku_rapido(sku_sel, horizonte, modelo_fcst_sel) if sku_sel != "TODOS" and pais_sel == "TODOS" and cliente_sel == "TODOS" else calcular_forecast_serie_unica(serie_modelo, horizonte, modelo_fcst_sel)
+df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_base_serie.copy()}); df_comparativo.index.name = 'Date'
 
 ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
 if not ajustes_activos.empty and sku_sel != "TODOS":
-    if pais_sel != "TODOS":
-        ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
-    if cliente_sel != "TODOS":
-        ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
+    if pais_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
+    if cliente_sel != "TODOS": ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
     ajustes_activos = ajustes_activos[ajustes_activos['sku cod'] == sku_sel]
     if not ajustes_activos.empty:
         ajustes_activos['Date'] = pd.to_datetime(ajustes_activos['Date'], dayfirst=True, errors='coerce')
         for fecha, row in ajustes_activos.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-            if fecha.replace(day=1) in df_comparativo.index:
-                df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
+            if fecha.replace(day=1) in df_comparativo.index: df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
 
-LAYOUT_STYLE = dict(
-    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-    font=dict(family="Arial, sans-serif"),
-    xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#e0e6ed')
-)
+LAYOUT_STYLE = dict(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(family="Arial, sans-serif"), xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor='#e0e6ed'))
 
 # ==========================================
 # PESTAÑAS (TABS) DEFINIDAS UNA SOLA VEZ
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
-])
-# >>> FIN DE LA PARTE 1 DE 2 (PEGA JUSTO DEBAJO LA PARTE 2) <<<
+tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]])
+# >>> FIN DE LA PARTE 1 DE 2 <<<
 
 # ==============================================================================
 # S&OP / IBP CORPORATE PLATFORM - PARTE 2 DE 2 (MÓDULOS 0 AL 10 + NPI + TURNOS + MTO/MTS FIX)
@@ -2852,7 +2056,7 @@ with tab_cap:
                         df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
                         df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
                         
-                        st.markdown(f"#### {tr('1. Matriz de Utilización por Planta (Sin Nivelar %)', '1. Unconstrained Plant Utilization Matrix (%)')}")
+                        st.markdown(f"#### {tr('1. Matriz de Utilización Original por Planta (Sin Nivelar %)', '1. Original Unconstrained Plant Utilization Matrix (%)')}")
                         try:
                             st.dataframe(df_pivot.style.background_gradient(cmap='RdYlGn_r', vmin=0, vmax=120).format("{:.1f}%"), use_container_width=True)
                         except Exception:
@@ -3398,17 +2602,14 @@ with tab_abc:
                     lbl_exceso_ss = tr('🟡 Exceso Stock (>SS Científico)', '🟡 Excess Stock (>Scientific SS)')
                     lbl_ok = tr('🟢 Alineado', '🟢 Aligned')
 
+                    # Diagnóstico S&OP completo
                     df_audit['Estado_Auditoria'] = np.where(
                         (df_audit['Politica_Recomendada'] == 'MTO') & (df_audit['Categoria_Actual'] == 'MTS'),
                         lbl_mts_mto,
                         np.where(
                             (df_audit['Politica_Recomendada'] == 'MTS') & (df_audit['Categoria_Actual'] == 'MTO'),
                             lbl_mto_mts,
-                            np.where(
-                                df_audit['WC_Liberable_GBP'] > 100.0,
-                                lbl_exceso_ss,
-                                lbl_ok
-                            )
+                            np.where(df_audit['WC_Liberable_GBP'] > 100.0, lbl_exceso_ss, lbl_ok)
                         )
                     )
 
@@ -3420,13 +2621,12 @@ with tab_abc:
 
                     solo_alertas = st.checkbox(
                         tr("🔍 Mostrar solo SKUs con exceso de stock o cambio MTS ↔ MTO", "🔍 Show only SKUs with excess stock or policy change"),
-                        value=False,
-                        key="chk_solo_alertas_abc_v2"
+                        value=False, key="chk_solo_alertas_abc_v2"
                     )
                     if solo_alertas:
                         df_mostrar_audit = df_audit[df_audit['Estado_Auditoria'] != lbl_ok].copy()
                         st.caption(tr(
-                            f"🔎 Filtro activo: Mostrando **{len(df_mostrar_audit)}** de {len(df_audit)} SKUs (excluidos {len(df_audit) - len(df_mostrar_audit)} SKUs en estado '🟢 Alineado').",
+                            f"🔎 Filtro activo: Mostrando **{len(df_mostrar_audit)}** de {len(df_audit)} SKUs (excluidos {len(df_audit) - len(df_mostrar_audit)} SKUs '🟢 Alineado').",
                             f"🔎 Active filter: Showing **{len(df_mostrar_audit)}** of {len(df_audit)} SKUs (excluded {len(df_audit) - len(df_mostrar_audit)} '🟢 Aligned' SKUs)."
                         ))
                     else:
@@ -3435,7 +2635,7 @@ with tab_abc:
                     df_mostrar_audit = df_mostrar_audit.sort_values(by='WC_Liberable_GBP', ascending=False).reset_index(drop=True)
 
                     if df_mostrar_audit.empty:
-                        st.success(tr("✅ Todos los SKUs están 100% alineados en política MTO/MTS y sin exceso de stock sobre el SS Científico.", "✅ All SKUs are 100% aligned in MTO/MTS policy with no excess stock above Scientific SS."))
+                        st.success(tr("✅ Todos los SKUs están 100% alineados y sin exceso de stock sobre el SS Científico.", "✅ All SKUs are 100% aligned with no excess stock."))
                     else:
                         st.dataframe(
                             df_mostrar_audit[[
@@ -3459,8 +2659,7 @@ with tab_abc:
                                 'WC Óptimo (£)': '£ {:,.0f}',
                                 tr('Ahorro WC Potencial (£)', 'Potential WC Savings (£)'): '£ {:,.0f}'
                             }),
-                            use_container_width=True,
-                            hide_index=True
+                            use_container_width=True, hide_index=True
                         )
 
 # ==========================================
