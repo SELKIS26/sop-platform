@@ -319,6 +319,10 @@ def obtener_excels_demo_8_tablas():
         for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _, _, _ in skus_demo:
             ruido = 0.65 if sku_cod == "PR01299X" else 0.12
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
+            # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
+            cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
+            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
+            
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
@@ -329,7 +333,9 @@ def obtener_excels_demo_8_tablas():
                 "volume": vol,
                 "revenue": round(vol * precio_u, 2),
                 "margin": round(vol * margen_u, 2),
-                "currency": "EUR"
+                "currency": "EUR",
+                "Categoria_Producto": cat_default,
+                "KAM": kam_default
             })
     df_1_hist = pd.DataFrame(filas_ventas)[COLS_HIST]
 
@@ -450,7 +456,9 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "volume": vols,
         "revenue": np.round(vols * precios_base[idx_sku], 2),
         "margin": np.round(vols * margenes_base[idx_sku], 2),
-        "currency": np.array([monedas_map[p] for p in paises_venta])
+        "currency": np.array([monedas_map[p] for p in paises_venta]),
+        "Categoria_Producto": np.random.choice(["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"], size=n_rows_hist),
+        "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
     })[COLS_HIST]
 
     idx_aj_sku = np.random.randint(0, 50, size=300)
