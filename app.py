@@ -73,7 +73,8 @@ st.markdown("""
 # ==========================================
 # ESQUEMA OFICIAL ESTRICTO DE LAS 8 TABLAS + NPI CLOUD
 # ==========================================
-COLS_HIST = ['Date', 'País', 'customer cod', 'customer desc', 'sku cod', 'sku desc', 'volume', 'revenue', 'margin', 'currency']
+COLS_HIST = ['Date', 'País', 'customer cod', 'customer desc', 'sku cod', 'sku desc', 'volume', 'revenue', 'margin', 'currency', 'Categoria_Producto', 'KAM']
+COLS_BUDGET = ['Escenario', 'Categoria_Producto', 'customer cod', 'Date', 'Volume_Kg', 'Revenue_GBP', 'Margin_GBP']
 COLS_AJUSTES = ['Date', 'País', 'customer cod', 'sku cod', 'override_value']
 COLS_STOCK = ['sku cod', 'sku desc', 'stock_disponible', 'Cobertura_Meses', 'LT_Meses', 'Categoria', 'Coste_Unitario']
 COLS_BOM = ['sku cod', 'rm cod', 'rm desc', 'Cantidad']
@@ -545,12 +546,20 @@ credenciales = {
         "amancebo": {
             "email": "amancebo@abagri.com",
             "name": "Ángel Mancebo",
-            "password": "Sop2026"
+            "password": "Sop2026",
+            "rol": "Admin"
         },
         "borja": {
             "email": "bdelrio@abagri.com",
             "name": "Borja Del Rio",
-            "password": "BorjaDR"
+            "password": "BorjaDR",
+            "rol": "Admin"
+        },
+        "kam_juan": {
+            "email": "juan@abagri.com",
+            "name": "Juan KAM",
+            "password": "Kam123",
+            "rol": "KAM"
         }
     }
 }
@@ -580,6 +589,7 @@ else:
                     st.session_state["authentication_status"] = True
                     st.session_state["username"] = user_in
                     st.session_state["name"] = usuarios_dict[user_in].get("name", user_in)
+                    st.session_state["rol"] = usuarios_dict[user_in].get("rol", "KAM")
                     st.rerun()
                 else:
                     st.session_state["authentication_status"] = False
@@ -592,10 +602,12 @@ elif st.session_state.get("authentication_status") is None:
     st.stop()
 
 usuario_actual = st.session_state["username"]
+rol_actual = st.session_state.get("rol", "KAM")
 
 PERMISOS = {
     "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"],
-    "borja": ["tab0", "tab2"]
+    "borja": ["tab0", "tab2"],
+    "kam_juan": ["tab0", "tab1", "tab5", "tab10"]
 }
 modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
 
@@ -721,6 +733,10 @@ with st.sidebar:
     st.header(tr("🚀 2. ERP Pipeline (Ejecución)", "🚀 2. ERP Pipeline (Execution)", "🚀 2. Zlecenia ERP (Realizacja)", "🚀 2. ERP Pipeline (Udførelse)"))
     file_compras_erp = st.file_uploader(tr("7. ERP Compras / POs", "7. ERP Purchase Orders (POs)", "7. Zamówienia Zakupu ERP (PO)", "7. ERP Indkøbsordrer (PO)"), type=['xlsx', 'csv'])
     file_produccion_erp = st.file_uploader(tr("8. ERP Producción / Prd. Orders", "8. ERP Production Orders", "8. Zlecenia Produkcyjne ERP", "8. ERP Produktionsordrer"), type=['xlsx', 'csv'])
+    
+    st.divider()
+    st.header(tr("📈 3. Escenarios Budget", "📈 3. Budget Scenarios", "📈 3. Scenariusze Budżetowe", "📈 3. Budgetscenarier"))
+    file_budget = st.file_uploader(tr("9. Presupuestos (Cat+Cliente)", "9. Budgets (Cat+Cust)", "9. Budżety (Kat+Klient)", "9. Budgetter (Kat+Kunde)"), type=['xlsx', 'csv'])
 
     if st.session_state.get("modo_demo_8", False):
         if "Big Data" in escala_demo:
@@ -825,6 +841,15 @@ if 'last_ajuste_file' not in st.session_state:
 
 df_raw = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
 
+# --- ROW LEVEL SECURITY (RLS) POR KAM ---
+if df_raw is not None and not df_raw.empty and "KAM" in df_raw.columns:
+    if st.session_state.get("rol", "KAM") == "KAM":
+        df_raw = df_raw[df_raw['KAM'].astype(str).str.lower().str.strip() == usuario_actual.lower()]
+        if df_raw.empty:
+            st.warning(f"⚠️ {st.session_state.get('name', usuario_actual)}, no tienes clientes asignados en el histórico de ventas.")
+            st.stop()
+
+
 id_ajuste_actual = f"DEMO_AJUSTES_{escala_demo}" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
 if file_ajustes is not None and id_ajuste_actual != st.session_state['last_ajuste_file']:
     df_aj_cargado = validar_y_cargar_tabla(file_ajustes, COLS_AJUSTES, "2. Ajustes Consenso", permitir_vacio=True)
@@ -845,6 +870,7 @@ df_rutas = validar_y_cargar_tabla(file_rutas, COLS_RUTAS, "5. Rutas / Routing")
 df_cal = validar_y_cargar_tabla(file_cal, COLS_CAL, "6. Calendario")
 df_compras_erp = validar_y_cargar_tabla(file_compras_erp, COLS_COMPRAS, "7. ERP Compras / POs", permitir_vacio=True)
 df_produccion_erp = validar_y_cargar_tabla(file_produccion_erp, COLS_PROD, "8. ERP Producción / Prd. Orders", permitir_vacio=True)
+df_budget = validar_y_cargar_tabla(file_budget, COLS_BUDGET, "9. Presupuestos", permitir_vacio=True)
 
 if df_raw is None or df_raw.empty:
     st.info(tr(
@@ -932,11 +958,12 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
     d_margin = dict(zip(df_fin_b['sku cod'], df_fin_b['unit_margin']))
     d_curr = dict(zip(df_fin_b['sku cod'], ['GBP'] * len(df_fin_b)))
     d_desc = d.dropna(subset=['sku desc']).groupby('sku cod')['sku desc'].first().to_dict()
+    d_cli_desc = d.dropna(subset=['customer desc']).groupby('customer cod')['customer desc'].first().to_dict()
 
-    return d, d_price, d_margin, d_curr, d_desc
+    return d, d_price, d_margin, d_curr, d_desc, d_cli_desc
 
 
-df, dict_price, dict_margin, dict_currency, dict_sku_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
+df, dict_price, dict_margin, dict_currency, dict_sku_desc, dict_cli_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
 
 
 # ==========================================
@@ -1114,27 +1141,33 @@ col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
     lista_paises = ["TODOS"] + sorted(df['País'].dropna().astype(str).unique().tolist())
     pais_sel = st.selectbox(tr("1. País:", "1. Country:", "1. Kraj:", "1. Land:"), lista_paises)
-df_filtro1 = df if pais_sel == "TODOS" else df[df['País'].astype(str) == pais_sel]
+df_f1 = df if pais_sel == "TODOS" else df[df['País'].astype(str) == pais_sel]
 
 with col_f2:
-    lista_clientes = ["TODOS"] + sorted(df_filtro1['customer cod'].dropna().astype(str).unique().tolist())
-    cliente_sel = st.selectbox(tr("2. Cliente:", "2. Customer:", "2. Klient:", "2. Kunde:"), lista_clientes)
-df_filtro2 = df_filtro1 if cliente_sel == "TODOS" else df_filtro1[df_filtro1['customer cod'].astype(str) == cliente_sel]
+    if 'Categoria_Producto' in df_f1.columns:
+        lista_cats = ["TODAS"] + sorted(df_f1['Categoria_Producto'].dropna().astype(str).unique().tolist())
+    else:
+        lista_cats = ["TODAS"]
+    cat_sel = st.selectbox(tr("2. Categoría:", "2. Category:"), lista_cats)
+df_f2 = df_f1 if cat_sel == "TODAS" else df_f1[df_f1['Categoria_Producto'].astype(str) == cat_sel]
 
 with col_f3:
-    lista_clases = ["TODAS"] + sorted(df_abcxyz_global['Clase'].dropna().unique().tolist()) if not df_abcxyz_global.empty else ["TODAS"]
-    clase_sel = st.selectbox(tr("3. Clase ABC/XYZ:", "3. ABC/XYZ Class:", "3. Klasa ABC/XYZ:", "3. ABC/XYZ Klasse:"), lista_clases)
-
-if clase_sel != "TODAS" and not df_abcxyz_global.empty:
-    skus_en_clase = df_abcxyz_global[df_abcxyz_global['Clase'] == clase_sel]['sku cod'].unique()
-    df_filtro3 = df_filtro2[df_filtro2['sku cod'].isin(skus_en_clase)]
-else:
-    df_filtro3 = df_filtro2
+    lista_clis = ["TODOS"] + sorted(df_f2['customer cod'].dropna().astype(str).unique().tolist())
+    cliente_sel = st.selectbox(
+        tr("3. Cliente:", "3. Customer:"), 
+        lista_clis,
+        format_func=lambda x: "TODOS" if x == "TODOS" else dict_cli_desc.get(x, x)
+    )
+df_f3 = df_f2 if cliente_sel == "TODOS" else df_f2[df_f2['customer cod'].astype(str) == cliente_sel]
 
 with col_f4:
-    lista_skus = ["TODOS"] + sorted(df_filtro3['sku cod'].dropna().astype(str).unique().tolist())
-    sku_sel = st.selectbox(tr("4. Filtrar SKU (PT):", "4. Filter SKU (FG):", "4. Filtruj SKU (WG):", "4. Filtrer SKU (FG):"), lista_skus)
-df_final = df_filtro3 if sku_sel == "TODOS" else df_filtro3[df_filtro3['sku cod'].astype(str) == sku_sel]
+    lista_skus = ["TODOS"] + sorted(df_f3['sku cod'].dropna().astype(str).unique().tolist())
+    sku_sel = st.selectbox(
+        tr("4. SKU (PT):", "4. SKU (FG):"), 
+        lista_skus,
+        format_func=lambda x: "TODOS" if x == "TODOS" else dict_sku_desc.get(x, x)
+    )
+df_final = df_f3 if sku_sel == "TODOS" else df_f3[df_f3['sku cod'].astype(str) == sku_sel]
 
 col_objetivo = 'volume'
 
@@ -1247,38 +1280,45 @@ def obtener_fcst_sku_rapido(sku_cod, steps, metodo_sel):
     return pd.Series([0.0] * steps, index=pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=steps, freq="MS"))
 
 
-def aplicar_variacion_cliente(pais, cliente, pct):
+def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
     try:
-        sub = df[(df['País'] == pais) & (df['customer cod'] == cliente)].copy()
+        sub = df[(df['Categoria_Producto'] == categoria) & (df['customer cod'] == cliente)].copy()
         if sub.empty:
-            return False, tr("No hay histórico para ese País y Cliente.", "No sales history for that Country and Customer.")
+            return False, tr("No hay histórico para esa Categoría y Cliente.", "No sales history for that Category and Customer.")
+        
         factor = 1.0 + (float(pct) / 100.0)
-        df_aj = st.session_state['df_ajustes'].copy()
-        df_aj = df_aj[~((df_aj['País'] == pais) & (df_aj['customer cod'] == cliente))]
+        df_aj = st.session_state.get('df_ajustes', pd.DataFrame(columns=COLS_AJUSTES)).copy()
+        
+        skus_afectados = sub['sku cod'].unique()
+        df_aj = df_aj[~((df_aj['customer cod'] == cliente) & (df_aj['sku cod'].isin(skus_afectados)))]
+        
         nuevas = []
         eventos_fva = []
         ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
-        for sku_c in sub['sku cod'].unique():
+        
+        for sku_c in skus_afectados:
+            pais_sku = sub[sub['sku cod'] == sku_c]['País'].iloc[0]
             fcst = obtener_fcst_sku_rapido(sku_c, horizonte, modelo_fcst_sel)
+            
             for f_dt, val in fcst.items():
                 est_val = round(float(val), 2)
                 ovr_val = round(float(val) * factor, 2)
                 nuevas.append({
-                    'Date': f_dt, 'País': pais, 'customer cod': cliente,
+                    'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
                     'sku cod': sku_c, 'override_value': ovr_val
                 })
                 eventos_fva.append({
                     "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
-                    "Tipo_Ajuste": f"Macro Factor ({pct:+.1f}%)",
+                    "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
                     "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
-                    "País": pais, "customer cod": cliente, "sku cod": sku_c,
+                    "País": pais_sku, "customer cod": cliente, "sku cod": sku_c,
                     "Forecast_Estadistico": est_val, "Consenso_Override": ovr_val,
                     "Delta_Kg": round(ovr_val - est_val, 2), "Delta_Pct_FVA": round(float(pct), 1)
                 })
         if nuevas:
             df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
         st.session_state['df_ajustes'] = df_aj
-        github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Macro Factor ({pct:+.1f}%) by {usuario_actual} on {cliente}")
+        github_guardar_csv(df_aj, CLOUD_AJUSTES_FILE, f"Macro Factor {categoria} ({pct:+.1f}%) by {usuario_actual}")
         registrar_evento_fva_consenso(eventos_fva)
         return True, "OK"
     except Exception as e:
@@ -3685,16 +3725,30 @@ with tab_kpis:
                 col_k3.metric("WAPE (Error Absoluto)", f"{wape_val:.1f}%", tr("Desviación porcentual neta", "Weighted Absolute Percentage Error"))
                 
                 st.divider()
-                st.subheader(tr("🎯 Control Presupuestario S&OP: Ventas Reales (L12M) vs. Budget Anual vs. Plan Consenso (N12M)", "🎯 S&OP Budget Control: Actuals (L12M) vs. Annual Budget vs. Consensus Plan (N12M)"))
+                st.subheader(tr("🎯 Control Presupuestario S&OP vs. Escenarios (Budget, 3+9, 6+6, 9+3)", "🎯 S&OP Budget Control vs. Scenarios (Budget, 3+9, 6+6, 9+3)"))
                 b_col1, b_col2 = st.columns([1, 3])
                 with b_col1:
-                    budget_growth_pct = st.slider(
-                        tr("📈 Objetivo Crecimiento Budget Anual (% vs L12M):", "📈 Annual Budget Growth Target (% vs L12M):"),
-                        min_value=-20.0, max_value=40.0, value=6.0, step=0.5
+                    escenario_sel = st.selectbox(
+                        "Tipo de Escenario (Target N12M):", 
+                        ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]
                     )
-                    vol_budget_n12 = vol_12m_hist * (1.0 + budget_growth_pct / 100.0)
-                    rev_budget_n12 = rev_12m_hist * (1.0 + budget_growth_pct / 100.0)
-                    mar_budget_n12 = mar_12m_hist * (1.0 + budget_growth_pct / 100.0)
+                    
+                    if 'df_budget' in locals() and df_budget is not None and not df_budget.empty:
+                        df_b_esc = df_budget[df_budget['Escenario'] == escenario_sel].copy()
+                        if cat_sel != "TODAS": df_b_esc = df_b_esc[df_b_esc['Categoria_Producto'] == cat_sel]
+                        if cliente_sel != "TODOS": df_b_esc = df_b_esc[df_b_esc['customer cod'] == cliente_sel]
+                        
+                        vol_budget_n12 = df_b_esc['Volume_Kg'].sum()
+                        rev_budget_n12 = df_b_esc['Revenue_GBP'].sum()
+                        mar_budget_n12 = df_b_esc['Margin_GBP'].sum()
+                        st.success(f"✅ Leyendo de archivo externo: {escenario_sel}")
+                    else:
+                        st.info("Sin archivo de Budget. Simulando crecimiento %")
+                        mapa_crecimientos = {"Budget Original (0+12)": 6.0, "Forecast 3+9": 4.5, "Forecast 6+6": 2.0, "Forecast 9+3": -1.5}
+                        budget_growth_pct = st.number_input(tr(f"Crecimiento Asignado al {escenario_sel} (%):", f"Target Growth for {escenario_sel} (%):"), value=mapa_crecimientos[escenario_sel], step=0.5)
+                        vol_budget_n12 = vol_12m_hist * (1.0 + budget_growth_pct / 100.0)
+                        rev_budget_n12 = rev_12m_hist * (1.0 + budget_growth_pct / 100.0)
+                        mar_budget_n12 = mar_12m_hist * (1.0 + budget_growth_pct / 100.0)
 
                     gap_vol_bud = vol_12m_fcst - vol_budget_n12
                     gap_rev_bud = rev_12m_fcst - rev_budget_n12
@@ -3703,7 +3757,7 @@ with tab_kpis:
                 with b_col2:
                     fig_triple = go.Figure(data=[
                         go.Bar(name=tr("1. Real L12M", "1. Actual L12M"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_12m_hist, mar_12m_hist], marker_color="#A0B2C6"),
-                        go.Bar(name=tr(f"2. Budget Anual ({budget_growth_pct:+.1f}%)", f"2. Annual Budget ({budget_growth_pct:+.1f}%)"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_budget_n12, mar_budget_n12], marker_color="#E6A100"),
+                        go.Bar(name=escenario_sel, x=["Revenue (£)", "Gross Margin (£)"], y=[rev_budget_n12, mar_budget_n12], marker_color="#E6A100"),
                         go.Bar(name=tr("3. Plan Consenso N12M", "3. Consensus Plan N12M"), x=["Revenue (£)", "Gross Margin (£)"], y=[rev_12m_fcst, mar_12m_fcst], marker_color="#1E3E5B")
                     ])
                     fig_triple.update_layout(**LAYOUT_STYLE, barmode="group", height=300, margin=dict(l=10, r=10, t=25, b=10), yaxis_title="GBP (£)")
