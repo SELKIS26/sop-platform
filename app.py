@@ -916,7 +916,8 @@ if df_npi_active is not None and not df_npi_active.empty:
             filas_hist_npi.append({
                 "Date": f_s, "País": p_npi, "customer cod": c_npi, "customer desc": cd_npi,
                 "sku cod": s_npi, "sku desc": d_npi, "volume": vol_npi,
-                "revenue": round(vol_npi * pr_npi, 2), "margin": round(vol_npi * mg_npi, 2), "currency": "EUR"
+                "revenue": round(vol_npi * pr_npi, 2), "margin": round(vol_npi * mg_npi, 2), "currency": "EUR",
+                "Categoria_Producto": "NPI / New Business", "KAM": usuario_actual
             })
         filas_stk_npi.append({
             "sku cod": s_npi, "sku desc": d_npi, "stock_disponible": 0.0,
