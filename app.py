@@ -719,35 +719,6 @@ st.title(t["title"])
 # 1. CONFIGURACIÓN Y CARGA DE ARCHIVOS (CON BIG DATA STRESS-TEST)
 # ==========================================
 with st.sidebar:
-    st.markdown(f"### {tr('🧪 Modo Demostración (1-Clic)', '🧪 Demo Mode (1-Click)', '🧪 Tryb Demo (1-Klik)', '🧪 Demotilstand (1-Klik)')}")
-    if "modo_demo_8" not in st.session_state:
-        st.session_state["modo_demo_8"] = True  # Activado por defecto
-
-    escala_demo = st.radio(
-        tr("📊 Escala del Dataset Demo:", "📊 Demo Dataset Scale:", "📊 Skala Danych Demo:", "📊 Demo Dataskala:"),
-        [
-            "⚡ Ligero (5 SKUs / 140 filas)",
-            "🔥 Big Data Stress-Test (500 SKUs / 150.000 ventas / 2.500 BOM)"
-        ],
-        index=1
-    )
-
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button(tr("🚀 Cargar 8 Tablas", "🚀 Load 8 Tables", "🚀 Załaduj 8 Tabel", "🚀 Indlæs 8 Tabeller"), use_container_width=True, type="primary"):
-            st.session_state["modo_demo_8"] = True
-            st.rerun()
-    with col_btn2:
-        if st.button(tr("🗑️ Limpiar Demo", "🗑️ Clear Demo", "🗑️ Wyczyść Demo", "🗑️ Ryd Demo"), use_container_width=True):
-            
-            st.rerun()
-
-    if st.session_state["modo_demo_8"]:
-        st.success(tr(
-            f"✅ 8 Tablas Demo activas ({escala_demo.split('(')[0].strip()}). Si arrastras un Excel abajo, sustituirá a esa tabla.",
-            f"✅ 8 Demo Tables active ({escala_demo.split('(')[0].strip()}). Uploading any Excel below overrides that specific table."
-        ))
-
     st.session_state["modo_demo_8"] = True
     escala_demo = "🔥 Big Data Stress-Test"
 
@@ -1654,14 +1625,39 @@ def _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig):
     aj_df = st.session_state.get('df_ajustes', pd.DataFrame())
     if aj_df is not None and not aj_df.empty:
         aj_tmp = aj_df.copy()
-        aj_tmp['sku cod'] = aj_tmp['sku cod'].astype(str).str.strip()
         aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        piv_aj = aj_tmp.dropna(subset=['Date_M']).pivot_table(index='Date_M', columns='sku cod', values='override_value', aggfunc='sum')
-        for c_sku in piv_aj.columns.intersection(mat_h.columns):
-            col_loc = mat_h.columns.get_loc(c_sku)
-            for f_dt, val_ovr in piv_aj[c_sku].dropna().items():
-                if f_dt in idx_fechas:
-                    salidas_2d[idx_fechas.get_loc(f_dt), col_loc] = float(val_ovr)
+        aj_tmp = aj_tmp.dropna(subset=['Date_M'])
+        
+        df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+        df_sku_grp = df.groupby('sku cod')['volume'].sum().to_dict()
+        
+        delta_por_sku_fecha = {}
+        for _, row_aj in aj_tmp.iterrows():
+            p_c = str(row_aj['País']).strip()
+            c_c = str(row_aj['customer cod']).strip()
+            s_c = str(row_aj['sku cod']).strip()
+            d_m = row_aj['Date_M']
+            ovr_v = float(row_aj['override_value'])
+            
+            if s_c in skus and d_m in idx_fechas:
+                v_glob_comb = df_global_grp.get((p_c, c_c, s_c), 0.0)
+                v_glob_sku = max(df_sku_grp.get(s_c, 1e-6), 1e-6)
+                share = v_glob_comb / v_glob_sku
+                
+                idx_t = idx_fechas.get_loc(d_m)
+                idx_s = skus.index(s_c)
+                
+                stat_val_global = float(mat_h.iat[idx_t, idx_s])
+                stat_val_comb = stat_val_global * share
+                
+                delta = ovr_v - stat_val_comb
+                delta_por_sku_fecha[(s_c, d_m)] = delta_por_sku_fecha.get((s_c, d_m), 0.0) + delta
+                
+        for (s_c, d_m), delta in delta_por_sku_fecha.items():
+            if d_m in idx_fechas and s_c in skus:
+                idx_t = idx_fechas.get_loc(d_m)
+                idx_s = skus.index(s_c)
+                salidas_2d[idx_t, idx_s] = max(0.0, salidas_2d[idx_t, idx_s] + delta)
 
     rec_erp_2d = np.zeros((H, N), dtype=float)
     if dict_prd_erp:
