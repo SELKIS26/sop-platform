@@ -1381,8 +1381,8 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
                     "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
                     "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
                     "País": pais_sku, "customer cod": cliente, "sku cod": sku_c,
-                    "Forecast_Estadistico": est_val, "Consenso_Override": ovr_val,
-                    "Delta_Kg": round(ovr_val - est_val, 2), "Delta_Pct_FVA": round(float(pct), 1)
+                    "Forecast_Estadistico": est_val_cliente, "Consenso_Override": ovr_val_cliente,
+                    "Delta_Kg": round(ovr_val_cliente - est_val_cliente, 2), "Delta_Pct_FVA": round(float(pct), 1)
                 })
         if nuevas:
             df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
