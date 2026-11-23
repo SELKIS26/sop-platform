@@ -1357,13 +1357,18 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
         eventos_fva = []
         ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
         
+        vol_global = df.groupby('sku cod')['volume'].sum().to_dict()
+        vol_cliente = sub.groupby('sku cod')['volume'].sum().to_dict()
+
         for sku_c in skus_afectados:
             pais_sku = sub[sub['sku cod'] == sku_c]['País'].iloc[0]
             fcst = obtener_fcst_sku_rapido(sku_c, horizonte, modelo_fcst_sel)
             
+            share = vol_cliente.get(sku_c, 0.0) / max(1.0, vol_global.get(sku_c, 1.0))
+            
             for f_dt, val in fcst.items():
-                est_val = round(float(val), 2)
-                ovr_val = round(float(val) * factor, 2)
+                est_val = round(float(val) * share, 2)
+                ovr_val = round(est_val * factor, 2)
                 nuevas.append({
                     'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
                     'sku cod': sku_c, 'override_value': ovr_val
@@ -2071,32 +2076,57 @@ def generar_pdf_executive_sop_deck(
 
 
 # ==========================================
-# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1)
+# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1) CON AGREGACIÓN MATRICIAL PRECISA
 # ==========================================
 df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
 serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
-serie_modelo = limpiar_anomalias(serie_real) if usar_limpieza_outliers else serie_real
 
-if sku_sel != "TODOS" and pais_sel == "TODOS" and cliente_sel == "TODOS":
-    fcst_base_serie = obtener_fcst_sku_rapido(sku_sel, horizonte, modelo_fcst_sel)
+mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+
+if mat is not None and not mat.empty:
+    df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    df_filtro_grp = df_final.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    
+    aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
+    dict_aj = {}
+    if not aj_sub.empty:
+        aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        for _, r_aj in aj_sub.dropna(subset=['Date_M']).iterrows():
+            k = (str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])
+            dict_aj[k] = float(r_aj['override_value'])
+            
+    idx_fut = mat.index[:int(horizonte)]
+    fcst_base_arr = np.zeros(int(horizonte))
+    fcst_con_arr = np.zeros(int(horizonte))
+    
+    for (p_c, c_c, s_c), v_filt in df_filtro_grp.items():
+        s_c_str = str(s_c).strip()
+        if s_c_str in mat.columns:
+            v_glob = max(df_global_grp.get((p_c, c_c, s_c), 1e-6), 1e-6)
+            share = v_filt / v_glob
+            
+            base_serie = mat[s_c_str].iloc[:int(horizonte)].values * share
+            fcst_base_arr += base_serie
+            
+            con_serie = np.zeros(int(horizonte))
+            for i, d_m in enumerate(idx_fut):
+                aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
+                if aj_val is not None:
+                    con_serie[i] = aj_val
+                else:
+                    con_serie[i] = base_serie[i]
+                    
+            fcst_con_arr += con_serie
+            
+    fcst_base_serie = pd.Series(fcst_base_arr, index=idx_fut)
+    fcst_con_serie = pd.Series(fcst_con_arr, index=idx_fut)
 else:
-    fcst_base_serie = calcular_forecast_serie_unica(serie_modelo, horizonte, modelo_fcst_sel)
+    idx_fut = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=int(horizonte), freq="MS")
+    fcst_base_serie = pd.Series(0.0, index=idx_fut)
+    fcst_con_serie = pd.Series(0.0, index=idx_fut)
 
-df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_base_serie.copy()})
+df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_con_serie})
 df_comparativo.index.name = 'Date'
-
-ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
-if not ajustes_activos.empty and sku_sel != "TODOS":
-    if pais_sel != "TODOS":
-        ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
-    if cliente_sel != "TODOS":
-        ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
-    ajustes_activos = ajustes_activos[ajustes_activos['sku cod'] == sku_sel]
-    if not ajustes_activos.empty:
-        ajustes_activos['Date'] = pd.to_datetime(ajustes_activos['Date'], dayfirst=True, errors='coerce')
-        for fecha, row in ajustes_activos.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
-            if fecha.replace(day=1) in df_comparativo.index:
-                df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
 
 LAYOUT_STYLE = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
