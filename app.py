@@ -1351,6 +1351,7 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
         df_aj = st.session_state.get('df_ajustes', pd.DataFrame(columns=COLS_AJUSTES)).copy()
         
         skus_afectados = sub['sku cod'].unique()
+        # Solo eliminar overrides que choquen exactamente con el cliente y los SKUs afectados de esta categoría
         df_aj = df_aj[~((df_aj['customer cod'] == cliente) & (df_aj['sku cod'].isin(skus_afectados)))]
         
         nuevas = []
@@ -1359,31 +1360,36 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
         
         vol_global = df.groupby('sku cod')['volume'].sum().to_dict()
         vol_cliente = sub.groupby('sku cod')['volume'].sum().to_dict()
+        
+        mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
 
         for sku_c in skus_afectados:
-            pais_sku = sub[sub['sku cod'] == sku_c]['País'].iloc[0]
-            fcst = obtener_fcst_sku_rapido(sku_c, horizonte, modelo_fcst_sel)
+            # Obtener el país mayoritario para este SKU y cliente (para no fallar con múltiples países)
+            pais_sku = sub[sub['sku cod'] == sku_c]['País'].mode()[0]
+            s_c_str = str(sku_c).strip()
             
-            share = vol_cliente.get(sku_c, 0.0) / max(1.0, vol_global.get(sku_c, 1.0))
-            
-            for f_dt, val in fcst.items():
-                est_val_global = float(val)
-                est_val_cliente = round(est_val_global * share, 2)
-                ovr_val_cliente = round(est_val_cliente * factor, 2)
+            if mat is not None and not mat.empty and s_c_str in mat.columns:
+                fcst = mat[s_c_str].iloc[:int(horizonte)]
+                share = vol_cliente.get(sku_c, 0.0) / max(1.0, vol_global.get(sku_c, 1.0))
                 
-                # Para la nube, guardamos cuánto vale el override en TÉRMINOS ABSOLUTOS para este cliente
-                nuevas.append({
-                    'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
-                    'sku cod': sku_c, 'override_value': ovr_val_cliente
-                })
-                eventos_fva.append({
-                    "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
-                    "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
-                    "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
-                    "País": pais_sku, "customer cod": cliente, "sku cod": sku_c,
-                    "Forecast_Estadistico": est_val_cliente, "Consenso_Override": ovr_val_cliente,
-                    "Delta_Kg": round(ovr_val_cliente - est_val_cliente, 2), "Delta_Pct_FVA": round(float(pct), 1)
-                })
+                for f_dt, val in fcst.items():
+                    est_val_global = float(val)
+                    est_val_cliente = round(est_val_global * share, 2)
+                    ovr_val_cliente = round(est_val_cliente * factor, 2)
+                    
+                    if ovr_val_cliente > 0 or est_val_cliente > 0:
+                        nuevas.append({
+                            'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
+                            'sku cod': sku_c, 'override_value': ovr_val_cliente
+                        })
+                        eventos_fva.append({
+                            "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
+                            "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
+                            "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
+                            "País": pais_sku, "customer cod": cliente, "sku cod": sku_c,
+                            "Forecast_Estadistico": est_val_cliente, "Consenso_Override": ovr_val_cliente,
+                            "Delta_Kg": round(ovr_val_cliente - est_val_cliente, 2), "Delta_Pct_FVA": round(float(pct), 1)
+                        })
         if nuevas:
             df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
         st.session_state['df_ajustes'] = df_aj
@@ -2151,6 +2157,7 @@ if mat is not None and not mat.empty:
                 
                 df_cruce = df_final[df_final['sku cod'] == c_sku].drop_duplicates(subset=['País', 'customer cod'])
                 
+                # Iteramos sobre el volumen real distribuido para no perder SKUs
                 for _, r_cru in df_cruce.iterrows():
                     p_c = str(r_cru['País']).strip()
                     c_c = str(r_cru['customer cod']).strip()
@@ -2160,8 +2167,9 @@ if mat is not None and not mat.empty:
                         hubo_ajuste = True
                         ajuste_total_fecha += aj_val
                     else:
-                        # Si no hay ajuste manual, recupera su trozo estadístico puro
-                        share_tupla = r_cru['volume'] / v_glob_sku if 'volume' in r_cru else 0.0
+                        # Si no hay ajuste manual, recupera su trozo estadístico puro EXACTO
+                        v_tupla = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().get((p_c, c_c, c_sku), 0.0)
+                        share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
                         ajuste_total_fecha += (mat[s_c_str].iloc[i] * share_tupla)
                 
                 if hubo_ajuste:
