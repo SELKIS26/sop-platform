@@ -1165,95 +1165,96 @@ _firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_st
 _firma_npi = f"{len(st.session_state.get('df_npi', []))}"
 DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}|{_firma_npi}"
 
-# --- SISTEMA DE CACHÉ DE FORECAST EN NUBE (EVITA RECALCULAR SI NO HAY CAMBIOS) ---
+# --- SISTEMA DE CACHÉ DE FORECAST (RAM L1 + NUBE L2) ---
 FCST_MATRIX_FILE = "fcst_matrix_cache.csv"
 FCST_META_FILE = "fcst_meta_cache.json"
 SIG_FILE = "dataset_signature.txt"
+# El Forecast SOLO depende del histórico de ventas y de los nuevos NPIs, no de los ajustes.
+FIRMA_FORECAST = f"{_firma_skus}|{_firma_npi}"
 
 def cargar_forecast_desde_nube_si_valido(firma_actual):
-    if not st.session_state.get('modo_demo_8', False):
-        try:
-            # Comprobar firma
-            df_sig = github_leer_csv(SIG_FILE, ["signature"])
-            if not df_sig.empty and df_sig.iloc[0]["signature"] == firma_actual:
-                # Si la firma coincide, intentar cargar el forecast precalculado
-                df_fcst = github_leer_csv(FCST_MATRIX_FILE, ["Date"])
-                if not df_fcst.empty and "Modelo" in df_fcst.columns:
-                    dict_matrices = {}
-                    for modelo, grp in df_fcst.groupby("Modelo"):
-                        df_mod = grp.drop(columns=["Modelo"]).set_index("Date")
-                        df_mod.index = pd.to_datetime(df_mod.index)
-                        dict_matrices[modelo] = df_mod
-                    
-                    # Cargar metadatos
-                    try:
-                        token, repo = _github_creds()
-                        if token and repo:
-                            url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
-                            req = urllib.request.Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"})
-                            with urllib.request.urlopen(req, timeout=5) as resp:
-                                data = json.loads(resp.read().decode("utf-8"))
-                                contenido = base64.b64decode(data["content"]).decode("utf-8")
-                                dict_meta = json.loads(contenido)
-                                return dict_matrices, dict_meta
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+    # L1 Cache (Memoria RAM instantánea en la sesión)
+    if "mem_fcst_firma" in st.session_state and st.session_state["mem_fcst_firma"] == firma_actual:
+        return st.session_state["mem_fcst_matrices"], st.session_state["mem_fcst_meta"]
+        
+    # L2 Cache (GitHub Cloud / Local)
+    try:
+        df_sig = github_leer_csv(SIG_FILE, ["signature"])
+        if not df_sig.empty and df_sig.iloc[0]["signature"] == firma_actual:
+            df_fcst = github_leer_csv(FCST_MATRIX_FILE, ["Date"])
+            if not df_fcst.empty and "Modelo" in df_fcst.columns:
+                dict_matrices = {}
+                for modelo, grp in df_fcst.groupby("Modelo"):
+                    df_mod = grp.drop(columns=["Modelo"]).set_index("Date")
+                    df_mod.index = pd.to_datetime(df_mod.index)
+                    dict_matrices[modelo] = df_mod
+                
+                try:
+                    token, repo = _github_creds()
+                    if token and repo:
+                        url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
+                        req = urllib.request.Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            data = json.loads(resp.read().decode("utf-8"))
+                            contenido = base64.b64decode(data["content"]).decode("utf-8")
+                            dict_meta = json.loads(contenido)
+                            
+                            # Guardar en RAM L1
+                            st.session_state["mem_fcst_firma"] = firma_actual
+                            st.session_state["mem_fcst_matrices"] = dict_matrices
+                            st.session_state["mem_fcst_meta"] = dict_meta
+                            
+                            return dict_matrices, dict_meta
+                except Exception:
+                    pass
+    except Exception:
+        pass
     return None, None
 
 def guardar_forecast_en_nube(dict_matrices, dict_meta, firma_actual):
-    if not st.session_state.get('modo_demo_8', False):
-        try:
-            # Guardar matrices
-            lista_df = []
-            for modelo, df_m in dict_matrices.items():
-                df_tmp = df_m.copy().reset_index()
-                df_tmp["Modelo"] = modelo
-                lista_df.append(df_tmp)
-            df_final_fcst = pd.concat(lista_df, ignore_index=True)
-            github_guardar_csv(df_final_fcst, FCST_MATRIX_FILE, "Update Forecast Matrix Cache")
+    # Guardar en RAM L1 de inmediato
+    st.session_state["mem_fcst_firma"] = firma_actual
+    st.session_state["mem_fcst_matrices"] = dict_matrices
+    st.session_state["mem_fcst_meta"] = dict_meta
+
+    try:
+        lista_df = []
+        for modelo, df_m in dict_matrices.items():
+            df_tmp = df_m.copy().reset_index()
+            df_tmp["Modelo"] = modelo
+            lista_df.append(df_tmp)
+        df_final_fcst = pd.concat(lista_df, ignore_index=True)
+        github_guardar_csv(df_final_fcst, FCST_MATRIX_FILE, "Update Forecast Matrix Cache")
+        
+        token, repo = _github_creds()
+        if token and repo:
+            url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
+            headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"}
+            sha_actual = None
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    sha_actual = data.get("sha")
+            except Exception:
+                pass
+            payload = {"message": "Update Forecast Metadata Cache", "content": base64.b64encode(json.dumps(dict_meta).encode("utf-8")).decode("utf-8")}
+            if sha_actual: payload["sha"] = sha_actual
+            req_put = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={**headers, "Content-Type": "application/json"}, method="PUT")
+            urllib.request.urlopen(req_put, timeout=5)
             
-            # Guardar metadatos
-            token, repo = _github_creds()
-            if token and repo:
-                url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
-                headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"}
-                
-                sha_actual = None
-                try:
-                    req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        sha_actual = data.get("sha")
-                except Exception:
-                    pass
-                
-                payload = {
-                    "message": "Update Forecast Metadata Cache",
-                    "content": base64.b64encode(json.dumps(dict_meta).encode("utf-8")).decode("utf-8")
-                }
-                if sha_actual:
-                    payload["sha"] = sha_actual
-                    
-                req_put = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={**headers, "Content-Type": "application/json"}, method="PUT")
-                urllib.request.urlopen(req_put, timeout=5)
-                
-            # Guardar firma
-            github_guardar_csv(pd.DataFrame([{"signature": firma_actual}]), SIG_FILE, "Update Dataset Signature")
-        except Exception:
-            pass
+        github_guardar_csv(pd.DataFrame([{"signature": firma_actual}]), SIG_FILE, "Update Dataset Signature")
+    except Exception:
+        pass
 
 npi_records_tuple = tuple(df_npi_active.to_dict('records')) if (df_npi_active is not None and not df_npi_active.empty) else None
 
-# Intentar cargar desde caché
-dict_fcst_matrices, dict_meta_torneo = cargar_forecast_desde_nube_si_valido(DATASET_SIGNATURE)
+dict_fcst_matrices, dict_meta_torneo = cargar_forecast_desde_nube_si_valido(FIRMA_FORECAST)
 
-# Si no hay caché o está obsoleta, recalcular y guardar
 if dict_fcst_matrices is None or dict_meta_torneo is None:
     with st.spinner("Generando modelos estadísticos Auto-ML (Primera vez o datos nuevos)..."):
         dict_fcst_matrices, dict_meta_torneo = precalcular_matriz_forecast_vectorizada(df, steps=24, usar_outliers=usar_limpieza_outliers, npi_records=npi_records_tuple)
-        guardar_forecast_en_nube(dict_fcst_matrices, dict_meta_torneo, DATASET_SIGNATURE)
+        guardar_forecast_en_nube(dict_fcst_matrices, dict_meta_torneo, FIRMA_FORECAST)
 
 
 
