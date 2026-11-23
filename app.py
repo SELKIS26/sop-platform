@@ -1157,6 +1157,14 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True,
     return dict_series, meta_torneo
 
 
+# --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN Y NPI PARA INVALIDAR CACHÉ) ---
+_firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
+_firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
+_firma_stk = f"{len(df_stock)}_{int(pd.to_numeric(df_stock['stock_disponible'], errors='coerce').fillna(0).sum())}" if (df_stock is not None and not df_stock.empty) else "nostk"
+_firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()):.1f}"
+_firma_npi = f"{len(st.session_state.get('df_npi', []))}"
+DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}|{_firma_npi}"
+
 # --- SISTEMA DE CACHÉ DE FORECAST EN NUBE (EVITA RECALCULAR SI NO HAY CAMBIOS) ---
 FCST_MATRIX_FILE = "fcst_matrix_cache.csv"
 FCST_META_FILE = "fcst_meta_cache.json"
@@ -1372,13 +1380,6 @@ def obtener_parametros_stock(codigo, cob_defecto=2):
     return 0.0, int(cob_defecto), 0
 
 
-# --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN Y NPI PARA INVALIDAR CACHÉ) ---
-_firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
-_firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
-_firma_stk = f"{len(df_stock)}_{int(pd.to_numeric(df_stock['stock_disponible'], errors='coerce').fillna(0).sum())}" if (df_stock is not None and not df_stock.empty) else "nostk"
-_firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()):.1f}"
-_firma_npi = f"{len(st.session_state.get('df_npi', []))}"
-DATASET_SIGNATURE = f"{_firma_skus}|{_firma_bom}|{_firma_stk}|{_firma_aj}|{_firma_npi}"
 
 
 @st.cache_data(show_spinner=False, max_entries=5000)
