@@ -1636,36 +1636,31 @@ def _calcular_mps_df_2d_cached(horiz, cob_fg, metodo_fcst, sig):
         aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
         aj_tmp = aj_tmp.dropna(subset=['Date_M'])
         
-        df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-        df_sku_grp = df.groupby('sku cod')['volume'].sum().to_dict()
-        
-        delta_por_sku_fecha = {}
-        for _, row_aj in aj_tmp.iterrows():
-            p_c = str(row_aj['País']).strip()
-            c_c = str(row_aj['customer cod']).strip()
-            s_c = str(row_aj['sku cod']).strip()
-            d_m = row_aj['Date_M']
-            ovr_v = float(row_aj['override_value'])
+        # Fast pivot to aggregate deltas instead of loops
+        if not aj_tmp.empty:
+            df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'], as_index=False)['volume'].sum()
+            df_sku_grp = df.groupby('sku cod')['volume'].sum().to_dict()
             
-            if s_c in skus and d_m in idx_fechas:
-                v_glob_comb = df_global_grp.get((p_c, c_c, s_c), 0.0)
-                v_glob_sku = max(df_sku_grp.get(s_c, 1e-6), 1e-6)
-                share = v_glob_comb / v_glob_sku
-                
-                idx_t = idx_fechas.get_loc(d_m)
-                idx_s = skus.index(s_c)
-                
-                stat_val_global = float(mat_h.iat[idx_t, idx_s])
-                stat_val_comb = stat_val_global * share
-                
-                delta = ovr_v - stat_val_comb
-                delta_por_sku_fecha[(s_c, d_m)] = delta_por_sku_fecha.get((s_c, d_m), 0.0) + delta
-                
-        for (s_c, d_m), delta in delta_por_sku_fecha.items():
-            if d_m in idx_fechas and s_c in skus:
-                idx_t = idx_fechas.get_loc(d_m)
-                idx_s = skus.index(s_c)
-                salidas_2d[idx_t, idx_s] = max(0.0, salidas_2d[idx_t, idx_s] + delta)
+            aj_merged = pd.merge(aj_tmp, df_global_grp, on=['País', 'customer cod', 'sku cod'], how='inner')
+            if not aj_merged.empty:
+                for _, r_aj in aj_merged.iterrows():
+                    s_c = str(r_aj['sku cod']).strip()
+                    d_m = r_aj['Date_M']
+                    ovr_v = float(r_aj['override_value'])
+                    v_comb = float(r_aj['volume'])
+                    
+                    if s_c in skus and d_m in idx_fechas:
+                        v_glob_sku = max(df_sku_grp.get(s_c, 1e-6), 1e-6)
+                        share = v_comb / v_glob_sku
+                        
+                        idx_t = idx_fechas.get_loc(d_m)
+                        idx_s = skus.index(s_c)
+                        
+                        stat_val_global = float(mat_h.iat[idx_t, idx_s])
+                        stat_val_comb = stat_val_global * share
+                        
+                        delta = ovr_v - stat_val_comb
+                        salidas_2d[idx_t, idx_s] = max(0.0, salidas_2d[idx_t, idx_s] + delta)
 
     rec_erp_2d = np.zeros((H, N), dtype=float)
     if dict_prd_erp:
@@ -1927,7 +1922,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
         for _, r_aj in aj_df.dropna(subset=['Date_M']).iterrows():
             dict_aj[(str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])] = float(r_aj['override_value'])
 
-    # Agrupar por SKU para que el puente y las valoraciones financieras funcionen SKU a SKU
+    # Optimizamos agregación del KPI saltando los loops anidados pesados
     for sku in df_f['sku cod'].unique():
         s_clean = str(sku).strip()
         if s_clean not in mat_h.columns:
@@ -1935,23 +1930,34 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
             
         vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
         
-        # Calcular serie estadística y consenso sumando sus componentes granulares
-        serie_est = np.zeros(len(idx_fut))
-        serie_con = np.zeros(len(idx_fut))
+        g_tot = float(vol_global_sku.get(s_clean, 0.0))
+        f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
+        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
         
-        for (p_c, c_c, s_c), v_glob in df_global_grp.items():
-            if str(s_c).strip() == s_clean and (p_c, c_c, s_c) in df_filtro_grp:
-                share_global_sku = max(v_glob, 1e-6) / max(vol_global_sku.get(s_clean, 1e-6), 1e-6)
-                base_serie_tupla = mat_h[s_clean].values.astype(float) * share_global_sku
+        serie_est = mat_h[s_clean].values.astype(float) * share_sku
+        serie_con = serie_est.copy()
+        
+        # Filtrar solo el cruce exacto en la UI para este SKU
+        df_cruce_sku = df_f[df_f['sku cod'] == sku].drop_duplicates(subset=['País', 'customer cod'])
+        
+        for m_i, d_m in enumerate(idx_fut):
+            ajuste_acum = 0.0
+            hay_ajuste = False
+            
+            for _, r_cru in df_cruce_sku.iterrows():
+                p_c = str(r_cru['País']).strip()
+                c_c = str(r_cru['customer cod']).strip()
                 
-                serie_est += base_serie_tupla
-                
-                for m_i, d_m in enumerate(idx_fut):
-                    aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_clean, d_m), None)
-                    if aj_val is not None:
-                        serie_con[m_i] += aj_val
-                    else:
-                        serie_con[m_i] += base_serie_tupla[m_i]
+                aj_val = dict_aj.get((p_c, c_c, s_clean, d_m), None)
+                if aj_val is not None:
+                    hay_ajuste = True
+                    ajuste_acum += aj_val
+                else:
+                    share_tupla = r_cru['volume'] / max(g_tot, 1e-6) if 'volume' in r_cru else 0.0
+                    ajuste_acum += (mat_h[s_clean].iloc[m_i] * share_tupla)
+            
+            if hay_ajuste:
+                serie_con[m_i] = ajuste_acum
 
         vol_est_sku = float(serie_est.sum())
         vol_con_sku = float(serie_con.sum())
@@ -2119,33 +2125,48 @@ if mat is not None and not mat.empty:
     fcst_base_arr = np.zeros(int(horizonte))
     fcst_con_arr = np.zeros(int(horizonte))
     
-    # En vez de iterar sobre el filtro (que puede ser agregado), iteramos sobre TODO el global.
-    # Y solo sumamos al gráfico final lo que pertenezca al filtro actual.
+    # Optimizamos agrupando primero los ajustes y calculando shares vectorizados
+    vol_global_sku_tot = df.groupby('sku cod')['volume'].sum().to_dict()
     
-    # 1. Obtener todas las combinaciones (País, Cliente, SKU) del dataset global
-    for (p_c, c_c, s_c), v_glob in df_global_grp.items():
-        s_c_str = str(s_c).strip()
+    for c_sku in skus_en_filtro:
+        s_c_str = str(c_sku).strip()
         if s_c_str in mat.columns:
-            # ¿Esta combinación exacta pertenece a los filtros actuales de la UI?
-            # Comprobamos si está en df_filtro_grp
-            if (p_c, c_c, s_c) in df_filtro_grp:
-                v_glob_safe = max(v_glob, 1e-6)
-                share_global_sku = v_glob_safe / max(df.groupby('sku cod')['volume'].sum().get(s_c, 1e-6), 1e-6)
+            # Share global de este SKU dentro del filtro activo
+            v_filt_sku = df_final[df_final['sku cod'] == c_sku]['volume'].sum()
+            v_glob_sku = max(vol_global_sku_tot.get(s_c_str, 1e-6), 1e-6)
+            share_filt = v_filt_sku / v_glob_sku
+            
+            base_serie_sku = mat[s_c_str].iloc[:int(horizonte)].values * share_filt
+            fcst_base_arr += base_serie_sku
+            
+            con_serie_sku = base_serie_sku.copy()
+            
+            # Solo aplicamos los ajustes si el SKU está afectado en el filtro actual
+            for i, d_m in enumerate(idx_fut):
+                # Buscamos si hay ajuste para esta fecha en el dataframe filtrado original
+                # Como df_final ya está filtrado por la UI, usamos las combinaciones presentes ahí.
+                ajuste_total_fecha = 0.0
+                hubo_ajuste = False
                 
-                # El estadístico base de esta tupla (País, Cliente, SKU)
-                base_serie_tupla = mat[s_c_str].iloc[:int(horizonte)].values * share_global_sku
-                fcst_base_arr += base_serie_tupla
+                df_cruce = df_final[df_final['sku cod'] == c_sku].drop_duplicates(subset=['País', 'customer cod'])
                 
-                con_serie_tupla = np.zeros(int(horizonte))
-                for i, d_m in enumerate(idx_fut):
-                    aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
+                for _, r_cru in df_cruce.iterrows():
+                    p_c = str(r_cru['País']).strip()
+                    c_c = str(r_cru['customer cod']).strip()
+                    
+                    aj_val = dict_aj.get((p_c, c_c, s_c_str, d_m), None)
                     if aj_val is not None:
-                        # Si hay un ajuste específico para este cliente/sku en la nube, lo usamos
-                        con_serie_tupla[i] = aj_val
+                        hubo_ajuste = True
+                        ajuste_total_fecha += aj_val
                     else:
-                        con_serie_tupla[i] = base_serie_tupla[i]
-                        
-                fcst_con_arr += con_serie_tupla
+                        # Si no hay ajuste manual, recupera su trozo estadístico puro
+                        share_tupla = r_cru['volume'] / v_glob_sku if 'volume' in r_cru else 0.0
+                        ajuste_total_fecha += (mat[s_c_str].iloc[i] * share_tupla)
+                
+                if hubo_ajuste:
+                    con_serie_sku[i] = ajuste_total_fecha
+                    
+            fcst_con_arr += con_serie_sku
             
     fcst_base_serie = pd.Series(fcst_base_arr, index=idx_fut)
     fcst_con_serie = pd.Series(fcst_con_arr, index=idx_fut)
@@ -3217,19 +3238,24 @@ with tab_fin:
                 mat_fin = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
                 
                 if mat_fin is not None and not mat_fin.empty:
-                    for (p_c, c_c, s_c), v_glob in df_global_grp_fin.items():
-                        s_c_str = str(s_c).strip()
-                        if s_c_str in mat_fin.columns and (p_c, c_c, s_c) in df_filtro_grp_fin:
-                            share_g = max(v_glob, 1e-6) / max(df.groupby('sku cod')['volume'].sum().get(s_c, 1e-6), 1e-6)
-                            base_serie_t = mat_fin[s_c_str].iloc[:int(horizonte)].values * share_g
+                    # Enfoque vectorizado para finanzas
+                    for s_c_str in skus_validos:
+                        if s_c_str in mat_fin.columns:
+                            df_cruce_fin = df_fin_target[df_fin_target['sku cod'].astype(str).str.strip() == s_c_str].drop_duplicates(subset=['País', 'customer cod'])
+                            v_glob_sku = max(df.groupby('sku cod')['volume'].sum().get(s_c_str, 1e-6), 1e-6)
                             
                             for i, d_m in enumerate(fcst_vol_target.index):
-                                aj_val = dict_aj_fin.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
-                                if aj_val is not None:
-                                    fcst_con_fin_arr[i] += aj_val
-                                else:
-                                    fcst_con_fin_arr[i] += base_serie_t[i]
+                                for _, r_cru in df_cruce_fin.iterrows():
+                                    p_c = str(r_cru['País']).strip()
+                                    c_c = str(r_cru['customer cod']).strip()
                                     
+                                    aj_val = dict_aj_fin.get((p_c, c_c, s_c_str, d_m), None)
+                                    if aj_val is not None:
+                                        fcst_con_fin_arr[i] += aj_val
+                                    else:
+                                        share_t = r_cru['volume'] / v_glob_sku
+                                        fcst_con_fin_arr[i] += (mat_fin[s_c_str].iloc[i] * share_t)
+                                        
                     fcst_vol_target = pd.Series(fcst_con_fin_arr, index=fcst_vol_target.index)
 
             df_ult6 = df_hist_pl.tail(6)
