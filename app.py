@@ -2287,9 +2287,13 @@ LAYOUT_STYLE = dict(
 # ==========================================
 # PESTAÑAS (TABS) DEFINIDAS UNA SOLA VEZ
 # ==========================================
-tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, tab_exc, tab_whatif, tab_kpis = st.tabs([
-    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
-])
+opciones_tabs = [
+    t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], 
+    t["tab6"], t["tab7"], t["tab8"], t["tab9"], t["tab10"]
+]
+st.markdown("<br>", unsafe_allow_html=True)
+modulo_activo = st.radio("Módulos S&OP", opciones_tabs, horizontal=True, label_visibility="collapsed")
+st.markdown("---")
 # >>> FIN DE LA PARTE 1 DE 2 (PEGA JUSTO DEBAJO LA PARTE 2) <<<
 
 # ==============================================================================
@@ -2299,7 +2303,7 @@ tab_guia, tab_demanda, tab_prod, tab_bom, tab_cap, tab_fin, tab_ejec, tab_abc, t
 # ==========================================
 # MODULO 0: GUÍA DE USO + CALENDARIO S&OP + ACTION LOG DEL COMITÉ
 # ==========================================
-with tab_guia:
+if modulo_activo == t["tab0"]:
     st.header(tr(
         "📖 Manual Corporativo y Arquitectura de la Plataforma S&OP / IBP",
         "📖 Corporate S&OP / IBP Platform Manual & Architecture",
@@ -2533,7 +2537,7 @@ with tab_guia:
 # ==========================================
 # MODULO 1: DEMANDA + GESTOR NPI (NEW BUSINESS) + TORNEO AUTO-ML + POST-MORTEM FVA
 # ==========================================
-with tab_demanda:
+if modulo_activo == t["tab1"]:
     if "tab1" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Demanda.", "🔒 You do not have permission to access the Demand module."))
     else:
@@ -2871,7 +2875,7 @@ with tab_demanda:
 # ==========================================
 # MODULO 2: PRODUCCIÓN (MPS)
 # ==========================================
-with tab_prod:
+if modulo_activo == t["tab2"]:
     if "tab2" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Producción.", "🔒 You do not have permission to access the Production module."))
     else:
@@ -2914,7 +2918,7 @@ with tab_prod:
 # ==========================================
 # MODULO 3: COMPRAS (MRP 2D) + PEGGING + SANKEY E2E + SIMULADOR REFORMULACIÓN BOM
 # ==========================================
-with tab_bom:
+if modulo_activo == t["tab3"]:
     if "tab3" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Compras (MRP).", "🔒 You do not have permission to access the Purchasing (MRP) module."))
     else:
@@ -3070,7 +3074,7 @@ with tab_bom:
 # ==========================================
 # MODULO 4: CAPACIDAD (RCCP POR PLANTA + NOVEDAD 2 SIMULADOR DE TURNOS + PRE-BUILD)
 # ==========================================
-with tab_cap:
+if modulo_activo == t["tab4"]:
     if "tab4" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Capacidad.", "🔒 You do not have permission to access the Capacity module."))
     else:
@@ -3276,7 +3280,7 @@ with tab_cap:
 # ==========================================
 # MODULO 5: FINANZAS (100% REACTIVO Y ALINEADO POR PAÍS / CLIENTE / SKU)
 # ==========================================
-with tab_fin:
+if modulo_activo == t["tab5"]:
     if "tab5" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Finanzas.", "🔒 You do not have permission to access the Finance module."))
     else:
@@ -3462,7 +3466,7 @@ with tab_fin:
 # ==========================================
 # MODULO 6: EJECUCIÓN ERP + S&OE (MOQ & LOTES MÚLTIPLOS) + MASTER PACK EXCEL
 # ==========================================
-with tab_ejec:
+if modulo_activo == t["tab6"]:
     if "tab6" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al módulo de Ejecución ERP.", "🔒 You do not have permission to access the ERP Execution module."))
     else:
@@ -3602,7 +3606,7 @@ with tab_ejec:
 # ==========================================
 # MODULO 7: ABC / XYZ + OPTIMIZADOR MTO/MTS + NOVEDAD 3 FILTRO CORREGIDO
 # ==========================================
-with tab_abc:
+if modulo_activo == t["tab7"]:
     if "tab7" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder a la segmentación ABC/XYZ.", "🔒 You do not have permission to access ABC/XYZ segmentation."))
     else:
@@ -3794,7 +3798,7 @@ with tab_abc:
 # ==========================================
 # MODULO 8: EXCEPCIONES (MOTOR 2D)
 # ==========================================
-with tab_exc:
+if modulo_activo == t["tab8"]:
     if "tab8" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Panel de Excepciones.", "🔒 You do not have permission to access the Exceptions Panel."))
     else:
@@ -3885,7 +3889,7 @@ with tab_exc:
 # ==========================================
 # MODULO 9: WHAT-IF (CONECTADO AL SHARE DE FILTROS Y DATASET_SIGNATURE)
 # ==========================================
-with tab_whatif:
+if modulo_activo == t["tab9"]:
     if "tab9" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Simulador What-If.", "🔒 You do not have permission to access the What-If Simulator."))
     else:
@@ -3968,7 +3972,7 @@ with tab_whatif:
 # ==========================================
 # MODULO 10: DASHBOARD EJECUTIVO + TRIPLE BUDGET + WATERFALL + RADAR CHURN & CONCENTRACIÓN + PDF DECK
 # ==========================================
-with tab_kpis:
+if modulo_activo == t["tab10"]:
     if "tab10" not in modulos_permitidos:
         st.warning(tr("🔒 No tienes permisos para acceder al Dashboard de KPIs.", "🔒 You do not have permission to access the Executive Dashboard."))
     else:
