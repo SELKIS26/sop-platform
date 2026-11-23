@@ -2134,6 +2134,7 @@ if mat is not None and not mat.empty:
     
     # Optimizamos agrupando primero los ajustes y calculando shares vectorizados
     vol_global_sku_tot = df.groupby('sku cod')['volume'].sum().to_dict()
+    vol_global_tupla_tot = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
     
     for c_sku in skus_en_filtro:
         s_c_str = str(c_sku).strip()
@@ -2168,7 +2169,7 @@ if mat is not None and not mat.empty:
                         ajuste_total_fecha += aj_val
                     else:
                         # Si no hay ajuste manual, recupera su trozo estadístico puro EXACTO
-                        v_tupla = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().get((p_c, c_c, c_sku), 0.0)
+                        v_tupla = vol_global_tupla_tot.get((p_c, c_c, c_sku), 0.0)
                         share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
                         ajuste_total_fecha += (mat[s_c_str].iloc[i] * share_tupla)
                 
@@ -3248,10 +3249,11 @@ with tab_fin:
                 
                 if mat_fin is not None and not mat_fin.empty:
                     # Enfoque vectorizado para finanzas
+                    vol_global_sku_tot_fin = df.groupby('sku cod')['volume'].sum().to_dict()
                     for s_c_str in skus_validos:
                         if s_c_str in mat_fin.columns:
                             df_cruce_fin = df_fin_target[df_fin_target['sku cod'].astype(str).str.strip() == s_c_str].drop_duplicates(subset=['País', 'customer cod'])
-                            v_glob_sku = max(df.groupby('sku cod')['volume'].sum().get(s_c_str, 1e-6), 1e-6)
+                            v_glob_sku = max(vol_global_sku_tot_fin.get(s_c_str, 1e-6), 1e-6)
                             
                             for i, d_m in enumerate(fcst_vol_target.index):
                                 for _, r_cru in df_cruce_fin.iterrows():
