@@ -394,8 +394,8 @@ def obtener_excels_demo_8_tablas():
     ])[COLS_PROD]
 
     filas_budget = []
-    for esc in ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]:
-        mult = 1.05 if "Original" in esc else (1.02 if "3+9" in esc else 0.98)
+    for esc in ["Budget Original (0+12)", "Forecast 3+9"]:
+        mult = 1.05 if "Original" in esc else 1.02
         for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
             for f in fechas_fut:
                 filas_budget.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": "000007SCAAS", "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
@@ -532,8 +532,8 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     filas_budget_bd = []
     for esc in ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]:
         mult = 1.05 if "Original" in esc else (1.02 if "3+9" in esc else 0.98)
-        for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
-            for c_cli in cli_cods[:3]: # Simular unos pocos clientes
+        for cat in cats_disponibles:
+            for c_cli in list(set(kams_asignados))[:3]: # Simular unos pocos clientes
                 for f in fechas_fut:
                     filas_budget_bd.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": c_cli, "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
     df_9_budget = pd.DataFrame(filas_budget_bd)
@@ -563,6 +563,7 @@ def generar_plantillas_oficiales_excel():
         ("6_Calendario", demos_tpl["cal"].head(5)),
         ("7_ERP_Compras_POs", demos_tpl["compras_erp"].head(2)),
         ("8_ERP_Produccion", demos_tpl["produccion_erp"].head(2)),
+        ("9_Presupuestos", demos_tpl["budget"].head(5)),
     ]
     with pd.ExcelWriter(buf_tpl, engine="openpyxl") as writer:
         for nombre_hoja, df_ejemplo in mapa_hojas:
@@ -666,6 +667,8 @@ with st.sidebar:
     st.markdown(f"👤 **{tr('Bienvenido/a', 'Welcome', 'Witaj', 'Velkommen')}, {st.session_state['name']}**")
     if usuario_actual == "borja":
         st.caption(tr("🔹 Rol: Manager de Producción", "🔹 Role: Production Manager", "🔹 Rola: Kierownik Produkcji", "🔹 Rolle: Produktionschef"))
+    elif usuario_actual == "kam_juan" or st.session_state.get("rol") == "KAM":
+        st.caption(tr("🔹 Rol: KAM", "🔹 Role: KAM", "🔹 Rola: KAM", "🔹 Rolle: KAM"))
     else:
         st.caption(tr("🔹 Rol: Administrador Global", "🔹 Role: Global Administrator", "🔹 Rola: Administrator Globalny", "🔹 Rolle: Global Administrator"))
 
@@ -736,7 +739,7 @@ with st.sidebar:
             st.rerun()
     with col_btn2:
         if st.button(tr("🗑️ Limpiar Demo", "🗑️ Clear Demo", "🗑️ Wyczyść Demo", "🗑️ Ryd Demo"), use_container_width=True):
-            st.session_state["modo_demo_8"] = False
+            
             st.rerun()
 
     if st.session_state["modo_demo_8"]:
@@ -745,8 +748,11 @@ with st.sidebar:
             f"✅ 8 Demo Tables active ({escala_demo.split('(')[0].strip()}). Uploading any Excel below overrides that specific table."
         ))
 
+    st.session_state["modo_demo_8"] = True
+    escala_demo = "🔥 Big Data Stress-Test"
+
     st.download_button(
-        label=tr("📥 Descargar 8 Plantillas Oficiales (.xlsx)", "📥 Download 8 Official Templates (.xlsx)", "📥 Pobierz 8 Oficjalnych Szablonów (.xlsx)", "📥 Download 8 Officielle Skabeloner (.xlsx)"),
+        label=tr("📥 Descargar 9 Plantillas Oficiales (.xlsx)", "📥 Download 9 Official Templates (.xlsx)", "📥 Pobierz 9 Oficjalnych Szablonów (.xlsx)", "📥 Download 9 Officielle Skabeloner (.xlsx)"),
         data=generar_plantillas_oficiales_excel(),
         file_name="Plantillas_Oficiales_SOP_8_Tablas.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1004,7 +1010,7 @@ if df_npi_active is not None and not df_npi_active.empty:
 
 # --- ROW LEVEL SECURITY (RLS) POR KAM (POST-INYECCIÓN) ---
 if df_raw is not None and not df_raw.empty and "KAM" in df_raw.columns:
-    if st.session_state.get("rol", "KAM") == "KAM":
+    if st.session_state.get("rol") == "KAM" or usuario_actual == "kam_juan":
         df_raw = df_raw[df_raw['KAM'].astype(str).str.lower().str.strip() == usuario_actual.lower()]
         if df_raw.empty:
             st.warning(f"⚠️ {st.session_state.get('name', usuario_actual)}, no tienes clientes asignados en el histórico de ventas.")
