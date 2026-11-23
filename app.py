@@ -321,8 +321,7 @@ def obtener_excels_demo_8_tablas():
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
             cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
-            # KAM Asignado a nivel de Cliente
-            kam_default = "kam_juan" 
+            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
             
             filas_ventas.append({
                 "Date": f,
@@ -394,6 +393,14 @@ def obtener_excels_demo_8_tablas():
         {"Date": mes_m2, "sku cod": "PN190G10", "Cantidad_Kg": 40000},
     ])[COLS_PROD]
 
+    filas_budget = []
+    for esc in ["Budget Original (0+12)", "Forecast 3+9"]:
+        mult = 1.05 if "Original" in esc else 1.02
+        for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
+            for f in fechas_fut:
+                filas_budget.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": "000007SCAAS", "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
+    df_9_budget = pd.DataFrame(filas_budget)[COLS_BUDGET]
+
     return {
         "hist": df_1_hist,
         "ajustes": df_2_ajustes,
@@ -403,6 +410,7 @@ def obtener_excels_demo_8_tablas():
         "cal": df_6_cal,
         "compras_erp": df_7_compras,
         "produccion_erp": df_8_prod,
+        "budget": df_9_budget
     }
 
 
@@ -447,16 +455,6 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     precios_base = np.random.uniform(0.8, 12.0, size=n_skus)
     margenes_base = precios_base * np.random.uniform(0.18, 0.38, size=n_skus)
 
-    # Asignar un KAM fijo a cada cliente
-    kams_disponibles = ["amancebo", "kam_juan", "borja"]
-    kam_por_cliente = {cli: np.random.choice(kams_disponibles) for cli in cli_cods}
-    kams_asignados = [kam_por_cliente[cli] for cli in np.array(cli_cods)[idx_cli]]
-
-    # Asignar categoría fija a cada SKU
-    cats_disponibles = ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]
-    cat_por_sku = {sku: np.random.choice(cats_disponibles) for sku in sku_cods}
-    cats_asignadas = [cat_por_sku[sku] for sku in np.array(sku_cods)[idx_sku]]
-
     df_1_hist = pd.DataFrame({
         "Date": fechas_hist[idx_fecha],
         "País": paises_venta,
@@ -468,8 +466,8 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "revenue": np.round(vols * precios_base[idx_sku], 2),
         "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta]),
-        "Categoria_Producto": cats_asignadas,
-        "KAM": kams_asignados
+        "Categoria_Producto": np.random.choice(["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"], size=n_rows_hist),
+        "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
     })[COLS_HIST]
 
     idx_aj_sku = np.random.randint(0, 50, size=300)
@@ -531,9 +529,24 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "Cantidad_Kg": np.random.randint(2000, 12000, size=200)
     })[COLS_PROD]
 
+    filas_budget_bd = []
+    for esc in ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]:
+        mult = 1.05 if "Original" in esc else (1.02 if "3+9" in esc else 0.98)
+        for cat in cats_disponibles:
+            for c_cli in list(set(kams_asignados))[:3]: # Simular unos pocos clientes
+                for f in fechas_fut:
+                    filas_budget_bd.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": c_cli, "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
+    df_9_budget = pd.DataFrame(filas_budget_bd)
+    # Rellenar con columnas que falten si las hubiera
+    for c in COLS_BUDGET:
+        if c not in df_9_budget.columns:
+            df_9_budget[c] = None
+    df_9_budget = df_9_budget[COLS_BUDGET]
+
     return {
         "hist": df_1_hist, "ajustes": df_2_ajustes, "stock": df_3_stock, "bom": df_4_bom,
-        "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod
+        "rutas": df_5_rutas, "cal": df_6_cal, "compras_erp": df_7_compras, "produccion_erp": df_8_prod,
+        "budget": df_9_budget
     }
 
 
@@ -550,7 +563,6 @@ def generar_plantillas_oficiales_excel():
         ("6_Calendario", demos_tpl["cal"].head(5)),
         ("7_ERP_Compras_POs", demos_tpl["compras_erp"].head(2)),
         ("8_ERP_Produccion", demos_tpl["produccion_erp"].head(2)),
-        ("9_Presupuestos_Cat", demos_tpl["budget"].head(5)),
     ]
     with pd.ExcelWriter(buf_tpl, engine="openpyxl") as writer:
         for nombre_hoja, df_ejemplo in mapa_hojas:
@@ -706,7 +718,7 @@ st.title(t["title"])
 with st.sidebar:
     st.markdown(f"### {tr('🧪 Modo Demostración (1-Clic)', '🧪 Demo Mode (1-Click)', '🧪 Tryb Demo (1-Klik)', '🧪 Demotilstand (1-Klik)')}")
     if "modo_demo_8" not in st.session_state:
-        st.session_state["modo_demo_8"] = False
+        st.session_state["modo_demo_8"] = True  # Activado por defecto
 
     escala_demo = st.radio(
         tr("📊 Escala del Dataset Demo:", "📊 Demo Dataset Scale:", "📊 Skala Danych Demo:", "📊 Demo Dataskala:"),
@@ -714,7 +726,7 @@ with st.sidebar:
             "⚡ Ligero (5 SKUs / 140 filas)",
             "🔥 Big Data Stress-Test (500 SKUs / 150.000 ventas / 2.500 BOM)"
         ],
-        index=0
+        index=1
     )
 
     col_btn1, col_btn2 = st.columns(2)
@@ -741,9 +753,6 @@ with st.sidebar:
         use_container_width=True
     )
 
-    st.session_state["modo_demo_8"] = True
-    escala_demo = "🔥 Big Data Stress-Test"
-
     st.header(tr("📂 1. Datos Maestros S&OP", "📂 1. S&OP Master Data", "📂 1. Dane Podstawowe S&OP", "📂 1. S&OP Stamdata"))
     file_hist = st.file_uploader(tr("1. Histórico Ventas", "1. Sales History", "1. Historia Sprzedaży", "1. Salgshistorik"), type=['xlsx', 'csv'])
     file_ajustes = st.file_uploader(tr("2. Ajustes Consenso", "2. Consensus Overrides", "2. Korekty Konsensusu", "2. Konsensusjusteringer"), type=['xlsx', 'csv'])
@@ -761,19 +770,7 @@ with st.sidebar:
     st.header(tr("📈 3. Escenarios Budget", "📈 3. Budget Scenarios", "📈 3. Scenariusze Budżetowe", "📈 3. Budgetscenarier"))
     file_budget = st.file_uploader(tr("9. Presupuestos (Cat+Cliente)", "9. Budgets (Cat+Cust)", "9. Budżety (Kat+Klient)", "9. Budgetter (Kat+Kunde)"), type=['xlsx', 'csv'])
 
-    if st.session_state.get("modo_demo_8", False):
-        if "Big Data" in escala_demo:
-            demos = obtener_excels_big_data_8_tablas()
-        else:
-            demos = obtener_excels_demo_8_tablas()
-        if file_hist is None:            file_hist            = demos["hist"]
-        if file_ajustes is None:         file_ajustes         = demos["ajustes"]
-        if file_stock is None:           file_stock           = demos["stock"]
-        if file_bom is None:             file_bom             = demos["bom"]
-        if file_rutas is None:           file_rutas           = demos["rutas"]
-        if file_cal is None:             file_cal             = demos["cal"]
-        if file_compras_erp is None:     file_compras_erp     = demos["compras_erp"]
-        if file_produccion_erp is None:  file_produccion_erp  = demos["produccion_erp"]
+    
 
     st.divider()
     st.header(tr("📅 3. Parámetros y Motor IA", "📅 3. Parameters & AI Engine", "📅 3. Parametry i Silnik AI", "📅 3. Parametre & AI-motor"))
@@ -862,15 +859,69 @@ if 'df_npi' not in st.session_state or not isinstance(st.session_state['df_npi']
 if 'last_ajuste_file' not in st.session_state:
     st.session_state['last_ajuste_file'] = None
 
-df_raw = validar_y_cargar_tabla(file_hist, COLS_HIST, "1. Histórico Ventas")
 
-# --- ROW LEVEL SECURITY (RLS) POR KAM ---
-if df_raw is not None and not df_raw.empty and "KAM" in df_raw.columns:
-    if st.session_state.get("rol", "KAM") == "KAM":
-        df_raw = df_raw[df_raw['KAM'].astype(str).str.lower().str.strip() == usuario_actual.lower()]
-        if df_raw.empty:
-            st.warning(f"⚠️ {st.session_state.get('name', usuario_actual)}, no tienes clientes asignados en el histórico de ventas.")
-            st.stop()
+# --- PERSISTENCIA AUTOMÁTICA DE DATOS REALES EN LA NUBE ---
+def guardar_archivo_subido_cloud(file_obj, filename_cloud):
+    if file_obj is not None:
+        try:
+            # Leemos el archivo recién subido
+            df = _leer_archivo_subido_bytes(file_obj.getvalue() if hasattr(file_obj, 'getvalue') else file_obj.read(), getattr(file_obj, 'name', 'file.xlsx'))
+            # Lo guardamos en GitHub para que esté disponible la próxima vez
+            github_guardar_csv(df, filename_cloud, f"Actualización de {filename_cloud} por {usuario_actual}")
+            # Reseteamos el puntero del archivo
+            file_obj.seek(0)
+            return True
+        except Exception:
+            pass
+    return False
+
+# Nombres en la nube para cada maestro
+CLOUD_FILES = {
+    "hist": "1_Historico_Ventas_Cloud.csv",
+    "stock": "3_Stock_Actual_Cloud.csv",
+    "bom": "4_BOM_Cloud.csv",
+    "rutas": "5_Rutas_Cloud.csv",
+    "cal": "6_Calendario_Cloud.csv",
+    "compras": "7_POs_Compras_Cloud.csv",
+    "prod": "8_Ordenes_Produccion_Cloud.csv",
+    "budget": "9_Presupuestos_Cloud.csv"
+}
+
+# Guardamos en la nube si hay archivos subidos nuevos
+if file_hist: guardar_archivo_subido_cloud(file_hist, CLOUD_FILES["hist"])
+if file_stock: guardar_archivo_subido_cloud(file_stock, CLOUD_FILES["stock"])
+if file_bom: guardar_archivo_subido_cloud(file_bom, CLOUD_FILES["bom"])
+if file_rutas: guardar_archivo_subido_cloud(file_rutas, CLOUD_FILES["rutas"])
+if file_cal: guardar_archivo_subido_cloud(file_cal, CLOUD_FILES["cal"])
+if file_compras_erp: guardar_archivo_subido_cloud(file_compras_erp, CLOUD_FILES["compras"])
+if file_produccion_erp: guardar_archivo_subido_cloud(file_produccion_erp, CLOUD_FILES["prod"])
+if file_budget: guardar_archivo_subido_cloud(file_budget, CLOUD_FILES["budget"])
+
+# --- LÓGICA DE CARGA: UPLOADER > CLOUD > DEMO ---
+# Si no hay archivo en el uploader, intentamos leer de la nube. Si la nube está vacía, usamos el Demo (si está activo).
+def cargar_maestro(file_obj, col_req, nombre_tabla, cloud_filename, vacio_ok=False, df_demo_fallback=None):
+    if file_obj is not None:
+        return validar_y_cargar_tabla(file_obj, col_req, nombre_tabla, permitir_vacio=vacio_ok)
+    else:
+        df_cloud = github_leer_csv(cloud_filename, col_req, forzar_recarga=False)
+        if not df_cloud.empty:
+            return df_cloud
+        elif st.session_state.get("modo_demo_8", False) and df_demo_fallback is not None:
+            return df_demo_fallback
+        else:
+            return pd.DataFrame(columns=col_req) if vacio_ok else None
+
+# Obtenemos los demos por si acaso
+if st.session_state.get("modo_demo_8", False):
+    demos = obtener_excels_big_data_8_tablas() if "Big Data" in escala_demo else obtener_excels_demo_8_tablas()
+else:
+    demos = {k: None for k in ["hist", "ajustes", "stock", "bom", "rutas", "cal", "compras_erp", "produccion_erp", "budget"]}
+
+
+df_raw = cargar_maestro(file_hist, COLS_HIST, "1. Histórico Ventas", CLOUD_FILES["hist"], vacio_ok=False, df_demo_fallback=demos["hist"])
+
+
+
 
 
 id_ajuste_actual = f"DEMO_AJUSTES_{escala_demo}" if isinstance(file_ajustes, pd.DataFrame) else getattr(file_ajustes, "name", None)
@@ -887,13 +938,13 @@ elif file_ajustes is None and str(st.session_state['last_ajuste_file']).startswi
     st.session_state['last_ajuste_file'] = None
 
 df_ajustes = st.session_state['df_ajustes']
-df_stock = validar_y_cargar_tabla(file_stock, COLS_STOCK, "3. Stock Actual")
-df_bom = validar_y_cargar_tabla(file_bom, COLS_BOM, "4. BOM")
-df_rutas = validar_y_cargar_tabla(file_rutas, COLS_RUTAS, "5. Rutas / Routing")
-df_cal = validar_y_cargar_tabla(file_cal, COLS_CAL, "6. Calendario")
-df_compras_erp = validar_y_cargar_tabla(file_compras_erp, COLS_COMPRAS, "7. ERP Compras / POs", permitir_vacio=True)
-df_produccion_erp = validar_y_cargar_tabla(file_produccion_erp, COLS_PROD, "8. ERP Producción / Prd. Orders", permitir_vacio=True)
-df_budget = validar_y_cargar_tabla(file_budget, COLS_BUDGET, "9. Presupuestos", permitir_vacio=True)
+df_stock = cargar_maestro(file_stock, COLS_STOCK, "3. Stock Actual", CLOUD_FILES["stock"], vacio_ok=False, df_demo_fallback=demos["stock"])
+df_bom = cargar_maestro(file_bom, COLS_BOM, "4. BOM", CLOUD_FILES["bom"], vacio_ok=False, df_demo_fallback=demos["bom"])
+df_rutas = cargar_maestro(file_rutas, COLS_RUTAS, "5. Rutas / Routing", CLOUD_FILES["rutas"], vacio_ok=False, df_demo_fallback=demos["rutas"])
+df_cal = cargar_maestro(file_cal, COLS_CAL, "6. Calendario", CLOUD_FILES["cal"], vacio_ok=False, df_demo_fallback=demos["cal"])
+df_compras_erp = cargar_maestro(file_compras_erp, COLS_COMPRAS, "7. ERP Compras / POs", CLOUD_FILES["compras"], vacio_ok=True, df_demo_fallback=demos["compras_erp"])
+df_produccion_erp = cargar_maestro(file_produccion_erp, COLS_PROD, "8. ERP Producción", CLOUD_FILES["prod"], vacio_ok=True, df_demo_fallback=demos["produccion_erp"])
+df_budget = cargar_maestro(file_budget, COLS_BUDGET, "9. Presupuestos", CLOUD_FILES["budget"], vacio_ok=True, df_demo_fallback=demos.get("budget", None))
 
 if df_raw is None or df_raw.empty:
     st.info(tr(
@@ -949,6 +1000,15 @@ if df_npi_active is not None and not df_npi_active.empty:
         df_stock = pd.concat([df_stock, pd.DataFrame(filas_stk_npi)[COLS_STOCK]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
     if df_rutas is not None and filas_rut_npi:
         df_rutas = pd.concat([df_rutas, pd.DataFrame(filas_rut_npi)[COLS_RUTAS]], ignore_index=True).drop_duplicates(subset=['sku cod'], keep='last')
+
+
+# --- ROW LEVEL SECURITY (RLS) POR KAM (POST-INYECCIÓN) ---
+if df_raw is not None and not df_raw.empty and "KAM" in df_raw.columns:
+    if st.session_state.get("rol", "KAM") == "KAM":
+        df_raw = df_raw[df_raw['KAM'].astype(str).str.lower().str.strip() == usuario_actual.lower()]
+        if df_raw.empty:
+            st.warning(f"⚠️ {st.session_state.get('name', usuario_actual)}, no tienes clientes asignados en el histórico de ventas.")
+            st.stop()
 
 
 # ==========================================
@@ -2009,39 +2069,32 @@ def generar_pdf_executive_sop_deck(
 
 
 # ==========================================
-# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1) CON AGREGACIÓN MATRICIAL
+# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1)
 # ==========================================
 df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
 serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
+serie_modelo = limpiar_anomalias(serie_real) if usar_limpieza_outliers else serie_real
 
-skus_en_filtro = df_final['sku cod'].unique().tolist()
-mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-
-if mat is not None and not mat.empty:
-    cols_validas = [s for s in skus_en_filtro if str(s).strip() in mat.columns]
-    df_est_matrix = mat[cols_validas].iloc[:horizonte].copy()
+if sku_sel != "TODOS" and pais_sel == "TODOS" and cliente_sel == "TODOS":
+    fcst_base_serie = obtener_fcst_sku_rapido(sku_sel, horizonte, modelo_fcst_sel)
 else:
-    idx_fut = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=horizonte, freq="MS")
-    df_est_matrix = pd.DataFrame(0.0, index=idx_fut, columns=[str(s).strip() for s in skus_en_filtro])
+    fcst_base_serie = calcular_forecast_serie_unica(serie_modelo, horizonte, modelo_fcst_sel)
 
-df_con_matrix = df_est_matrix.copy()
-
-aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
-if not aj_sub.empty:
-    aj_sub = aj_sub[aj_sub['sku cod'].astype(str).str.strip().isin([str(s).strip() for s in skus_en_filtro])]
-    if not aj_sub.empty:
-        aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        piv_aj = aj_sub.dropna(subset=['Date_M']).pivot_table(index='Date_M', columns='sku cod', values='override_value', aggfunc='sum')
-        for c_sku in piv_aj.columns.intersection(df_con_matrix.columns):
-            for f_dt, val_ovr in piv_aj[c_sku].dropna().items():
-                if f_dt in df_con_matrix.index:
-                    df_con_matrix.at[f_dt, c_sku] = float(val_ovr)
-
-fcst_base_serie = df_est_matrix.sum(axis=1)
-fcst_con_serie = df_con_matrix.sum(axis=1)
-
-df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_con_serie})
+df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_base_serie.copy()})
 df_comparativo.index.name = 'Date'
+
+ajustes_activos = st.session_state['df_ajustes'].copy() if isinstance(st.session_state.get('df_ajustes'), pd.DataFrame) else pd.DataFrame()
+if not ajustes_activos.empty and sku_sel != "TODOS":
+    if pais_sel != "TODOS":
+        ajustes_activos = ajustes_activos[ajustes_activos['País'] == pais_sel]
+    if cliente_sel != "TODOS":
+        ajustes_activos = ajustes_activos[ajustes_activos['customer cod'] == cliente_sel]
+    ajustes_activos = ajustes_activos[ajustes_activos['sku cod'] == sku_sel]
+    if not ajustes_activos.empty:
+        ajustes_activos['Date'] = pd.to_datetime(ajustes_activos['Date'], dayfirst=True, errors='coerce')
+        for fecha, row in ajustes_activos.dropna(subset=['Date']).groupby('Date')['override_value'].sum().reset_index().set_index('Date').iterrows():
+            if fecha.replace(day=1) in df_comparativo.index:
+                df_comparativo.at[fecha.replace(day=1), 'Consenso'] = row['override_value']
 
 LAYOUT_STYLE = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
@@ -2417,16 +2470,22 @@ with tab_demanda:
                     )
                 
         with col2:
-            st.markdown(f"#### {tr('Pronóstico Matricial (Macro Factor)', 'Matrix Forecasting (Macro Factor)')}")
-            pais_macro = st.selectbox(tr("País:", "Country:"), sorted(df['País'].dropna().unique()), key="macro_pais")
-            cli_macro = st.selectbox(tr("Cliente:", "Customer:"), sorted(df[df['País'] == pais_macro]['customer cod'].dropna().unique()) if pais_macro else [], key="macro_cli")
+            st.markdown(f"#### {tr('Pronóstico Top-Down (Cat + Cliente)', 'Top-Down Forecast (Cat + Customer)')}")
+            cat_macro = st.selectbox(tr("Categoría de Producto:", "Product Category:"), sorted(df['Categoria_Producto'].dropna().unique()) if 'Categoria_Producto' in df.columns else [], key="macro_cat")
+            cli_macro = st.selectbox(
+                tr("Cliente:", "Customer:"), 
+                sorted(df[df['Categoria_Producto'] == cat_macro]['customer cod'].dropna().unique()) if cat_macro else [], 
+                format_func=lambda x: dict_cli_desc.get(x, x), 
+                key="macro_cli"
+            )
             pct_macro = st.number_input(tr("Variación % (ej. 15, -20):", "Variation % (e.g. 15, -20):"), value=15.0, step=5.0, format="%.1f")
-            if st.button(tr("🚀 Aplicar Macro Factor", "🚀 Apply Macro Factor"), use_container_width=True):
-                if pais_macro and cli_macro:
-                    with st.spinner(tr("Sincronizando en RAM y GitHub...", "Syncing to RAM and GitHub...")):
-                        exito, msg = aplicar_variacion_cliente(pais_macro, cli_macro, pct_macro)
+            
+            if st.button(tr("🚀 Aplicar Consenso a la Categoría", "🚀 Apply Consensus to Category"), use_container_width=True):
+                if cat_macro and cli_macro:
+                    with st.spinner(tr("Desagregando variaciones a nivel SKU...", "Disaggregating variations to SKU level...")):
+                        exito, msg = aplicar_variacion_categoria_cliente(cat_macro, cli_macro, pct_macro)
                         if exito:
-                            st.success("Done & Synced!")
+                            st.success(tr("¡Sincronizado en la nube!", "Synced to cloud!"))
                             st.rerun()
                         else:
                             st.error(msg)
