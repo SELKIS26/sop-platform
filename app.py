@@ -394,8 +394,8 @@ def obtener_excels_demo_8_tablas():
     ])[COLS_PROD]
 
     filas_budget = []
-    for esc in ["Budget Original (0+12)", "Forecast 3+9"]:
-        mult = 1.05 if "Original" in esc else 1.02
+    for esc in ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]:
+        mult = 1.05 if "Original" in esc else (1.02 if "3+9" in esc else 0.98)
         for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
             for f in fechas_fut:
                 filas_budget.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": "000007SCAAS", "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
@@ -532,8 +532,8 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     filas_budget_bd = []
     for esc in ["Budget Original (0+12)", "Forecast 3+9", "Forecast 6+6", "Forecast 9+3"]:
         mult = 1.05 if "Original" in esc else (1.02 if "3+9" in esc else 0.98)
-        for cat in cats_disponibles:
-            for c_cli in list(set(kams_asignados))[:3]: # Simular unos pocos clientes
+        for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
+            for c_cli in cli_cods[:3]: # Simular unos pocos clientes
                 for f in fechas_fut:
                     filas_budget_bd.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": c_cli, "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
     df_9_budget = pd.DataFrame(filas_budget_bd)
