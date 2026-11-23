@@ -1367,11 +1367,14 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
             share = vol_cliente.get(sku_c, 0.0) / max(1.0, vol_global.get(sku_c, 1.0))
             
             for f_dt, val in fcst.items():
-                est_val = round(float(val) * share, 2)
-                ovr_val = round(est_val * factor, 2)
+                est_val_global = float(val)
+                est_val_cliente = round(est_val_global * share, 2)
+                ovr_val_cliente = round(est_val_cliente * factor, 2)
+                
+                # Para la nube, guardamos cuánto vale el override en TÉRMINOS ABSOLUTOS para este cliente
                 nuevas.append({
                     'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
-                    'sku cod': sku_c, 'override_value': ovr_val
+                    'sku cod': sku_c, 'override_value': ovr_val_cliente
                 })
                 eventos_fva.append({
                     "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
@@ -1915,23 +1918,40 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     delta_rev_a, delta_rev_bc, delta_rev_fva = 0.0, 0.0, 0.0
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
+    df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    df_filtro_grp = df_f.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    
+    dict_aj = {}
+    if aj_df is not None and not aj_df.empty:
+        aj_df['Date_M'] = pd.to_datetime(aj_df['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        for _, r_aj in aj_df.dropna(subset=['Date_M']).iterrows():
+            dict_aj[(str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])] = float(r_aj['override_value'])
+
+    # Agrupar por SKU para que el puente y las valoraciones financieras funcionen SKU a SKU
     for sku in df_f['sku cod'].unique():
         s_clean = str(sku).strip()
         if s_clean not in mat_h.columns:
             continue
-
-        g_tot = float(vol_global_sku.get(s_clean, 0.0))
-        f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
-        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
-
+            
         vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
-        serie_est = mat_h[s_clean].values.astype(float) * share_sku
-        serie_con = serie_est.copy()
-
-        if mapa_aj:
-            for m_i, f_dt in enumerate(idx_fut):
-                if (s_clean, f_dt) in mapa_aj:
-                    serie_con[m_i] = float(mapa_aj[(s_clean, f_dt)])
+        
+        # Calcular serie estadística y consenso sumando sus componentes granulares
+        serie_est = np.zeros(len(idx_fut))
+        serie_con = np.zeros(len(idx_fut))
+        
+        for (p_c, c_c, s_c), v_glob in df_global_grp.items():
+            if str(s_c).strip() == s_clean and (p_c, c_c, s_c) in df_filtro_grp:
+                share_global_sku = max(v_glob, 1e-6) / max(vol_global_sku.get(s_clean, 1e-6), 1e-6)
+                base_serie_tupla = mat_h[s_clean].values.astype(float) * share_global_sku
+                
+                serie_est += base_serie_tupla
+                
+                for m_i, d_m in enumerate(idx_fut):
+                    aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_clean, d_m), None)
+                    if aj_val is not None:
+                        serie_con[m_i] += aj_val
+                    else:
+                        serie_con[m_i] += base_serie_tupla[m_i]
 
         vol_est_sku = float(serie_est.sum())
         vol_con_sku = float(serie_con.sum())
@@ -2099,24 +2119,33 @@ if mat is not None and not mat.empty:
     fcst_base_arr = np.zeros(int(horizonte))
     fcst_con_arr = np.zeros(int(horizonte))
     
-    for (p_c, c_c, s_c), v_filt in df_filtro_grp.items():
+    # En vez de iterar sobre el filtro (que puede ser agregado), iteramos sobre TODO el global.
+    # Y solo sumamos al gráfico final lo que pertenezca al filtro actual.
+    
+    # 1. Obtener todas las combinaciones (País, Cliente, SKU) del dataset global
+    for (p_c, c_c, s_c), v_glob in df_global_grp.items():
         s_c_str = str(s_c).strip()
         if s_c_str in mat.columns:
-            v_glob = max(df_global_grp.get((p_c, c_c, s_c), 1e-6), 1e-6)
-            share = v_filt / v_glob
-            
-            base_serie = mat[s_c_str].iloc[:int(horizonte)].values * share
-            fcst_base_arr += base_serie
-            
-            con_serie = np.zeros(int(horizonte))
-            for i, d_m in enumerate(idx_fut):
-                aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
-                if aj_val is not None:
-                    con_serie[i] = aj_val
-                else:
-                    con_serie[i] = base_serie[i]
-                    
-            fcst_con_arr += con_serie
+            # ¿Esta combinación exacta pertenece a los filtros actuales de la UI?
+            # Comprobamos si está en df_filtro_grp
+            if (p_c, c_c, s_c) in df_filtro_grp:
+                v_glob_safe = max(v_glob, 1e-6)
+                share_global_sku = v_glob_safe / max(df.groupby('sku cod')['volume'].sum().get(s_c, 1e-6), 1e-6)
+                
+                # El estadístico base de esta tupla (País, Cliente, SKU)
+                base_serie_tupla = mat[s_c_str].iloc[:int(horizonte)].values * share_global_sku
+                fcst_base_arr += base_serie_tupla
+                
+                con_serie_tupla = np.zeros(int(horizonte))
+                for i, d_m in enumerate(idx_fut):
+                    aj_val = dict_aj.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
+                    if aj_val is not None:
+                        # Si hay un ajuste específico para este cliente/sku en la nube, lo usamos
+                        con_serie_tupla[i] = aj_val
+                    else:
+                        con_serie_tupla[i] = base_serie_tupla[i]
+                        
+                fcst_con_arr += con_serie_tupla
             
     fcst_base_serie = pd.Series(fcst_base_arr, index=idx_fut)
     fcst_con_serie = pd.Series(fcst_con_arr, index=idx_fut)
@@ -3176,22 +3205,32 @@ with tab_fin:
 
             aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
             if not aj_sub.empty:
-                if nivel_pl == "Por País":
-                    aj_sub = aj_sub[aj_sub['País'] == filtro_pl]
-                elif nivel_pl == "Por Cliente":
-                    aj_sub = aj_sub[aj_sub['customer cod'] == filtro_pl]
-                elif nivel_pl == "Por SKU":
-                    aj_sub = aj_sub[aj_sub['sku cod'].astype(str).str.strip() == str(filtro_pl).strip()]
-                elif nivel_pl == "Seguir Filtros Superiores":
-                    if pais_sel != "TODOS": aj_sub = aj_sub[aj_sub['País'] == pais_sel]
-                    if cliente_sel != "TODOS": aj_sub = aj_sub[aj_sub['customer cod'] == cliente_sel]
-                    if sku_sel != "TODOS": aj_sub = aj_sub[aj_sub['sku cod'] == sku_sel]
-
-                if not aj_sub.empty and (nivel_pl in ["Por SKU", "Por Cliente"] or sku_sel != "TODOS"):
-                    aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-                    for f_dt, v_ovr in aj_sub.dropna(subset=['Date_M']).groupby('Date_M')['override_value'].sum().items():
-                        if f_dt in fcst_vol_target.index:
-                            fcst_vol_target.at[f_dt] = float(v_ovr)
+                dict_aj_fin = {}
+                aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+                for _, r_aj in aj_sub.dropna(subset=['Date_M']).iterrows():
+                    dict_aj_fin[(str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])] = float(r_aj['override_value'])
+                
+                df_global_grp_fin = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+                df_filtro_grp_fin = df_fin_target.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+                
+                fcst_con_fin_arr = np.zeros(int(horizonte))
+                mat_fin = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+                
+                if mat_fin is not None and not mat_fin.empty:
+                    for (p_c, c_c, s_c), v_glob in df_global_grp_fin.items():
+                        s_c_str = str(s_c).strip()
+                        if s_c_str in mat_fin.columns and (p_c, c_c, s_c) in df_filtro_grp_fin:
+                            share_g = max(v_glob, 1e-6) / max(df.groupby('sku cod')['volume'].sum().get(s_c, 1e-6), 1e-6)
+                            base_serie_t = mat_fin[s_c_str].iloc[:int(horizonte)].values * share_g
+                            
+                            for i, d_m in enumerate(fcst_vol_target.index):
+                                aj_val = dict_aj_fin.get((str(p_c).strip(), str(c_c).strip(), s_c_str, d_m), None)
+                                if aj_val is not None:
+                                    fcst_con_fin_arr[i] += aj_val
+                                else:
+                                    fcst_con_fin_arr[i] += base_serie_t[i]
+                                    
+                    fcst_vol_target = pd.Series(fcst_con_fin_arr, index=fcst_vol_target.index)
 
             df_ult6 = df_hist_pl.tail(6)
             vol_u6 = float(df_ult6['Vol_Kg'].sum()) if not df_ult6.empty else 0.0
