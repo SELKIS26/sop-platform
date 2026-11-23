@@ -2106,6 +2106,7 @@ def generar_pdf_executive_sop_deck(
 # ==========================================
 df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
 serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
+skus_en_filtro = df_final['sku cod'].unique().tolist()
 
 mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
 
