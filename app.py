@@ -319,15 +319,18 @@ def obtener_excels_demo_8_tablas():
         for sku_cod, sku_desc, base_vol, cost_u, precio_u, margen_u, _, _, _ in skus_demo:
             ruido = 0.65 if sku_cod == "PR01299X" else 0.12
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
-            # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
+            
+            c_cod = "000008JUAN" if sku_cod in ["PN190G10", "PR01299X"] else "000007SCAAS"
+            c_desc = "Juan Key Account Ltd" if c_cod == "000008JUAN" else "Agropecuaria Catalana Stat.Coop.Ltda"
+            kam_default = "kam_juan" if c_cod == "000008JUAN" else "amancebo"
+            
             cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
-            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
             
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
-                "customer cod": "000007SCAAS",
-                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
+                "customer cod": c_cod,
+                "customer desc": c_desc,
                 "sku cod": sku_cod,
                 "sku desc": sku_desc,
                 "volume": vol,
@@ -343,10 +346,11 @@ def obtener_excels_demo_8_tablas():
     for f in fechas_fut[:6]:
         for sku_cod, _, base_vol, _, _, _, _, _, _ in skus_demo:
             override = int(base_vol * np.random.uniform(0.95, 1.10))
+            c_cod = "000008JUAN" if sku_cod in ["PN190G10", "PR01299X"] else "000007SCAAS"
             filas_ajustes.append({
                 "Date": f,
                 "País": "España",
-                "customer cod": "000007SCAAS",
+                "customer cod": c_cod,
                 "sku cod": sku_cod,
                 "override_value": override
             })
@@ -397,8 +401,9 @@ def obtener_excels_demo_8_tablas():
     for esc in ["Budget Original (0+12)", "Forecast 3+9"]:
         mult = 1.05 if "Original" in esc else 1.02
         for cat in ["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"]:
-            for f in fechas_fut:
-                filas_budget.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": "000007SCAAS", "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
+            for c_cod in ["000007SCAAS", "000008JUAN"]:
+                for f in fechas_fut:
+                    filas_budget.append({"Escenario": esc, "Categoria_Producto": cat, "customer cod": c_cod, "Date": f, "Volume_Kg": 25000 * mult, "Revenue_GBP": 85000 * mult, "Margin_GBP": 18000 * mult})
     df_9_budget = pd.DataFrame(filas_budget)[COLS_BUDGET]
 
     return {
@@ -457,6 +462,8 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
     cats_array = np.array(["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"])
     cat_por_sku = np.array([cats_array[i % len(cats_array)] for i in range(n_skus)])
 
+    kam_por_cliente = np.random.choice(["amancebo", "kam_juan", "borja"], size=n_clientes, p=[0.4, 0.4, 0.2])
+    
     df_1_hist = pd.DataFrame({
         "Date": fechas_hist[idx_fecha],
         "País": paises_venta,
@@ -469,7 +476,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta]),
         "Categoria_Producto": cat_por_sku[idx_sku],
-        "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
+        "KAM": kam_por_cliente[idx_cli]
     })[COLS_HIST]
 
     idx_aj_sku = np.random.randint(0, 50, size=300)
@@ -642,7 +649,7 @@ rol_actual = st.session_state.get("rol", "KAM")
 PERMISOS = {
     "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"],
     "borja": ["tab0", "tab2"],
-    "kam_juan": ["tab0", "tab1", "tab5", "tab10"]
+    "kam_juan": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"]
 }
 modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
 
