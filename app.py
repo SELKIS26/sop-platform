@@ -1028,6 +1028,21 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
 
 df, dict_price, dict_margin, dict_currency, dict_sku_desc, dict_cli_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
 
+@st.cache_data(show_spinner=False)
+def get_global_volumes(df_in):
+    if df_in is None or df_in.empty:
+        return {}, {}
+    d_tmp = df_in.copy()
+    d_tmp['País'] = d_tmp['País'].astype(str).str.strip()
+    d_tmp['customer cod'] = d_tmp['customer cod'].astype(str).str.strip()
+    d_tmp['sku cod'] = d_tmp['sku cod'].astype(str).str.strip()
+    v_sku = d_tmp.groupby('sku cod')['volume'].sum().to_dict()
+    v_tupla = d_tmp.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    return v_sku, v_tupla
+
+vol_global_sku_cached, vol_global_tupla_cached = get_global_volumes(df)
+
+
 
 # ==========================================
 # TORNEO MULTI-MODELO VECTORIZADO (AUTO-ML BEST-FIT + HERENCIA NPI)
