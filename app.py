@@ -721,8 +721,8 @@ st.title(t["title"])
 # 1. CONFIGURACIÓN Y CARGA DE ARCHIVOS (CON BIG DATA STRESS-TEST)
 # ==========================================
 with st.sidebar:
-    st.session_state["modo_demo_8"] = True
-    escala_demo = "🔥 Big Data Stress-Test"
+    st.session_state["modo_demo_8"] = st.toggle(tr("Activar Datos Demo", "Enable Demo Data"), value=True)
+    escala_demo = st.selectbox(tr("Escala de la Demo:", "Demo Scale:"), ["Ligera (5 SKUs)", "🔥 Big Data Stress-Test"])
 
     st.download_button(
         label=tr("📥 Descargar 9 Plantillas Oficiales (.xlsx)", "📥 Download 9 Official Templates (.xlsx)", "📥 Pobierz 9 Oficjalnych Szablonów (.xlsx)", "📥 Download 9 Officielle Skabeloner (.xlsx)"),
@@ -2720,7 +2720,15 @@ if modulo_activo == t["tab1"]:
                 npi_pais = st.selectbox(tr("Planta / País Destino:", "Target Plant / Country:"), sorted(df['País'].dropna().unique().tolist()), key="npi_pais_sel")
             with npi_c2:
                 clis_pais_npi = sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else ["CLI-NEW"]
-                npi_cli = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
+                opcion_nuevo = "➕ NUEVO CLIENTE (Licitación)..."
+                lista_clis_npi = [opcion_nuevo] + clis_pais_npi
+                
+                npi_cli_sel = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), lista_clis_npi, key="npi_cli_sel")
+                if npi_cli_sel == opcion_nuevo:
+                    npi_cli = st.text_input(tr("Código del Nuevo Cliente:", "New Customer Code:"), value="CLI-NEW-001", key="npi_cli_manual")
+                else:
+                    npi_cli = npi_cli_sel
+                    
                 npi_espejo = st.selectbox(tr("SKU Espejo (Estacionalidad):", "Mirror SKU (Seasonality):"), sorted(df['sku cod'].dropna().unique().tolist()), key="npi_esp_sel")
                 npi_pol = st.selectbox(tr("Política de Stock:", "Stock Policy:"), ["MTS", "MTO"], key="npi_pol_sel")
             with npi_c3:
