@@ -197,11 +197,8 @@ def github_leer_csv(filename, cols_default, forzar_recarga=False):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                contenido_bin = base64.b64decode(data["content"])
-                if filename.endswith('.parquet'):
-                    df_out = pd.read_parquet(io.BytesIO(contenido_bin))
-                else:
-                    df_out = pd.read_csv(io.StringIO(contenido_bin.decode("utf-8-sig")))
+                contenido_csv = base64.b64decode(data["content"]).decode("utf-8-sig")
+                df_out = pd.read_csv(io.StringIO(contenido_csv))
                 st.session_state[cache_key] = df_out.copy()
                 return df_out
         except Exception:
@@ -209,10 +206,7 @@ def github_leer_csv(filename, cols_default, forzar_recarga=False):
 
     if os.path.exists(filename):
         try:
-            if filename.endswith('.parquet'):
-                df_local = pd.read_parquet(filename)
-            else:
-                df_local = pd.read_csv(filename)
+            df_local = pd.read_csv(filename)
             st.session_state[cache_key] = df_local.copy()
             return df_local
         except Exception:
@@ -227,10 +221,7 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
     cache_key = f"_cloud_cache_{filename}"
     st.session_state[cache_key] = df_to_save.copy()
     try:
-        if filename.endswith('.parquet'):
-            df_to_save.to_parquet(filename, index=False)
-        else:
-            df_to_save.to_csv(filename, index=False, encoding="utf-8-sig")
+        df_to_save.to_csv(filename, index=False, encoding="utf-8-sig")
     except Exception:
         pass
 
@@ -253,14 +244,10 @@ def github_guardar_csv(df_to_save, filename, commit_msg):
     except Exception:
         pass
 
-    if filename.endswith('.parquet'):
-        file_bytes = df_to_save.to_parquet(index=False)
-    else:
-        file_bytes = df_to_save.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-
+    csv_bytes = df_to_save.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     payload = {
         "message": commit_msg,
-        "content": base64.b64encode(file_bytes).decode("utf-8")
+        "content": base64.b64encode(csv_bytes).decode("utf-8")
     }
     if sha_actual:
         payload["sha"] = sha_actual
@@ -334,22 +321,13 @@ def obtener_excels_demo_8_tablas():
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
             cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
+            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
             
-            # Asignar un cliente distinto para kam_juan
-            if "ADICARE" in sku_desc:
-                kam_default = "amancebo"
-                c_cod = "000007SCAAS"
-                c_desc = "Agropecuaria Catalana Stat.Coop.Ltda"
-            else:
-                kam_default = "kam_juan"
-                c_cod = "JUAN-001"
-                c_desc = "Cliente Exclusivo Juan S.L."
-                
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
-                "customer cod": c_cod,
-                "customer desc": c_desc,
+                "customer cod": "000007SCAAS",
+                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
                 "sku cod": sku_cod,
                 "sku desc": sku_desc,
                 "volume": vol,
@@ -491,7 +469,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta]),
         "Categoria_Producto": cat_por_sku[idx_sku],
-        "KAM": np.array([["amancebo", "kam_juan", "borja"][i % 3] for i in range(n_clientes)])[idx_cli]
+        "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
     })[COLS_HIST]
 
     idx_aj_sku = np.random.randint(0, 50, size=300)
@@ -755,21 +733,21 @@ with st.sidebar:
     )
 
     st.header(tr("📂 1. Datos Maestros S&OP", "📂 1. S&OP Master Data", "📂 1. Dane Podstawowe S&OP", "📂 1. S&OP Stamdata"))
-    file_hist = st.file_uploader(tr("1. Histórico Ventas", "1. Sales History", "1. Historia Sprzedaży", "1. Salgshistorik"), type=['xlsx', 'csv', 'parquet'])
-    file_ajustes = st.file_uploader(tr("2. Ajustes Consenso", "2. Consensus Overrides", "2. Korekty Konsensusu", "2. Konsensusjusteringer"), type=['xlsx', 'csv', 'parquet'])
-    file_stock = st.file_uploader(tr("3. Stock Actual", "3. Current Inventory", "3. Aktualny Zapas", "3. Nuværende Lager"), type=['xlsx', 'csv', 'parquet'])
-    file_bom = st.file_uploader(tr("4. BOM (Recetas)", "4. BOM (Formulations)", "4. BOM (Receptury)", "4. BOM (Stykliste)"), type=['xlsx', 'csv', 'parquet'])
-    file_rutas = st.file_uploader(tr("5. Rutas / Routing", "5. Production Routing", "5. Marszruty Produkcyjne", "5. Produktionsruter"), type=['xlsx', 'csv', 'parquet'])
-    file_cal = st.file_uploader(tr("6. Calendario", "6. Plant Calendar", "6. Kalendarz Zakładu", "6. Fabriks-kalender"), type=['xlsx', 'csv', 'parquet'])
+    file_hist = st.file_uploader(tr("1. Histórico Ventas", "1. Sales History", "1. Historia Sprzedaży", "1. Salgshistorik"), type=['xlsx', 'csv'])
+    file_ajustes = st.file_uploader(tr("2. Ajustes Consenso", "2. Consensus Overrides", "2. Korekty Konsensusu", "2. Konsensusjusteringer"), type=['xlsx', 'csv'])
+    file_stock = st.file_uploader(tr("3. Stock Actual", "3. Current Inventory", "3. Aktualny Zapas", "3. Nuværende Lager"), type=['xlsx', 'csv'])
+    file_bom = st.file_uploader(tr("4. BOM (Recetas)", "4. BOM (Formulations)", "4. BOM (Receptury)", "4. BOM (Stykliste)"), type=['xlsx', 'csv'])
+    file_rutas = st.file_uploader(tr("5. Rutas / Routing", "5. Production Routing", "5. Marszruty Produkcyjne", "5. Produktionsruter"), type=['xlsx', 'csv'])
+    file_cal = st.file_uploader(tr("6. Calendario", "6. Plant Calendar", "6. Kalendarz Zakładu", "6. Fabriks-kalender"), type=['xlsx', 'csv'])
     
     st.divider()
     st.header(tr("🚀 2. ERP Pipeline (Ejecución)", "🚀 2. ERP Pipeline (Execution)", "🚀 2. Zlecenia ERP (Realizacja)", "🚀 2. ERP Pipeline (Udførelse)"))
-    file_compras_erp = st.file_uploader(tr("7. ERP Compras / POs", "7. ERP Purchase Orders (POs)", "7. Zamówienia Zakupu ERP (PO)", "7. ERP Indkøbsordrer (PO)"), type=['xlsx', 'csv', 'parquet'])
-    file_produccion_erp = st.file_uploader(tr("8. ERP Producción / Prd. Orders", "8. ERP Production Orders", "8. Zlecenia Produkcyjne ERP", "8. ERP Produktionsordrer"), type=['xlsx', 'csv', 'parquet'])
+    file_compras_erp = st.file_uploader(tr("7. ERP Compras / POs", "7. ERP Purchase Orders (POs)", "7. Zamówienia Zakupu ERP (PO)", "7. ERP Indkøbsordrer (PO)"), type=['xlsx', 'csv'])
+    file_produccion_erp = st.file_uploader(tr("8. ERP Producción / Prd. Orders", "8. ERP Production Orders", "8. Zlecenia Produkcyjne ERP", "8. ERP Produktionsordrer"), type=['xlsx', 'csv'])
     
     st.divider()
     st.header(tr("📈 3. Escenarios Budget", "📈 3. Budget Scenarios", "📈 3. Scenariusze Budżetowe", "📈 3. Budgetscenarier"))
-    file_budget = st.file_uploader(tr("9. Presupuestos (Cat+Cliente)", "9. Budgets (Cat+Cust)", "9. Budżety (Kat+Klient)", "9. Budgetter (Kat+Kunde)"), type=['xlsx', 'csv', 'parquet'])
+    file_budget = st.file_uploader(tr("9. Presupuestos (Cat+Cliente)", "9. Budgets (Cat+Cust)", "9. Budżety (Kat+Klient)", "9. Budgetter (Kat+Kunde)"), type=['xlsx', 'csv'])
 
     
 
@@ -800,8 +778,6 @@ with st.sidebar:
 def _leer_archivo_subido_bytes(contenido_bytes, nombre_archivo):
     if nombre_archivo.endswith('.csv'):
         return pd.read_csv(io.BytesIO(contenido_bytes))
-    elif nombre_archivo.endswith('.parquet'):
-        return pd.read_parquet(io.BytesIO(contenido_bytes))
     return pd.read_excel(io.BytesIO(contenido_bytes))
 
 
@@ -880,14 +856,14 @@ def guardar_archivo_subido_cloud(file_obj, filename_cloud):
 
 # Nombres en la nube para cada maestro
 CLOUD_FILES = {
-    "hist": "1_Historico_Ventas_Cloud.parquet",
-    "stock": "3_Stock_Actual_Cloud.parquet",
-    "bom": "4_BOM_Cloud.parquet",
-    "rutas": "5_Rutas_Cloud.parquet",
-    "cal": "6_Calendario_Cloud.parquet",
-    "compras": "7_POs_Compras_Cloud.parquet",
-    "prod": "8_Ordenes_Produccion_Cloud.parquet",
-    "budget": "9_Presupuestos_Cloud.parquet"
+    "hist": "1_Historico_Ventas_Cloud.csv",
+    "stock": "3_Stock_Actual_Cloud.csv",
+    "bom": "4_BOM_Cloud.csv",
+    "rutas": "5_Rutas_Cloud.csv",
+    "cal": "6_Calendario_Cloud.csv",
+    "compras": "7_POs_Compras_Cloud.csv",
+    "prod": "8_Ordenes_Produccion_Cloud.csv",
+    "budget": "9_Presupuestos_Cloud.csv"
 }
 
 # Guardamos en la nube si hay archivos subidos nuevos
@@ -1051,21 +1027,6 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
 
 
 df, dict_price, dict_margin, dict_currency, dict_sku_desc, dict_cli_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
-
-@st.cache_data(show_spinner=False)
-def get_global_volumes(df_in):
-    if df_in is None or df_in.empty:
-        return {}, {}
-    d_tmp = df_in.copy()
-    d_tmp['País'] = d_tmp['País'].astype(str).str.strip()
-    d_tmp['customer cod'] = d_tmp['customer cod'].astype(str).str.strip()
-    d_tmp['sku cod'] = d_tmp['sku cod'].astype(str).str.strip()
-    v_sku = d_tmp.groupby('sku cod')['volume'].sum().to_dict()
-    v_tupla = d_tmp.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-    return v_sku, v_tupla
-
-vol_global_sku_cached, vol_global_tupla_cached = get_global_volumes(df)
-
 
 
 # ==========================================
@@ -1232,6 +1193,7 @@ def cargar_forecast_desde_nube_si_valido(firma_actual):
                 
                 try:
                     token, repo = _github_creds()
+                    dict_meta = None
                     if token and repo:
                         url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
                         req = urllib.request.Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"})
@@ -1239,13 +1201,16 @@ def cargar_forecast_desde_nube_si_valido(firma_actual):
                             data = json.loads(resp.read().decode("utf-8"))
                             contenido = base64.b64decode(data["content"]).decode("utf-8")
                             dict_meta = json.loads(contenido)
+                    elif os.path.exists(FCST_META_FILE):
+                        with open(FCST_META_FILE, 'r', encoding='utf-8') as fm:
+                            dict_meta = json.load(fm)
                             
-                            # Guardar en RAM L1
-                            st.session_state["mem_fcst_firma"] = firma_actual
-                            st.session_state["mem_fcst_matrices"] = dict_matrices
-                            st.session_state["mem_fcst_meta"] = dict_meta
-                            
-                            return dict_matrices, dict_meta
+                    if dict_meta is not None:
+                        # Guardar en RAM L1
+                        st.session_state["mem_fcst_firma"] = firma_actual
+                        st.session_state["mem_fcst_matrices"] = dict_matrices
+                        st.session_state["mem_fcst_meta"] = dict_meta
+                        return dict_matrices, dict_meta
                 except Exception:
                     pass
     except Exception:
@@ -1283,6 +1248,13 @@ def guardar_forecast_en_nube(dict_matrices, dict_meta, firma_actual):
             if sha_actual: payload["sha"] = sha_actual
             req_put = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={**headers, "Content-Type": "application/json"}, method="PUT")
             urllib.request.urlopen(req_put, timeout=5)
+            
+        # Siempre guardar backup local (para cuando no hay credenciales GitHub)
+        try:
+            with open(FCST_META_FILE, 'w', encoding='utf-8') as fm:
+                json.dump(dict_meta, fm)
+        except Exception:
+            pass
             
         github_guardar_csv(pd.DataFrame([{"signature": firma_actual}]), SIG_FILE, "Update Dataset Signature")
     except Exception:
@@ -2029,8 +2001,19 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     vols_l12 = df_f[(df_f['Date'] >= min_date_12m) & (df_f['Date'] <= max_date_global)].groupby('sku cod')['volume'].sum().to_dict()
     mapa_abc = dict(zip(abc_df['sku cod'], abc_df['ABC'])) if (abc_df is not None and not abc_df.empty and 'ABC' in abc_df.columns) else {}
 
-    vol_global_sku = vol_global_sku_cached
+    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
     vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
+
+    mapa_aj = {}
+    if aj_df is not None and not aj_df.empty:
+        aj_clean = aj_df.copy()
+        aj_clean['sku cod'] = aj_clean['sku cod'].astype(str).str.strip()
+        paises_f = set(df_f['País'].dropna().unique())
+        clientes_f = set(df_f['customer cod'].dropna().unique())
+        aj_clean = aj_clean[aj_clean['País'].isin(paises_f) & aj_clean['customer cod'].isin(clientes_f)]
+        if not aj_clean.empty:
+            aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
     mat_h = mat.iloc[:horiz]
     idx_fut = mat_h.index
@@ -2039,72 +2022,57 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     delta_rev_a, delta_rev_bc, delta_rev_fva = 0.0, 0.0, 0.0
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
-    # Identificar SKUs únicos en el filtro que existan en la matriz
-    skus_validos = [str(s).strip() for s in df_f['sku cod'].unique() if str(s).strip() in mat_h.columns]
-    if not skus_validos:
-        return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
+    df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    df_filtro_grp = df_f.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    
+    dict_aj = {}
+    if aj_df is not None and not aj_df.empty:
+        aj_df['Date_M'] = pd.to_datetime(aj_df['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        for _, r_aj in aj_df.dropna(subset=['Date_M']).iterrows():
+            dict_aj[(str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])] = float(r_aj['override_value'])
 
-    # 1. Base Estadística Vectorizada (agrupada por SKU sobre todo el horizonte)
-    mat_sum_h = mat_h[skus_validos].sum(axis=0) 
-    
-    dict_vol_est = {}
-    dict_vol_con = {}
-    
-    for s_clean in skus_validos:
+    # Optimizamos agregación del KPI saltando los loops anidados pesados
+    for sku in df_f['sku cod'].unique():
+        s_clean = str(sku).strip()
+        if s_clean not in mat_h.columns:
+            continue
+            
+        vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
+        
         g_tot = float(vol_global_sku.get(s_clean, 0.0))
         f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
         share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
         
-        est_total = float(mat_sum_h[s_clean]) * share_sku
-        dict_vol_est[s_clean] = est_total
-        dict_vol_con[s_clean] = est_total 
-
-    # 2. Aplicar Ajustes (Overrides) directamente a los totales mediante diferencias (Delta)
-    if aj_df is not None and not aj_df.empty:
-        aj_tmp = aj_df.copy()
-        aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        aj_tmp['País_s'] = aj_tmp['País'].astype(str).str.strip()
-        aj_tmp['cli_s'] = aj_tmp['customer cod'].astype(str).str.strip()
-        aj_tmp['sku_s'] = aj_tmp['sku cod'].astype(str).str.strip()
-        aj_tmp = aj_tmp.dropna(subset=['Date_M'])
+        serie_est = mat_h[s_clean].values.astype(float) * share_sku
+        serie_con = serie_est.copy()
         
-        pares_filt = df_f[['País', 'customer cod', 'sku cod']].drop_duplicates().copy()
-        pares_filt['País_s'] = pares_filt['País'].astype(str).str.strip()
-        pares_filt['cli_s'] = pares_filt['customer cod'].astype(str).str.strip()
-        pares_filt['sku_s'] = pares_filt['sku cod'].astype(str).str.strip()
+        # Filtrar solo el cruce exacto en la UI para este SKU
+        df_cruce_sku = df_f[df_f['sku cod'] == sku].drop_duplicates(subset=['País', 'customer cod'])
         
-        aj_match = pd.merge(
-            aj_tmp[['País_s', 'cli_s', 'sku_s', 'Date_M', 'override_value']],
-            pares_filt[['País_s', 'cli_s', 'sku_s']],
-            on=['País_s', 'cli_s', 'sku_s'],
-            how='inner'
-        )
-        
-        if not aj_match.empty:
-            fecha_to_idx = {d: i for i, d in enumerate(idx_fut)}
-            for _, r_aj in aj_match.iterrows():
-                s_str = r_aj['sku_s']
-                d_m = r_aj['Date_M']
+        for m_i, d_m in enumerate(idx_fut):
+            ajuste_acum = 0.0
+            hay_ajuste = False
+            
+            for _, r_cru in df_cruce_sku.iterrows():
+                p_c = str(r_cru['País']).strip()
+                c_c = str(r_cru['customer cod']).strip()
                 
-                if s_str in skus_validos and d_m in fecha_to_idx:
-                    ovr_val = float(r_aj['override_value'])
-                    v_glob_sku = max(vol_global_sku.get(s_str, 1e-6), 1e-6)
-                    v_tupla = vol_global_tupla_cached.get((r_aj['País_s'], r_aj['cli_s'], s_str), 0.0)
-                    
-                    share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
-                    stat_val = float(mat_h.at[d_m, s_str]) * share_tupla
-                    
-                    delta = ovr_val - stat_val
-                    dict_vol_con[s_str] += delta
+                aj_val = dict_aj.get((p_c, c_c, s_clean, d_m), None)
+                if aj_val is not None:
+                    hay_ajuste = True
+                    ajuste_acum += aj_val
+                else:
+                    v_tupla = vol_global_tupla_cached.get((p_c, c_c, s_clean), 0.0)
+                    share_tupla = v_tupla / max(g_tot, 1e-6)
+                    ajuste_acum += (mat_h[s_clean].iloc[m_i] * share_tupla)
+            
+            if hay_ajuste:
+                serie_con[m_i] = ajuste_acum
 
-    # 3. Calculo Vectorial de KPIs Financieros
-    for s_clean in skus_validos:
-        vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
-        vol_est_sku = dict_vol_est[s_clean]
-        vol_con_sku = max(0.0, dict_vol_con[s_clean])
+        vol_est_sku = float(serie_est.sum())
+        vol_con_sku = float(serie_con.sum())
 
-        p = float(dict_p.get(s_clean, 0.0))
-        mg = float(dict_m.get(s_clean, 0.0))
+        p, mg = dict_p.get(s_clean, 0.0), dict_m.get(s_clean, 0.0)
         mon = str(dict_c.get(s_clean, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
 
@@ -2114,9 +2082,7 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
 
         d_est_vol = vol_est_sku - vol_l12_sku
         d_fva_vol = vol_con_sku - vol_est_sku
-        
-        is_a = (mapa_abc.get(s_clean, 'B') == 'A')
-        if is_a:
+        if mapa_abc.get(s_clean, 'B') == 'A':
             delta_rev_a += d_est_vol * p * t_fx
             delta_mar_a += d_est_vol * mg * t_fx
         else:
@@ -2597,12 +2563,14 @@ if modulo_activo == t["tab1"]:
                 f"(WAPE Backtest: Holt-Winters `{info_m['WAPE_HW']}%` | Damped WMA `{info_m['WAPE_WMA']}%` | Croston TSB `{info_m['WAPE_Croston']}%`)"
             )
 
-        df_chart = pd.DataFrame({
-            tr('Histórico Real', 'Actual History'): serie_real,
-            f"{tr('Estadístico', 'Statistical')} ({modelo_fcst_sel})": df_comparativo['Estadistico'],
-            tr('Forecast Consenso', 'Consensus Forecast'): df_comparativo['Consenso']
-        })
-        st.line_chart(df_chart, color=["#A0B2C6", "#888888", "#1E3E5B"], height=350, use_container_width=True)
+        fig_demanda = go.Figure()
+        if not df_grouped.empty:
+            fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name=tr('Histórico Real', 'Actual History'), line=dict(color='#A0B2C6', width=2)))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name=f"{tr('Estadístico', 'Statistical')} ({modelo_fcst_sel})", line=dict(color='gray', width=2, dash='dot')))
+        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name=tr('Forecast Consenso', 'Consensus Forecast'), line=dict(color='#1E3E5B', width=4)))
+        
+        fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
+        st.plotly_chart(fig_demanda, use_container_width=True)
         
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -2973,7 +2941,7 @@ if modulo_activo == t["tab3"]:
             st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar."))
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms, format_func=lambda x: "TODAS" if x == "TODAS" else "[{}] {}".format(x, dict_rm_desc.get(x, "")))
+            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms)
             
             if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)")):
                 with st.spinner(tr("Procesando explosión BOM matricial 2D...", "Processing 2D matrix BOM explosion...")):
@@ -3029,7 +2997,7 @@ if modulo_activo == t["tab3"]:
             st.divider()
             st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)')}")
             lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm", format_func=lambda x: "[{}] {}".format(x, dict_rm_desc.get(x, "")))
+            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
 
             if rm_peg_sel:
                 df_mps_peg_all = generar_mps_df_2d()
