@@ -2208,82 +2208,6 @@ def generar_pdf_executive_sop_deck(
     return bytes(pdf.output())
 
 
-# ==========================================
-# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1) CON AGREGACIÓN MATRICIAL PRECISA
-# Solo lo ejecutamos si el módulo activo lo necesita
-# ==========================================
-if modulo_activo in [t["tab1"], t["tab2"]]:
-    df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
-    serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
-    skus_en_filtro = df_final['sku cod'].unique().tolist()
-
-    mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-
-    if mat is not None and not mat.empty:
-        df_global_grp = vol_global_tupla_cached
-        df_filtro_grp = df_final.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-        
-        aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
-        dict_aj = {}
-        if not aj_sub.empty:
-            aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-            for _, r_aj in aj_sub.dropna(subset=['Date_M']).iterrows():
-                k = (str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])
-                dict_aj[k] = float(r_aj['override_value'])
-                
-        idx_fut = mat.index[:int(horizonte)]
-        fcst_base_arr = np.zeros(int(horizonte))
-        fcst_con_arr = np.zeros(int(horizonte))
-        
-        vol_global_sku_tot = vol_global_sku_cached
-        vol_global_tupla_tot = vol_global_tupla_cached
-        
-        for c_sku in skus_en_filtro:
-            s_c_str = str(c_sku).strip()
-            if s_c_str in mat.columns:
-                v_filt_sku = df_final[df_final['sku cod'] == c_sku]['volume'].sum()
-                v_glob_sku = max(vol_global_sku_tot.get(s_c_str, 1e-6), 1e-6)
-                share_filt = v_filt_sku / v_glob_sku
-                
-                base_serie_sku = mat[s_c_str].iloc[:int(horizonte)].values * share_filt
-                fcst_base_arr += base_serie_sku
-                
-                con_serie_sku = base_serie_sku.copy()
-                
-                for i, d_m in enumerate(idx_fut):
-                    ajuste_total_fecha = 0.0
-                    hubo_ajuste = False
-                    
-                    df_cruce = df_final[df_final['sku cod'] == c_sku].drop_duplicates(subset=['País', 'customer cod'])
-                    
-                    for _, r_cru in df_cruce.iterrows():
-                        p_c = str(r_cru['País']).strip()
-                        c_c = str(r_cru['customer cod']).strip()
-                        
-                        aj_val = dict_aj.get((p_c, c_c, s_c_str, d_m), None)
-                        if aj_val is not None:
-                            hubo_ajuste = True
-                            ajuste_total_fecha += aj_val
-                        else:
-                            v_tupla = vol_global_tupla_tot.get((p_c, c_c, c_sku), 0.0)
-                            share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
-                            ajuste_total_fecha += (mat[s_c_str].iloc[i] * share_tupla)
-                    
-                    if hubo_ajuste:
-                        con_serie_sku[i] = ajuste_total_fecha
-                        
-                fcst_con_arr += con_serie_sku
-                
-        fcst_base_serie = pd.Series(fcst_base_arr, index=idx_fut)
-        fcst_con_serie = pd.Series(fcst_con_arr, index=idx_fut)
-    else:
-        idx_fut = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=int(horizonte), freq="MS")
-        fcst_base_serie = pd.Series(0.0, index=idx_fut)
-        fcst_con_serie = pd.Series(0.0, index=idx_fut)
-
-    df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_con_serie})
-    df_comparativo.index.name = 'Date'
-
 LAYOUT_STYLE = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
     font=dict(family="Arial, sans-serif"),
@@ -2291,7 +2215,7 @@ LAYOUT_STYLE = dict(
 )
 
 # ==========================================
-# PESTAÑAS (TABS) DEFINIDAS UNA SOLA VEZ
+# PESTAÑAS (TABS) DEFINIDAS ANTES DE EVALUAR LOS MÓDULOS
 # ==========================================
 opciones_tabs = [
     t["tab0"], t["tab1"], t["tab2"], t["tab3"], t["tab4"], t["tab5"], 
@@ -2300,6 +2224,82 @@ opciones_tabs = [
 st.markdown("<br>", unsafe_allow_html=True)
 modulo_activo = st.radio("Módulos S&OP", opciones_tabs, horizontal=True, label_visibility="collapsed")
 st.markdown("---")
+
+# ==========================================
+# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1 Y 2) VECTORIZADA Y CON CACHÉ
+# ==========================================
+@st.cache_data(show_spinner=False)
+def _preparar_serie_demanda_cached(p_sel, c_sel, cli_sel, s_sel, horiz, mod_sel, sig):
+    df_g = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
+    s_real = df_g[col_objetivo] if not df_g.empty else pd.Series(dtype=float)
+
+    mat_loc = dict_fcst_matrices.get(mod_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat_loc is not None and not mat_loc.empty:
+        idx_f = mat_loc.index[:int(horiz)]
+        vol_filt_sku_dict = df_final.groupby('sku cod')['volume'].sum().to_dict()
+        cols_ok = [str(s).strip() for s in vol_filt_sku_dict.keys() if str(s).strip() in mat_loc.columns]
+
+        if cols_ok:
+            shares_vec = np.array([
+                vol_filt_sku_dict[s] / max(vol_global_sku_cached.get(s, 1e-6), 1e-6)
+                for s in cols_ok
+            ], dtype=float)
+            mat_sub_vals = mat_loc[cols_ok].iloc[:int(horiz)].values.astype(float)
+            fcst_base_arr = mat_sub_vals @ shares_vec
+        else:
+            fcst_base_arr = np.zeros(int(horiz), dtype=float)
+
+        fcst_con_arr = fcst_base_arr.copy()
+
+        aj_sub = st.session_state.get('df_ajustes', pd.DataFrame())
+        if aj_sub is not None and not aj_sub.empty:
+            aj_tmp = aj_sub.copy()
+            aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            aj_tmp['País_s'] = aj_tmp['País'].astype(str).str.strip()
+            aj_tmp['cli_s'] = aj_tmp['customer cod'].astype(str).str.strip()
+            aj_tmp['sku_s'] = aj_tmp['sku cod'].astype(str).str.strip()
+            aj_tmp = aj_tmp.dropna(subset=['Date_M'])
+
+            pares_filt = df_final[['País', 'customer cod', 'sku cod']].drop_duplicates().copy()
+            pares_filt['País_s'] = pares_filt['País'].astype(str).str.strip()
+            pares_filt['cli_s'] = pares_filt['customer cod'].astype(str).str.strip()
+            pares_filt['sku_s'] = pares_filt['sku cod'].astype(str).str.strip()
+
+            aj_match = pd.merge(
+                aj_tmp[['País_s', 'cli_s', 'sku_s', 'Date_M', 'override_value']],
+                pares_filt[['País_s', 'cli_s', 'sku_s', 'sku cod']],
+                on=['País_s', 'cli_s', 'sku_s'],
+                how='inner'
+            )
+            if not aj_match.empty:
+                fecha_to_idx = {d: i for i, d in enumerate(idx_f)}
+                for _, r_aj in aj_match.iterrows():
+                    s_str = r_aj['sku_s']
+                    d_m = r_aj['Date_M']
+                    if s_str in mat_loc.columns and d_m in fecha_to_idx:
+                        i_t = fecha_to_idx[d_m]
+                        v_glob_sku = max(vol_global_sku_cached.get(s_str, 1e-6), 1e-6)
+                        v_tupla = vol_global_tupla_cached.get((r_aj['País_s'], r_aj['cli_s'], r_aj['sku cod']), 0.0)
+                        share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
+                        delta = float(r_aj['override_value']) - (float(mat_loc[s_str].iloc[i_t]) * share_tupla)
+                        fcst_con_arr[i_t] += delta
+
+        fcst_con_arr = np.maximum(0.0, fcst_con_arr)
+        fcst_base_serie = pd.Series(fcst_base_arr, index=idx_f)
+        fcst_con_serie = pd.Series(fcst_con_arr, index=idx_f)
+    else:
+        idx_f = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=int(horiz), freq="MS")
+        fcst_base_serie = pd.Series(0.0, index=idx_f)
+        fcst_con_serie = pd.Series(0.0, index=idx_f)
+
+    df_comp = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_con_serie})
+    df_comp.index.name = 'Date'
+    return df_g, s_real, df_comp
+
+if modulo_activo in [t["tab1"], t["tab2"]]:
+    df_grouped, serie_real, df_comparativo = _preparar_serie_demanda_cached(
+        pais_sel, cat_sel, cliente_sel, sku_sel, int(horizonte), modelo_fcst_sel, DATASET_SIGNATURE
+    )
 # >>> FIN DE LA PARTE 1 DE 2 (PEGA JUSTO DEBAJO LA PARTE 2) <<<
 
 # ==============================================================================
