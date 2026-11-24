@@ -721,8 +721,8 @@ st.title(t["title"])
 # 1. CONFIGURACIÓN Y CARGA DE ARCHIVOS (CON BIG DATA STRESS-TEST)
 # ==========================================
 with st.sidebar:
-    st.session_state["modo_demo_8"] = st.toggle(tr("Activar Datos Demo", "Enable Demo Data"), value=True)
-    escala_demo = st.selectbox(tr("Escala de la Demo:", "Demo Scale:"), ["Ligera (5 SKUs)", "🔥 Big Data Stress-Test"])
+    st.session_state["modo_demo_8"] = True
+    escala_demo = "🔥 Big Data Stress-Test"
 
     st.download_button(
         label=tr("📥 Descargar 9 Plantillas Oficiales (.xlsx)", "📥 Download 9 Official Templates (.xlsx)", "📥 Pobierz 9 Oficjalnych Szablonów (.xlsx)", "📥 Download 9 Officielle Skabeloner (.xlsx)"),
@@ -2720,15 +2720,7 @@ if modulo_activo == t["tab1"]:
                 npi_pais = st.selectbox(tr("Planta / País Destino:", "Target Plant / Country:"), sorted(df['País'].dropna().unique().tolist()), key="npi_pais_sel")
             with npi_c2:
                 clis_pais_npi = sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else ["CLI-NEW"]
-                opcion_nuevo = "➕ NUEVO CLIENTE (Licitación)..."
-                lista_clis_npi = [opcion_nuevo] + clis_pais_npi
-                
-                npi_cli_sel = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), lista_clis_npi, key="npi_cli_sel")
-                if npi_cli_sel == opcion_nuevo:
-                    npi_cli = st.text_input(tr("Código del Nuevo Cliente:", "New Customer Code:"), value="CLI-NEW-001", key="npi_cli_manual")
-                else:
-                    npi_cli = npi_cli_sel
-                    
+                npi_cli = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
                 npi_espejo = st.selectbox(tr("SKU Espejo (Estacionalidad):", "Mirror SKU (Seasonality):"), sorted(df['sku cod'].dropna().unique().tolist()), key="npi_esp_sel")
                 npi_pol = st.selectbox(tr("Política de Stock:", "Stock Policy:"), ["MTS", "MTO"], key="npi_pol_sel")
             with npi_c3:
@@ -2957,11 +2949,7 @@ if modulo_activo == t["tab3"]:
             st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar."))
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_sel = st.selectbox(
-                tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), 
-                lista_rms,
-                format_func=lambda x: "TODAS" if x == "TODAS" else f"[{x}] {str(dict_rm_desc.get(x, ''))}"
-            )
+            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms)
             
             if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)")):
                 with st.spinner(tr("Procesando explosión BOM matricial 2D...", "Processing 2D matrix BOM explosion...")):
@@ -3017,12 +3005,7 @@ if modulo_activo == t["tab3"]:
             st.divider()
             st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)')}")
             lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_peg_sel = st.selectbox(
-                tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), 
-                lista_rm_pegging, 
-                key="sel_pegging_rm",
-                format_func=lambda x: f"[{x}] {str(dict_rm_desc.get(x, ''))}"
-            )
+            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
 
             if rm_peg_sel:
                 df_mps_peg_all = generar_mps_df_2d()
@@ -3397,7 +3380,8 @@ if modulo_activo == t["tab5"]:
                                     if aj_val is not None:
                                         fcst_con_fin_arr[i] += aj_val
                                     else:
-                                        share_t = r_cru['volume'] / v_glob_sku
+                                        v_tupla_fin = vol_global_tupla_cached.get((p_c, c_c, s_c_str), 0.0)
+                                        share_t = v_tupla_fin / v_glob_sku if v_glob_sku > 0 else 0.0
                                         fcst_con_fin_arr[i] += (mat_fin[s_c_str].iloc[i] * share_t)
                                         
                     fcst_vol_target = pd.Series(fcst_con_fin_arr, index=fcst_vol_target.index)
