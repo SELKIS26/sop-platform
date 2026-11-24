@@ -321,22 +321,13 @@ def obtener_excels_demo_8_tablas():
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
             cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
+            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
             
-            # Asignar un cliente distinto para kam_juan
-            if "ADICARE" in sku_desc:
-                kam_default = "amancebo"
-                c_cod = "000007SCAAS"
-                c_desc = "Agropecuaria Catalana Stat.Coop.Ltda"
-            else:
-                kam_default = "kam_juan"
-                c_cod = "JUAN-001"
-                c_desc = "Cliente Exclusivo Juan S.L."
-                
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
-                "customer cod": c_cod,
-                "customer desc": c_desc,
+                "customer cod": "000007SCAAS",
+                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
                 "sku cod": sku_cod,
                 "sku desc": sku_desc,
                 "volume": vol,
@@ -478,7 +469,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta]),
         "Categoria_Producto": cat_por_sku[idx_sku],
-        "KAM": np.array([["amancebo", "kam_juan", "borja"][i % 3] for i in range(n_clientes)])[idx_cli]
+        "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
     })[COLS_HIST]
 
     idx_aj_sku = np.random.randint(0, 50, size=300)
@@ -1036,21 +1027,6 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
 
 
 df, dict_price, dict_margin, dict_currency, dict_sku_desc, dict_cli_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
-
-@st.cache_data(show_spinner=False)
-def get_global_volumes(df_in):
-    if df_in is None or df_in.empty:
-        return {}, {}
-    d_tmp = df_in.copy()
-    d_tmp['País'] = d_tmp['País'].astype(str).str.strip()
-    d_tmp['customer cod'] = d_tmp['customer cod'].astype(str).str.strip()
-    d_tmp['sku cod'] = d_tmp['sku cod'].astype(str).str.strip()
-    v_sku = d_tmp.groupby('sku cod')['volume'].sum().to_dict()
-    v_tupla = d_tmp.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-    return v_sku, v_tupla
-
-vol_global_sku_cached, vol_global_tupla_cached = get_global_volumes(df)
-
 
 
 # ==========================================
@@ -2724,8 +2700,17 @@ if modulo_activo == t["tab1"]:
                 npi_desc = st.text_input(tr("Descripción Nuevo SKU:", "New SKU Description:"), value="NUEVA FORMULA AVANZADA PRO")
                 npi_pais = st.selectbox(tr("Planta / País Destino:", "Target Plant / Country:"), sorted(df['País'].dropna().unique().tolist()), key="npi_pais_sel")
             with npi_c2:
-                clis_pais_npi = sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else ["CLI-NEW"]
-                npi_cli = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
+                opcion_nuevo_cli = tr("➕ NUEVO CLIENTE (Manual)...", "➕ NEW CUSTOMER (Manual)...")
+                clis_pais_npi = [opcion_nuevo_cli] + (sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else [])
+                npi_cli_sel = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
+                
+                if npi_cli_sel == opcion_nuevo_cli:
+                    npi_cli = st.text_input(tr("Código Nuevo Cliente:", "New Customer Code:"), value="CLI-NEW-01")
+                    npi_cli_desc_val = st.text_input(tr("Nombre Nuevo Cliente:", "New Customer Name:"), value="Nuevo Cliente S.L.")
+                else:
+                    npi_cli = npi_cli_sel
+                    npi_cli_desc_val = dict_cli_desc.get(npi_cli, f"Cuenta {npi_cli}")
+                    
                 npi_espejo = st.selectbox(tr("SKU Espejo (Estacionalidad):", "Mirror SKU (Seasonality):"), sorted(df['sku cod'].dropna().unique().tolist()), key="npi_esp_sel")
                 npi_pol = st.selectbox(tr("Política de Stock:", "Stock Policy:"), ["MTS", "MTO"], key="npi_pol_sel")
             with npi_c3:
@@ -2744,7 +2729,7 @@ if modulo_activo == t["tab1"]:
                     df_npi_curr = df_npi_curr[df_npi_curr['sku cod'].astype(str).str.strip() != str(npi_cod).strip()]
                     nueva_fila_npi = {
                         "sku cod": str(npi_cod).strip(), "sku desc": str(npi_desc).strip(),
-                        "País": npi_pais, "customer cod": npi_cli, "customer desc": f"Cuenta {npi_cli}",
+                        "País": npi_pais, "customer cod": npi_cli, "customer desc": npi_cli_desc_val,
                         "SKU_Espejo": npi_espejo, "Volumen_Mensual_Kg": float(npi_vol),
                         "Mes_Inicio": int(npi_mes_ini), "Precio_Unit_EUR": float(npi_precio),
                         "Margen_Unit_EUR": float(npi_margen), "Maquina": npi_maq,
@@ -2954,11 +2939,7 @@ if modulo_activo == t["tab3"]:
             st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar."))
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_sel = st.selectbox(
-                tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), 
-                lista_rms,
-                format_func=lambda x: "TODAS" if x == "TODAS" else dict_rm_desc.get(x, f"[{x}] {dict_rm_desc.get(x, '')}")
-            )
+            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms)
             
             if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)")):
                 with st.spinner(tr("Procesando explosión BOM matricial 2D...", "Processing 2D matrix BOM explosion...")):
@@ -3014,12 +2995,7 @@ if modulo_activo == t["tab3"]:
             st.divider()
             st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)')}")
             lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_peg_sel = st.selectbox(
-                tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), 
-                lista_rm_pegging, 
-                key="sel_pegging_rm",
-                format_func=lambda x: f"[{x}] {dict_rm_desc.get(x, '')}"
-            )
+            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
 
             if rm_peg_sel:
                 df_mps_peg_all = generar_mps_df_2d()
