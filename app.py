@@ -2573,14 +2573,12 @@ if modulo_activo == t["tab1"]:
                 f"(WAPE Backtest: Holt-Winters `{info_m['WAPE_HW']}%` | Damped WMA `{info_m['WAPE_WMA']}%` | Croston TSB `{info_m['WAPE_Croston']}%`)"
             )
 
-        fig_demanda = go.Figure()
-        if not df_grouped.empty:
-            fig_demanda.add_trace(go.Scatter(x=df_grouped.index, y=serie_real, mode='lines+markers', name=tr('Histórico Real', 'Actual History'), line=dict(color='#A0B2C6', width=2)))
-        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Estadistico'], mode='lines', name=f"{tr('Estadístico', 'Statistical')} ({modelo_fcst_sel})", line=dict(color='gray', width=2, dash='dot')))
-        fig_demanda.add_trace(go.Scatter(x=df_comparativo.index, y=df_comparativo['Consenso'], mode='lines+markers', name=tr('Forecast Consenso', 'Consensus Forecast'), line=dict(color='#1E3E5B', width=4)))
-        
-        fig_demanda.update_layout(**LAYOUT_STYLE, hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig_demanda, use_container_width=True)
+        df_chart = pd.DataFrame({
+            tr('Histórico Real', 'Actual History'): serie_real,
+            f"{tr('Estadístico', 'Statistical')} ({modelo_fcst_sel})": df_comparativo['Estadistico'],
+            tr('Forecast Consenso', 'Consensus Forecast'): df_comparativo['Consenso']
+        })
+        st.line_chart(df_chart, color=["#A0B2C6", "#888888", "#1E3E5B"], height=350, use_container_width=True)
         
         col1, col2 = st.columns([2, 1])
         with col1:
