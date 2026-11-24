@@ -1193,7 +1193,6 @@ def cargar_forecast_desde_nube_si_valido(firma_actual):
                 
                 try:
                     token, repo = _github_creds()
-                    dict_meta = None
                     if token and repo:
                         url = f"https://api.github.com/repos/{repo}/contents/{FCST_META_FILE}"
                         req = urllib.request.Request(url, headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "SOP-Platform-Cloud"})
@@ -1201,16 +1200,13 @@ def cargar_forecast_desde_nube_si_valido(firma_actual):
                             data = json.loads(resp.read().decode("utf-8"))
                             contenido = base64.b64decode(data["content"]).decode("utf-8")
                             dict_meta = json.loads(contenido)
-                    elif os.path.exists(FCST_META_FILE):
-                        with open(FCST_META_FILE, 'r', encoding='utf-8') as fm:
-                            dict_meta = json.load(fm)
                             
-                    if dict_meta is not None:
-                        # Guardar en RAM L1
-                        st.session_state["mem_fcst_firma"] = firma_actual
-                        st.session_state["mem_fcst_matrices"] = dict_matrices
-                        st.session_state["mem_fcst_meta"] = dict_meta
-                        return dict_matrices, dict_meta
+                            # Guardar en RAM L1
+                            st.session_state["mem_fcst_firma"] = firma_actual
+                            st.session_state["mem_fcst_matrices"] = dict_matrices
+                            st.session_state["mem_fcst_meta"] = dict_meta
+                            
+                            return dict_matrices, dict_meta
                 except Exception:
                     pass
     except Exception:
@@ -1248,13 +1244,6 @@ def guardar_forecast_en_nube(dict_matrices, dict_meta, firma_actual):
             if sha_actual: payload["sha"] = sha_actual
             req_put = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={**headers, "Content-Type": "application/json"}, method="PUT")
             urllib.request.urlopen(req_put, timeout=5)
-            
-        # Siempre guardar backup local (para cuando no hay credenciales GitHub)
-        try:
-            with open(FCST_META_FILE, 'w', encoding='utf-8') as fm:
-                json.dump(dict_meta, fm)
-        except Exception:
-            pass
             
         github_guardar_csv(pd.DataFrame([{"signature": firma_actual}]), SIG_FILE, "Update Dataset Signature")
     except Exception:
@@ -2211,86 +2200,92 @@ def generar_pdf_executive_sop_deck(
     return bytes(pdf.output())
 
 
+## ==========================================
+# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1 Y 2) - VECTORIZADO Y CACHEADO
 # ==========================================
-# PREPARACIÓN DATOS BASE (SERIE VISUALIZADA EN PESTAÑA 1) CON AGREGACIÓN MATRICIAL PRECISA
-# ==========================================
-df_grouped = df_final.groupby('Date')[col_objetivo].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
-serie_real = df_grouped[col_objetivo] if not df_grouped.empty else pd.Series(dtype=float)
-skus_en_filtro = df_final['sku cod'].unique().tolist()
-
-mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-
-if mat is not None and not mat.empty:
-    df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-    df_filtro_grp = df_final.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+@st.cache_data(show_spinner=False)
+def obtener_curvas_demanda_vectorizadas(df_f, aj_df, metodo_fcst, horiz, sig):
+    df_g = df_f.groupby('Date')['volume'].sum().reset_index().set_index('Date').resample("MS").sum().fillna(0)
+    s_real = df_g['volume'] if not df_g.empty else pd.Series(dtype=float)
     
-    aj_sub = st.session_state.get('df_ajustes', pd.DataFrame()).copy()
-    dict_aj = {}
-    if not aj_sub.empty:
-        aj_sub['Date_M'] = pd.to_datetime(aj_sub['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        for _, r_aj in aj_sub.dropna(subset=['Date_M']).iterrows():
-            k = (str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])
-            dict_aj[k] = float(r_aj['override_value'])
-            
-    idx_fut = mat.index[:int(horizonte)]
-    fcst_base_arr = np.zeros(int(horizonte))
-    fcst_con_arr = np.zeros(int(horizonte))
+    mat = dict_fcst_matrices.get(metodo_fcst, dict_fcst_matrices.get("Auto-ML Best-Fit"))
+    if mat is None or mat.empty or df_f.empty:
+        idx_f = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=int(horiz), freq="MS")
+        return s_real, pd.DataFrame({"Estadistico": np.zeros(int(horiz)), "Consenso": np.zeros(int(horiz))}, index=idx_f)
+        
+    skus_validos = [str(s).strip() for s in df_f['sku cod'].unique() if str(s).strip() in mat.columns]
+    idx_f = mat.index[:int(horiz)]
     
-    # Optimizamos agrupando primero los ajustes y calculando shares vectorizados
-    vol_global_sku_tot = df.groupby('sku cod')['volume'].sum().to_dict()
-    vol_global_tupla_tot = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    if not skus_validos:
+        return s_real, pd.DataFrame({"Estadistico": np.zeros(int(horiz)), "Consenso": np.zeros(int(horiz))}, index=idx_f)
+        
+    mat_h = mat.iloc[:int(horiz)]
     
-    for c_sku in skus_en_filtro:
-        s_c_str = str(c_sku).strip()
-        if s_c_str in mat.columns:
-            # Share global de este SKU dentro del filtro activo
-            v_filt_sku = df_final[df_final['sku cod'] == c_sku]['volume'].sum()
-            v_glob_sku = max(vol_global_sku_tot.get(s_c_str, 1e-6), 1e-6)
-            share_filt = v_filt_sku / v_glob_sku
-            
-            base_serie_sku = mat[s_c_str].iloc[:int(horizonte)].values * share_filt
-            fcst_base_arr += base_serie_sku
-            
-            con_serie_sku = base_serie_sku.copy()
-            
-            # Solo aplicamos los ajustes si el SKU está afectado en el filtro actual
-            for i, d_m in enumerate(idx_fut):
-                # Buscamos si hay ajuste para esta fecha en el dataframe filtrado original
-                # Como df_final ya está filtrado por la UI, usamos las combinaciones presentes ahí.
-                ajuste_total_fecha = 0.0
-                hubo_ajuste = False
+    vol_global_sku = vol_global_sku_cached
+    vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
+    
+    fcst_base_arr = np.zeros(int(horiz))
+    fcst_con_arr = np.zeros(int(horiz))
+    
+    for s_clean in skus_validos:
+        g_tot = float(vol_global_sku.get(s_clean, 0.0))
+        f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
+        share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
+        
+        arr_base = mat_h[s_clean].values.astype(float) * share_sku
+        fcst_base_arr += arr_base
+        fcst_con_arr += arr_base
+        
+    if aj_df is not None and not aj_df.empty:
+        aj_tmp = aj_df.copy()
+        aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        aj_tmp['País_s'] = aj_tmp['País'].astype(str).str.strip()
+        aj_tmp['cli_s'] = aj_tmp['customer cod'].astype(str).str.strip()
+        aj_tmp['sku_s'] = aj_tmp['sku cod'].astype(str).str.strip()
+        aj_tmp = aj_tmp.dropna(subset=['Date_M'])
+        
+        pares_filt = df_f[['País', 'customer cod', 'sku cod']].drop_duplicates().copy()
+        pares_filt['País_s'] = pares_filt['País'].astype(str).str.strip()
+        pares_filt['cli_s'] = pares_filt['customer cod'].astype(str).str.strip()
+        pares_filt['sku_s'] = pares_filt['sku cod'].astype(str).str.strip()
+        
+        aj_match = pd.merge(
+            aj_tmp[['País_s', 'cli_s', 'sku_s', 'Date_M', 'override_value']],
+            pares_filt[['País_s', 'cli_s', 'sku_s']],
+            on=['País_s', 'cli_s', 'sku_s'],
+            how='inner'
+        )
+        
+        if not aj_match.empty:
+            fecha_to_idx = {d: i for i, d in enumerate(idx_f)}
+            for _, r_aj in aj_match.iterrows():
+                s_str = r_aj['sku_s']
+                d_m = r_aj['Date_M']
                 
-                df_cruce = df_final[df_final['sku cod'] == c_sku].drop_duplicates(subset=['País', 'customer cod'])
-                
-                # Iteramos sobre el volumen real distribuido para no perder SKUs
-                for _, r_cru in df_cruce.iterrows():
-                    p_c = str(r_cru['País']).strip()
-                    c_c = str(r_cru['customer cod']).strip()
+                if s_str in skus_validos and d_m in fecha_to_idx:
+                    idx_t = fecha_to_idx[d_m]
+                    ovr_val = float(r_aj['override_value'])
                     
-                    aj_val = dict_aj.get((p_c, c_c, s_c_str, d_m), None)
-                    if aj_val is not None:
-                        hubo_ajuste = True
-                        ajuste_total_fecha += aj_val
-                    else:
-                        # Si no hay ajuste manual, recupera su trozo estadístico puro EXACTO
-                        v_tupla = vol_global_tupla_tot.get((p_c, c_c, c_sku), 0.0)
-                        share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
-                        ajuste_total_fecha += (mat[s_c_str].iloc[i] * share_tupla)
-                
-                if hubo_ajuste:
-                    con_serie_sku[i] = ajuste_total_fecha
+                    v_glob_sku = max(vol_global_sku.get(s_str, 1e-6), 1e-6)
+                    v_tupla = vol_global_tupla_cached.get((r_aj['País_s'], r_aj['cli_s'], s_str), 0.0)
+                    share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
                     
-            fcst_con_arr += con_serie_sku
-            
-    fcst_base_serie = pd.Series(fcst_base_arr, index=idx_fut)
-    fcst_con_serie = pd.Series(fcst_con_arr, index=idx_fut)
-else:
-    idx_fut = pd.date_range(start=pd.Timestamp.today().replace(day=1), periods=int(horizonte), freq="MS")
-    fcst_base_serie = pd.Series(0.0, index=idx_fut)
-    fcst_con_serie = pd.Series(0.0, index=idx_fut)
+                    stat_val = float(mat_h.at[d_m, s_str]) * share_tupla
+                    
+                    delta = ovr_val - stat_val
+                    fcst_con_arr[idx_t] += delta
+                    
+    df_comp = pd.DataFrame({"Estadistico": fcst_base_arr, "Consenso": fcst_con_arr}, index=idx_f)
+    df_comp.index.name = 'Date'
+    return s_real, df_comp
 
-df_comparativo = pd.DataFrame({"Estadistico": fcst_base_serie, "Consenso": fcst_con_serie})
-df_comparativo.index.name = 'Date'
+serie_real, df_comparativo = obtener_curvas_demanda_vectorizadas(
+    df_final, 
+    st.session_state.get('df_ajustes', pd.DataFrame()), 
+    modelo_fcst_sel, 
+    horizonte, 
+    DATASET_SIGNATURE
+)
 
 LAYOUT_STYLE = dict(
     plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
