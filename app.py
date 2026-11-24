@@ -2957,7 +2957,11 @@ if modulo_activo == t["tab3"]:
             st.info(tr("👈 Sube los archivos '3. Stock Actual' y '4. BOM' en la barra lateral.", "👈 Upload '3. Current Inventory' & '4. BOM' files in the sidebar."))
         else:
             lista_rms = ["TODAS"] + sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_sel = st.selectbox(tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), lista_rms)
+            rm_sel = st.selectbox(
+                tr("🔍 Filtrar Materia Prima:", "🔍 Filter Raw Material:"), 
+                lista_rms,
+                format_func=lambda x: "TODAS" if x == "TODAS" else f"[{x}] {str(dict_rm_desc.get(x, ''))}"
+            )
             
             if st.button(tr("🚀 Ejecutar Explosión BOM (MRP)", "🚀 Execute BOM Explosion (MRP)")):
                 with st.spinner(tr("Procesando explosión BOM matricial 2D...", "Processing 2D matrix BOM explosion...")):
@@ -3013,7 +3017,12 @@ if modulo_activo == t["tab3"]:
             st.divider()
             st.markdown(f"### {tr('🔗 Trazabilidad Inversa (Pegging: Materia Prima → Producto Terminado → Margen en Riesgo)', '🔗 Interactive Pegging (Raw Material → Finished Good → Margin at Risk)')}")
             lista_rm_pegging = sorted(df_bom['rm cod'].dropna().astype(str).unique().tolist())
-            rm_peg_sel = st.selectbox(tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), lista_rm_pegging, key="sel_pegging_rm")
+            rm_peg_sel = st.selectbox(
+                tr("🧬 Seleccionar Materia Prima para Pegging:", "🧬 Select Raw Material for Pegging:"), 
+                lista_rm_pegging, 
+                key="sel_pegging_rm",
+                format_func=lambda x: f"[{x}] {str(dict_rm_desc.get(x, ''))}"
+            )
 
             if rm_peg_sel:
                 df_mps_peg_all = generar_mps_df_2d()
