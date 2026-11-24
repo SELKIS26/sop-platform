@@ -1451,46 +1451,63 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
         factor = 1.0 + (float(pct) / 100.0)
         df_aj = st.session_state.get('df_ajustes', pd.DataFrame(columns=COLS_AJUSTES)).copy()
         
+        # Mapeamos los ajustes actuales para saber el consenso real de cada mes/tupla
+        dict_aj = {}
+        if not df_aj.empty:
+            df_aj['Date_M'] = pd.to_datetime(df_aj['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+            for _, r_aj in df_aj.dropna(subset=['Date_M']).iterrows():
+                k = (str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])
+                dict_aj[k] = float(r_aj['override_value'])
+        
         skus_afectados = sub['sku cod'].unique()
-        # Solo eliminar overrides que choquen exactamente con el cliente y los SKUs afectados de esta categoría
+        # En vez de borrar los overrides ciegamente, los calcularemos aplicando el % sobre el CONSENSO ACTUAL (o estadístico si no hay).
+        # Primero eliminamos del df los registros antiguos de estas tuplas, porque los vamos a reinsertar actualizados.
         df_aj = df_aj[~((df_aj['customer cod'] == cliente) & (df_aj['sku cod'].isin(skus_afectados)))]
         
         nuevas = []
         eventos_fva = []
         ahora_cet = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d %H:%M:%S")
         
-        vol_global = vol_global_sku_cached
-        vol_cliente = sub.groupby('sku cod')['volume'].sum().to_dict()
-        
         mat = dict_fcst_matrices.get(modelo_fcst_sel, dict_fcst_matrices.get("Auto-ML Best-Fit"))
-
-        for sku_c in skus_afectados:
-            # Obtener el país mayoritario para este SKU y cliente (para no fallar con múltiples países)
-            pais_sku = sub[sub['sku cod'] == sku_c]['País'].mode()[0]
-            s_c_str = str(sku_c).strip()
-            
-            if mat is not None and not mat.empty and s_c_str in mat.columns:
-                fcst = mat[s_c_str].iloc[:int(horizonte)]
-                share = vol_cliente.get(sku_c, 0.0) / max(1.0, vol_global.get(sku_c, 1.0))
-                
-                for f_dt, val in fcst.items():
-                    est_val_global = float(val)
-                    est_val_cliente = round(est_val_global * share, 2)
-                    ovr_val_cliente = round(est_val_cliente * factor, 2)
+        
+        if mat is not None and not mat.empty:
+            idx_fut = mat.index[:int(horizonte)]
+            for sku_c in skus_afectados:
+                s_c_str = str(sku_c).strip()
+                if s_c_str in mat.columns:
+                    # Sacamos todas las combinaciones reales de País y Cliente para este SKU en la categoría
+                    df_cruce = sub[sub['sku cod'] == sku_c].drop_duplicates(subset=['País', 'customer cod'])
+                    v_glob_sku = max(vol_global_sku_cached.get(s_c_str, 1e-6), 1e-6)
                     
-                    if ovr_val_cliente > 0 or est_val_cliente > 0:
-                        nuevas.append({
-                            'Date': f_dt, 'País': pais_sku, 'customer cod': cliente,
-                            'sku cod': sku_c, 'override_value': ovr_val_cliente
-                        })
-                        eventos_fva.append({
-                            "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
-                            "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
-                            "Date": pd.to_datetime(f_dt).strftime("%Y-%m-%d"),
-                            "País": pais_sku, "customer cod": cliente, "sku cod": sku_c,
-                            "Forecast_Estadistico": est_val_cliente, "Consenso_Override": ovr_val_cliente,
-                            "Delta_Kg": round(ovr_val_cliente - est_val_cliente, 2), "Delta_Pct_FVA": round(float(pct), 1)
-                        })
+                    for _, r_cru in df_cruce.iterrows():
+                        p_c = str(r_cru['País']).strip()
+                        c_c = str(r_cru['customer cod']).strip()
+                        
+                        v_tupla = vol_global_tupla_cached.get((p_c, c_c, sku_c), 0.0)
+                        share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
+                        
+                        for i, d_m in enumerate(idx_fut):
+                            est_val_tupla = float(mat[s_c_str].iloc[i] * share_tupla)
+                            
+                            # Si ya había un override manual previo, aplicamos el % sobre ese valor manual.
+                            # Si no lo había, aplicamos el % sobre el estadístico.
+                            val_consenso_actual = dict_aj.get((p_c, c_c, s_c_str, d_m), est_val_tupla)
+                            
+                            ovr_val_nuevo = round(val_consenso_actual * factor, 2)
+                            
+                            if ovr_val_nuevo > 0 or est_val_tupla > 0:
+                                nuevas.append({
+                                    'Date': d_m, 'País': p_c, 'customer cod': cliente,
+                                    'sku cod': sku_c, 'override_value': ovr_val_nuevo
+                                })
+                                eventos_fva.append({
+                                    "Fecha_Cambio (CET)": ahora_cet, "Usuario": usuario_actual,
+                                    "Tipo_Ajuste": f"Macro Factor Cat: {categoria} ({pct:+.1f}%)",
+                                    "Date": pd.to_datetime(d_m).strftime("%Y-%m-%d"),
+                                    "País": p_c, "customer cod": cliente, "sku cod": sku_c,
+                                    "Forecast_Estadistico": round(est_val_tupla, 2), "Consenso_Override": ovr_val_nuevo,
+                                    "Delta_Kg": round(ovr_val_nuevo - est_val_tupla, 2), "Delta_Pct_FVA": round(float(pct), 1)
+                                })
         if nuevas:
             df_aj = pd.concat([df_aj, pd.DataFrame(nuevas)], ignore_index=True)
         st.session_state['df_ajustes'] = df_aj
@@ -1498,7 +1515,8 @@ def aplicar_variacion_categoria_cliente(categoria, cliente, pct):
         registrar_evento_fva_consenso(eventos_fva)
         return True, "OK"
     except Exception as e:
-        return False, str(e)
+        import traceback
+        return False, str(e) + " " + traceback.format_exc()
 
 
 def congelar_snapshot_ciclo_sop(df_target):
