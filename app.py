@@ -454,6 +454,8 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
 
     precios_base = np.random.uniform(0.8, 12.0, size=n_skus)
     margenes_base = precios_base * np.random.uniform(0.18, 0.38, size=n_skus)
+    cats_array = np.array(["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"])
+    cat_por_sku = np.array([cats_array[i % len(cats_array)] for i in range(n_skus)])
 
     df_1_hist = pd.DataFrame({
         "Date": fechas_hist[idx_fecha],
@@ -466,9 +468,7 @@ def obtener_excels_big_data_8_tablas(n_rows_hist=150000, n_skus=500, n_rms=120, 
         "revenue": np.round(vols * precios_base[idx_sku], 2),
         "margin": np.round(vols * margenes_base[idx_sku], 2),
         "currency": np.array([monedas_map[p] for p in paises_venta]),
-            cats_array = np.array(["Lactoreemplazantes", "Pre-iniciadores", "Núcleos"])
-    cat_por_sku = np.array([cats_array[i % len(cats_array)] for i in range(n_skus)])
-    "Categoria_Producto": cat_por_sku[idx_sku],
+        "Categoria_Producto": cat_por_sku[idx_sku],
         "KAM": np.random.choice(["amancebo", "kam_juan", "borja"], size=n_rows_hist)
     })[COLS_HIST]
 
