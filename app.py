@@ -1990,19 +1990,8 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     vols_l12 = df_f[(df_f['Date'] >= min_date_12m) & (df_f['Date'] <= max_date_global)].groupby('sku cod')['volume'].sum().to_dict()
     mapa_abc = dict(zip(abc_df['sku cod'], abc_df['ABC'])) if (abc_df is not None and not abc_df.empty and 'ABC' in abc_df.columns) else {}
 
-    vol_global_sku = df.groupby('sku cod')['volume'].sum().to_dict()
+    vol_global_sku = vol_global_sku_cached
     vol_filtro_sku = df_f.groupby('sku cod')['volume'].sum().to_dict()
-
-    mapa_aj = {}
-    if aj_df is not None and not aj_df.empty:
-        aj_clean = aj_df.copy()
-        aj_clean['sku cod'] = aj_clean['sku cod'].astype(str).str.strip()
-        paises_f = set(df_f['País'].dropna().unique())
-        clientes_f = set(df_f['customer cod'].dropna().unique())
-        aj_clean = aj_clean[aj_clean['País'].isin(paises_f) & aj_clean['customer cod'].isin(clientes_f)]
-        if not aj_clean.empty:
-            aj_clean['Date_M'] = pd.to_datetime(aj_clean['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-            mapa_aj = aj_clean.dropna(subset=['Date_M']).groupby(['sku cod', 'Date_M'])['override_value'].sum().to_dict()
 
     mat_h = mat.iloc[:horiz]
     idx_fut = mat_h.index
@@ -2011,57 +2000,72 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
     delta_rev_a, delta_rev_bc, delta_rev_fva = 0.0, 0.0, 0.0
     delta_mar_a, delta_mar_bc, delta_mar_fva = 0.0, 0.0, 0.0
 
-    df_global_grp = df.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-    df_filtro_grp = df_f.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
-    
-    dict_aj = {}
-    if aj_df is not None and not aj_df.empty:
-        aj_df['Date_M'] = pd.to_datetime(aj_df['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
-        for _, r_aj in aj_df.dropna(subset=['Date_M']).iterrows():
-            dict_aj[(str(r_aj['País']).strip(), str(r_aj['customer cod']).strip(), str(r_aj['sku cod']).strip(), r_aj['Date_M'])] = float(r_aj['override_value'])
+    # Identificar SKUs únicos en el filtro que existan en la matriz
+    skus_validos = [str(s).strip() for s in df_f['sku cod'].unique() if str(s).strip() in mat_h.columns]
+    if not skus_validos:
+        return 0.0, 0.0, 0.0, {"rev_a": 0.0, "rev_bc": 0.0, "rev_fva": 0.0, "mar_a": 0.0, "mar_bc": 0.0, "mar_fva": 0.0}
 
-    # Optimizamos agregación del KPI saltando los loops anidados pesados
-    for sku in df_f['sku cod'].unique():
-        s_clean = str(sku).strip()
-        if s_clean not in mat_h.columns:
-            continue
-            
-        vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
-        
+    # 1. Base Estadística Vectorizada (agrupada por SKU sobre todo el horizonte)
+    mat_sum_h = mat_h[skus_validos].sum(axis=0) 
+    
+    dict_vol_est = {}
+    dict_vol_con = {}
+    
+    for s_clean in skus_validos:
         g_tot = float(vol_global_sku.get(s_clean, 0.0))
         f_tot = float(vol_filtro_sku.get(s_clean, 0.0))
         share_sku = (f_tot / g_tot) if g_tot > 0 else 0.0
         
-        serie_est = mat_h[s_clean].values.astype(float) * share_sku
-        serie_con = serie_est.copy()
+        est_total = float(mat_sum_h[s_clean]) * share_sku
+        dict_vol_est[s_clean] = est_total
+        dict_vol_con[s_clean] = est_total 
+
+    # 2. Aplicar Ajustes (Overrides) directamente a los totales mediante diferencias (Delta)
+    if aj_df is not None and not aj_df.empty:
+        aj_tmp = aj_df.copy()
+        aj_tmp['Date_M'] = pd.to_datetime(aj_tmp['Date'], dayfirst=True, errors='coerce').dt.to_period('M').dt.to_timestamp()
+        aj_tmp['País_s'] = aj_tmp['País'].astype(str).str.strip()
+        aj_tmp['cli_s'] = aj_tmp['customer cod'].astype(str).str.strip()
+        aj_tmp['sku_s'] = aj_tmp['sku cod'].astype(str).str.strip()
+        aj_tmp = aj_tmp.dropna(subset=['Date_M'])
         
-        # Filtrar solo el cruce exacto en la UI para este SKU
-        df_cruce_sku = df_f[df_f['sku cod'] == sku].drop_duplicates(subset=['País', 'customer cod'])
+        pares_filt = df_f[['País', 'customer cod', 'sku cod']].drop_duplicates().copy()
+        pares_filt['País_s'] = pares_filt['País'].astype(str).str.strip()
+        pares_filt['cli_s'] = pares_filt['customer cod'].astype(str).str.strip()
+        pares_filt['sku_s'] = pares_filt['sku cod'].astype(str).str.strip()
         
-        for m_i, d_m in enumerate(idx_fut):
-            ajuste_acum = 0.0
-            hay_ajuste = False
-            
-            for _, r_cru in df_cruce_sku.iterrows():
-                p_c = str(r_cru['País']).strip()
-                c_c = str(r_cru['customer cod']).strip()
+        aj_match = pd.merge(
+            aj_tmp[['País_s', 'cli_s', 'sku_s', 'Date_M', 'override_value']],
+            pares_filt[['País_s', 'cli_s', 'sku_s']],
+            on=['País_s', 'cli_s', 'sku_s'],
+            how='inner'
+        )
+        
+        if not aj_match.empty:
+            fecha_to_idx = {d: i for i, d in enumerate(idx_fut)}
+            for _, r_aj in aj_match.iterrows():
+                s_str = r_aj['sku_s']
+                d_m = r_aj['Date_M']
                 
-                aj_val = dict_aj.get((p_c, c_c, s_clean, d_m), None)
-                if aj_val is not None:
-                    hay_ajuste = True
-                    ajuste_acum += aj_val
-                else:
-                    v_tupla = vol_global_tupla_cached.get((p_c, c_c, s_clean), 0.0)
-                    share_tupla = v_tupla / max(g_tot, 1e-6)
-                    ajuste_acum += (mat_h[s_clean].iloc[m_i] * share_tupla)
-            
-            if hay_ajuste:
-                serie_con[m_i] = ajuste_acum
+                if s_str in skus_validos and d_m in fecha_to_idx:
+                    ovr_val = float(r_aj['override_value'])
+                    v_glob_sku = max(vol_global_sku.get(s_str, 1e-6), 1e-6)
+                    v_tupla = vol_global_tupla_cached.get((r_aj['País_s'], r_aj['cli_s'], s_str), 0.0)
+                    
+                    share_tupla = v_tupla / v_glob_sku if v_glob_sku > 0 else 0.0
+                    stat_val = float(mat_h.at[d_m, s_str]) * share_tupla
+                    
+                    delta = ovr_val - stat_val
+                    dict_vol_con[s_str] += delta
 
-        vol_est_sku = float(serie_est.sum())
-        vol_con_sku = float(serie_con.sum())
+    # 3. Calculo Vectorial de KPIs Financieros
+    for s_clean in skus_validos:
+        vol_l12_sku = float(vols_l12.get(s_clean, 0.0))
+        vol_est_sku = dict_vol_est[s_clean]
+        vol_con_sku = max(0.0, dict_vol_con[s_clean])
 
-        p, mg = dict_p.get(s_clean, 0.0), dict_m.get(s_clean, 0.0)
+        p = float(dict_p.get(s_clean, 0.0))
+        mg = float(dict_m.get(s_clean, 0.0))
         mon = str(dict_c.get(s_clean, 'GBP')).strip().upper()
         t_fx = f_eur if mon == 'EUR' else (f_dkk if mon == 'DKK' else (f_pln if mon == 'PLN' else 1.0))
 
@@ -2071,7 +2075,9 @@ def motor_kpis_n12m_y_puente(df_f, aj_df, abc_df, dict_p, dict_m, dict_c, f_eur,
 
         d_est_vol = vol_est_sku - vol_l12_sku
         d_fva_vol = vol_con_sku - vol_est_sku
-        if mapa_abc.get(s_clean, 'B') == 'A':
+        
+        is_a = (mapa_abc.get(s_clean, 'B') == 'A')
+        if is_a:
             delta_rev_a += d_est_vol * p * t_fx
             delta_mar_a += d_est_vol * mg * t_fx
         else:
@@ -2700,17 +2706,8 @@ if modulo_activo == t["tab1"]:
                 npi_desc = st.text_input(tr("Descripción Nuevo SKU:", "New SKU Description:"), value="NUEVA FORMULA AVANZADA PRO")
                 npi_pais = st.selectbox(tr("Planta / País Destino:", "Target Plant / Country:"), sorted(df['País'].dropna().unique().tolist()), key="npi_pais_sel")
             with npi_c2:
-                opcion_nuevo_cli = tr("➕ NUEVO CLIENTE (Manual)...", "➕ NEW CUSTOMER (Manual)...")
-                clis_pais_npi = [opcion_nuevo_cli] + (sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else [])
-                npi_cli_sel = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
-                
-                if npi_cli_sel == opcion_nuevo_cli:
-                    npi_cli = st.text_input(tr("Código Nuevo Cliente:", "New Customer Code:"), value="CLI-NEW-01")
-                    npi_cli_desc_val = st.text_input(tr("Nombre Nuevo Cliente:", "New Customer Name:"), value="Nuevo Cliente S.L.")
-                else:
-                    npi_cli = npi_cli_sel
-                    npi_cli_desc_val = dict_cli_desc.get(npi_cli, f"Cuenta {npi_cli}")
-                    
+                clis_pais_npi = sorted(df[df['País'] == npi_pais]['customer cod'].dropna().unique().tolist()) if npi_pais else ["CLI-NEW"]
+                npi_cli = st.selectbox(tr("Cliente Asignado:", "Assigned Customer:"), clis_pais_npi, key="npi_cli_sel")
                 npi_espejo = st.selectbox(tr("SKU Espejo (Estacionalidad):", "Mirror SKU (Seasonality):"), sorted(df['sku cod'].dropna().unique().tolist()), key="npi_esp_sel")
                 npi_pol = st.selectbox(tr("Política de Stock:", "Stock Policy:"), ["MTS", "MTO"], key="npi_pol_sel")
             with npi_c3:
@@ -2729,7 +2726,7 @@ if modulo_activo == t["tab1"]:
                     df_npi_curr = df_npi_curr[df_npi_curr['sku cod'].astype(str).str.strip() != str(npi_cod).strip()]
                     nueva_fila_npi = {
                         "sku cod": str(npi_cod).strip(), "sku desc": str(npi_desc).strip(),
-                        "País": npi_pais, "customer cod": npi_cli, "customer desc": npi_cli_desc_val,
+                        "País": npi_pais, "customer cod": npi_cli, "customer desc": f"Cuenta {npi_cli}",
                         "SKU_Espejo": npi_espejo, "Volumen_Mensual_Kg": float(npi_vol),
                         "Mes_Inicio": int(npi_mes_ini), "Precio_Unit_EUR": float(npi_precio),
                         "Margen_Unit_EUR": float(npi_margen), "Maquina": npi_maq,
