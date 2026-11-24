@@ -321,13 +321,22 @@ def obtener_excels_demo_8_tablas():
             vol = max(200, int(np.random.normal(base_vol * est, base_vol * ruido)))
             # Asignamos categorías y KAM por defecto para que no rompa el esquema COLS_HIST
             cat_default = "Lactoreemplazantes" if "ADICARE" in sku_desc else ("Pre-iniciadores" if "CEBADA" in sku_desc else "Núcleos")
-            kam_default = "amancebo" if "ADICARE" in sku_desc else "kam_juan"
             
+            # Asignar un cliente distinto para kam_juan
+            if "ADICARE" in sku_desc:
+                kam_default = "amancebo"
+                c_cod = "000007SCAAS"
+                c_desc = "Agropecuaria Catalana Stat.Coop.Ltda"
+            else:
+                kam_default = "kam_juan"
+                c_cod = "JUAN-001"
+                c_desc = "Cliente Exclusivo Juan S.L."
+                
             filas_ventas.append({
                 "Date": f,
                 "País": "España",
-                "customer cod": "000007SCAAS",
-                "customer desc": "Agropecuaria Catalana Stat.Coop.Ltda",
+                "customer cod": c_cod,
+                "customer desc": c_desc,
                 "sku cod": sku_cod,
                 "sku desc": sku_desc,
                 "volume": vol,
@@ -1027,6 +1036,21 @@ def preprocesar_historico_ventas(df_in, f_eur, f_dkk, f_pln):
 
 
 df, dict_price, dict_margin, dict_currency, dict_sku_desc, dict_cli_desc = preprocesar_historico_ventas(df_raw, fx_eur_gbp, fx_dkk_gbp, fx_pln_gbp)
+
+@st.cache_data(show_spinner=False)
+def get_global_volumes(df_in):
+    if df_in is None or df_in.empty:
+        return {}, {}
+    d_tmp = df_in.copy()
+    d_tmp['País'] = d_tmp['País'].astype(str).str.strip()
+    d_tmp['customer cod'] = d_tmp['customer cod'].astype(str).str.strip()
+    d_tmp['sku cod'] = d_tmp['sku cod'].astype(str).str.strip()
+    v_sku = d_tmp.groupby('sku cod')['volume'].sum().to_dict()
+    v_tupla = d_tmp.groupby(['País', 'customer cod', 'sku cod'])['volume'].sum().to_dict()
+    return v_sku, v_tupla
+
+vol_global_sku_cached, vol_global_tupla_cached = get_global_volumes(df)
+
 
 
 # ==========================================
