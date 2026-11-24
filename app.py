@@ -642,7 +642,7 @@ rol_actual = st.session_state.get("rol", "KAM")
 PERMISOS = {
     "amancebo": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"],
     "borja": ["tab0", "tab2"],
-    "kam_juan": ["tab0", "tab1", "tab5", "tab10"]
+    "kam_juan": ["tab0", "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9", "tab10"]
 }
 modulos_permitidos = PERMISOS.get(usuario_actual, ["tab0"])
 
