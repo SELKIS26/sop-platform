@@ -1180,7 +1180,7 @@ def precalcular_matriz_forecast_vectorizada(df_in, steps=24, usar_outliers=True,
 
 
 # --- HUELLA DIGITAL DEL DATASET ACTIVO (INCLUYE SUMA DE VOLUMEN Y NPI PARA INVALIDAR CACHÉ) ---
-_firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['sku cod'].iloc[0]}_{df['sku cod'].iloc[-1]}" if (df is not None and not df.empty) else "empty"
+_firma_skus = f"{len(df)}_{int(df['volume'].sum())}_{df['Date'].max().strftime('%Y%m%d') if not df.empty else 'none'}_{df['sku cod'].iloc[0]}" if (df is not None and not df.empty) else "empty"
 _firma_bom = f"{len(df_bom)}_{df_bom['rm cod'].iloc[0]}_{df_bom['rm cod'].iloc[-1]}" if (df_bom is not None and not df_bom.empty) else "nobom"
 _firma_stk = f"{len(df_stock)}_{int(pd.to_numeric(df_stock['stock_disponible'], errors='coerce').fillna(0).sum())}" if (df_stock is not None and not df_stock.empty) else "nostk"
 _firma_aj = f"{len(st.session_state.get('df_ajustes', []))}_{float(st.session_state.get('df_ajustes', pd.DataFrame()).get('override_value', pd.Series(dtype=float)).sum()):.1f}"
