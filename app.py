@@ -3209,7 +3209,8 @@ if modulo_activo == t["tab4"]:
                     t_k3.metric(tr("💷 Coste Operativo Turnos (£)", "💷 Shift Overtime Cost (£)"), f"£ {coste_turnos_gbp:,.0f}")
 
                     if maq_sel == "TODOS":
-                        df_pivot = df_capacidad.pivot(index='Maquina', columns='Date', values='Utilizacion').fillna(0)
+# CÓDIGO CORREGIDO 
+                        df_pivot = df_capacidad.pivot_table(index='Maquina', columns='Date', values='Utilizacion', aggfunc='sum').fillna(0)
                         df_pivot.columns = pd.to_datetime(df_pivot.columns).strftime('%Y-%m')
                         
                         st.markdown(f"#### {tr('1. Matriz de Utilización por Planta (Sin Nivelar %)', '1. Unconstrained Plant Utilization Matrix (%)')}")
