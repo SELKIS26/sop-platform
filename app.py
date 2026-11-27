@@ -3281,7 +3281,8 @@ if modulo_activo == t["tab4"]:
                     df_cap_niv = pd.DataFrame(filas_niveladas)
                     if maq_sel != "TODOS":
                         df_cap_niv = df_cap_niv[df_cap_niv['Maquina'] == maq_sel]
-                    df_piv_niv = df_cap_niv.pivot(index='Maquina', columns='Date', values='Utilizacion_Nivelada').fillna(0)
+
+                    df_piv_niv = df_cap_niv.pivot_table( index='Maquina', columns='Date', values='Utilizacion_Nivelada',aggfunc='sum').fillna(0)
                     df_piv_niv.columns = pd.to_datetime(df_piv_niv.columns).strftime('%Y-%m')
 
                     st.markdown(f"#### {tr('2. Matriz de Utilización Nivelada tras Pre-Build (%)', '2. Leveled Utilization Matrix after Pre-Build (%)')}")
